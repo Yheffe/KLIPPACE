@@ -39,11 +39,11 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
 
 ### Tube Length Calibration
 - **`spool_load_park_retract_length: 400`**: When a new spool is inserted, the ACE hardware feeds ~500–550mm. KLIPPACE automatically rewinds 400mm so the tip parks ~100–150mm from the ACE (~50mm before the 150mm splitter), keeping the splitter completely open so other slots can feed freely.
-- **`parkposition_to_toolhead_length: 1050`**: During unload, the ACE Pro rewinds this full distance (+ retract length), pulling the filament back out of the toolhead and safely past the 4-in-1 splitter into the individual 150mm ACE tube.
-- **`toolchange_load_length: 850`**: The high-speed feeding distance from the splitter down towards the toolhead entry sensor.
-- **`filament_runout_sensor_name_entry: filament_entry_sensor`**: Upper toolhead sensor (`^EBB:PD0`) directly above the extruder gears. Fast Bowden feed stops the instant this switch trips.
+- **`toolchange_load_length: 1100`**: High-speed feeding distance down towards the toolhead entry sensor.
+- **`filament_runout_sensor_name_entry: filament_entry_sensor`**: Upper toolhead sensor (`^EBB:PD0`) directly above the extruder gears. Fast Bowden feed transitions to pressure feeding the instant this switch trips.
 - **`filament_runout_sensor_name_nozzle: filament_nozzle_sensor`**: Lower toolhead sensor (`^EBB:PA15`) near the nozzle.
-- **`extruder_feeding_speed: 8`**: Once the entry sensor trips, the ACE continues actively pushing forward at 8 mm/s while the extruder simultaneously steps forward at 8 mm/s until the nozzle sensor physically trips, overcoming switch mechanical resistance and seating firmly into the drive gears.
+- **`ace_entry_feeding_speed: 16`**: Once the entry sensor trips, the ACE continues actively pushing forward at 16 mm/s while the extruder steps forward at 8 mm/s (`extruder_feeding_speed`). This differential speed builds forward pressure inside the Bowden tube to overcome the mechanical resistance of the entry switch lever and seat firmly into the extruder drive gears.
+- **`extruder_feeding_speed: 8`**: Extruder rotational speed during coordinated entry to nozzle.
 - **`max_entry_to_nozzle_length: 80`**: Safety distance limit for coordinated feeding between the entry sensor and nozzle sensor.
 - **`toolhead_full_purge_length: 50`**: Distance to push through the nozzle to prime.
 

@@ -127,6 +127,9 @@ def read_ace_config(config):
     ace_config["max_entry_to_nozzle_length"] = config.getint(
         "max_entry_to_nozzle_length", 80
     )
+    ace_config["ace_entry_feeding_speed"] = config.getint(
+        "ace_entry_feeding_speed", 16
+    )
     ace_config["feed_assist_active_after_ace_connect"] = config.getboolean(
         "feed_assist_active_after_ace_connect", True
     )
@@ -540,7 +543,8 @@ OVERRIDABLE_PARAMS = [
     "heartbeat_interval",
     "max_dryer_temperature",
     "spool_load_park_retract_length",
-    "spool_load_park_retract_speed"
+    "spool_load_park_retract_speed",
+    "ace_entry_feeding_speed"
 ]
 
 

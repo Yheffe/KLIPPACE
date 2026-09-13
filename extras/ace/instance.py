@@ -106,6 +106,13 @@ class AceInstance:
         self.feed_assist_active_after_ace_connect = ace_config.get(
             "feed_assist_active_after_ace_connect", True
         )
+        self.ace_entry_feeding_speed = float(
+            parse_instance_config(
+                ace_config.get("ace_entry_feeding_speed", 16),
+                instance_num,
+                "ace_entry_feeding_speed",
+            )
+        )
         self.spool_load_park_retract_length = float(
             parse_instance_config(
                 ace_config.get("spool_load_park_retract_length", 0),
@@ -912,33 +919,36 @@ class AceInstance:
 
         # Phase 2: Dual-Sensor coordinated feed to nozzle sensor
         if self.manager.has_entry_sensor() and self.manager.has_nozzle_sensor():
+            ace_speed = self.ace_entry_feeding_speed
+            ext_speed = extruder_feeding_speed
+
             self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Entry sensor reached. Starting coordinated feed "
-                f"at {extruder_feeding_speed:.2f}mm/s to nozzle sensor..."
+                f"ACE[{self.instance_num}]: Entry sensor reached. Building forward pressure "
+                f"(ACE: {ace_speed:.1f}mm/s, Extruder: {ext_speed:.1f}mm/s) to nozzle sensor..."
             )
 
-            # Ensure continuous forward push from ACE at extruder_feeding_speed
+            # Ensure continuous forward push from ACE at ace_entry_feeding_speed
             max_speed_change_retries = 3
             speed_changed = False
             while not speed_changed and (max_speed_change_retries > 0):
-                speed_changed = self._change_feed_speed(local_slot, extruder_feeding_speed)
-                self.dwell(delay=0.2)
+                speed_changed = self._change_feed_speed(local_slot, ace_speed)
+                self.dwell(delay=0.1)
                 max_speed_change_retries -= 1
 
             if not speed_changed:
                 self.gcode.respond_info(
                     f"ACE[{self.instance_num}]: Change feed speed not confirmed, restarting feed "
-                    f"at {extruder_feeding_speed:.2f}mm/s"
+                    f"at {ace_speed:.1f}mm/s"
                 )
                 self._stop_feed(local_slot)
                 self.wait_ready()
-                slow_feed_length = self.max_entry_to_nozzle_length + 30
-                self.execute_feed_with_retries(local_slot, slow_feed_length, extruder_feeding_speed)
+                slow_feed_length = self.max_entry_to_nozzle_length + 50
+                self.execute_feed_with_retries(local_slot, slow_feed_length, ace_speed)
 
-            # Synchronously move extruder in 2mm chunks while ACE actively pushes
+            # Synchronously move extruder in 2mm chunks at extruder_feeding_speed while ACE actively pushes
             accumulated_extruded = 0.0
             step_chunk = 2.0
-            step_speed = extruder_feeding_speed
+            step_speed = ext_speed
 
             while not self.manager.get_nozzle_switch_state():
                 if accumulated_extruded >= self.max_entry_to_nozzle_length:
@@ -1029,9 +1039,13 @@ class AceInstance:
                 raise ValueError("Cannot feed, filament in nozzle or toolhead")
 
         try:
+            fast_feed_length = max(
+                self.toolchange_load_length,
+                self.parkposition_to_toolhead_length + 150
+            )
             self._feed_to_toolhead_with_extruder_assist(
                 local_slot,
-                self.toolchange_load_length,
+                fast_feed_length,
                 self.feed_speed,
                 self.extruder_feeding_length,
                 self.extruder_feeding_speed

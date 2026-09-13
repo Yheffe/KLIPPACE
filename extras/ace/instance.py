@@ -85,7 +85,9 @@ class AceInstance:
         self.gcode = printer.lookup_object("gcode")
         self.timeout_multiplier = ace_config["timeout_multiplier"]
         self.filament_runout_sensor_name_rdm = ace_config["filament_runout_sensor_name_rdm"]
+        self.filament_runout_sensor_name_entry = ace_config.get("filament_runout_sensor_name_entry", None)
         self.filament_runout_sensor_name_nozzle = ace_config["filament_runout_sensor_name_nozzle"]
+        self.max_entry_to_nozzle_length = float(ace_config.get("max_entry_to_nozzle_length", 80))
         self.feed_speed = float(ace_config["feed_speed"])
         self.retract_speed = float(ace_config["retract_speed"])
         self.total_max_feeding_length = float(ace_config["total_max_feeding_length"])
@@ -872,10 +874,10 @@ class AceInstance:
         expected_time = feed_length / feed_speed
         timeout_s = expected_time * self.timeout_multiplier
 
-        # Coordinated extruder nudges during ACE feed
+        # Poll entry sensor during ACE feed
         start_time = time.time()
 
-        while not self.manager.get_switch_state(SENSOR_TOOLHEAD):
+        while not self.manager.get_entry_switch_state():
             now = time.time()
             if now - start_time > timeout_s:
                 self.gcode.respond_info(
@@ -884,59 +886,112 @@ class AceInstance:
                 break
             self.dwell(0.1)
 
-        # Final sanity check
-        if not self.manager.get_switch_state(SENSOR_TOOLHEAD):
+        # Final sanity check for entry sensor
+        if not self.manager.get_entry_switch_state():
             self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Toolhead sensor not triggered after feed. "
+                f"ACE[{self.instance_num}]: Toolhead entry sensor not triggered after feed. "
                 f"Running extruder assist for up-to 60s..."
             )
             self._enable_feed_assist(local_slot)
 
             timeout = time.time() + 60.0
-            while not self.manager.get_switch_state(SENSOR_TOOLHEAD) and time.time() < timeout:
+            while not self.manager.get_entry_switch_state() and time.time() < timeout:
                 self.dwell(1)
             self._disable_feed_assist(local_slot)
 
-            if not self.manager.get_switch_state(SENSOR_TOOLHEAD):
+            if not self.manager.get_entry_switch_state():
                 raise ValueError(
                     f"ACE[{self.instance_num}]: Feeding filament to toolhead failed. "
-                    f"Toolhead filament sensor is not triggering. Filament may be jammed."
+                    f"Toolhead entry filament sensor is not triggering. Filament may be jammed."
                 )
             else:
                 self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Toolhead sensor finally triggered after "
+                    f"ACE[{self.instance_num}]: Toolhead entry sensor finally triggered after "
                     f"running feed-assist for 60s. Continuing..."
                 )
-        self.gcode.respond_info(
-            f"ACE[{self.instance_num}]: Slowing feedspeed down {extruder_feeding_speed:.2f} for toolhead load"
-        )
 
-        max_speed_change_retries = 3
-        speed_changed = False
-        while not speed_changed and (max_speed_change_retries > 0):
-            speed_changed = self._change_feed_speed(local_slot, extruder_feeding_speed)
-            self.dwell(delay=0.2)
-            max_speed_change_retries -= 1
-
-        if not speed_changed:
-            self._stop_feed(local_slot)
-            raise ValueError(
-                f"ACE[{self.instance_num}]: Failed to change feed speed to "
-                f"{extruder_feeding_speed}mm/s after multiple attempts"
+        # Phase 2: Dual-Sensor coordinated feed to nozzle sensor
+        if self.manager.has_entry_sensor() and self.manager.has_nozzle_sensor():
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Entry sensor reached. Starting coordinated feed "
+                f"at {extruder_feeding_speed:.2f}mm/s to nozzle sensor..."
             )
 
-        self._extruder_move(extruder_feeding_length, extruder_feeding_speed, wait_for_move_end=True)
-        self._stop_feed(local_slot)
-        self.wait_ready()
-        self.gcode.respond_info(
-            f"ACE[{self.instance_num}]: Switching from feeding to feed_assist mode"
-        )
-        self._enable_feed_assist(local_slot)
-        # _enable_feed_assist already contains its own post-send wait_ready() (guarded by
-        # feed_assist_causes_busy), so a second wait here is redundant for ACE1 and would
-        # deadlock on ACE2.
+            # Ensure continuous forward push from ACE at extruder_feeding_speed
+            max_speed_change_retries = 3
+            speed_changed = False
+            while not speed_changed and (max_speed_change_retries > 0):
+                speed_changed = self._change_feed_speed(local_slot, extruder_feeding_speed)
+                self.dwell(delay=0.2)
+                max_speed_change_retries -= 1
 
-        return self.extruder_feeding_length
+            if not speed_changed:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Change feed speed not confirmed, restarting feed "
+                    f"at {extruder_feeding_speed:.2f}mm/s"
+                )
+                self._stop_feed(local_slot)
+                self.wait_ready()
+                slow_feed_length = self.max_entry_to_nozzle_length + 30
+                self.execute_feed_with_retries(local_slot, slow_feed_length, extruder_feeding_speed)
+
+            # Synchronously move extruder in 2mm chunks while ACE actively pushes
+            accumulated_extruded = 0.0
+            step_chunk = 2.0
+            step_speed = extruder_feeding_speed
+
+            while not self.manager.get_nozzle_switch_state():
+                if accumulated_extruded >= self.max_entry_to_nozzle_length:
+                    self._stop_feed(local_slot)
+                    self.wait_ready()
+                    raise ValueError(
+                        f"ACE[{self.instance_num}]: Filament failed to reach nozzle sensor after "
+                        f"{accumulated_extruded:.1f}mm (safety limit: {self.max_entry_to_nozzle_length}mm). "
+                        f"Check for jam, alignment, or obstruction."
+                    )
+                self._extruder_move(step_chunk, step_speed, wait_for_move_end=True)
+                accumulated_extruded += step_chunk
+                self.dwell(0.01)
+
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Nozzle sensor triggered after {accumulated_extruded:.1f}mm coordinated feed"
+            )
+            self._stop_feed(local_slot)
+            self.wait_ready()
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Switching from feeding to feed_assist mode"
+            )
+            self._enable_feed_assist(local_slot)
+            return accumulated_extruded
+
+        else:
+            # Single-sensor fallback (legacy behavior)
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Slowing feedspeed down {extruder_feeding_speed:.2f} for toolhead load"
+            )
+
+            max_speed_change_retries = 3
+            speed_changed = False
+            while not speed_changed and (max_speed_change_retries > 0):
+                speed_changed = self._change_feed_speed(local_slot, extruder_feeding_speed)
+                self.dwell(delay=0.2)
+                max_speed_change_retries -= 1
+
+            if not speed_changed:
+                self._stop_feed(local_slot)
+                raise ValueError(
+                    f"ACE[{self.instance_num}]: Failed to change feed speed to "
+                    f"{extruder_feeding_speed}mm/s after multiple attempts"
+                )
+
+            self._extruder_move(extruder_feeding_length, extruder_feeding_speed, wait_for_move_end=True)
+            self._stop_feed(local_slot)
+            self.wait_ready()
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Switching from feeding to feed_assist mode"
+            )
+            self._enable_feed_assist(local_slot)
+            return self.extruder_feeding_length
 
     def execute_feed_with_retries(self, local_slot, feed_length, feed_speed):
         max_retries = MAX_RETRIES
@@ -970,8 +1025,8 @@ class AceInstance:
             if has_rdm and self.manager.get_switch_state(SENSOR_RDM):
                 raise ValueError("Cannot feed, filament stuck in RMS")
 
-            if self.manager.get_switch_state(SENSOR_TOOLHEAD):
-                raise ValueError("Cannot feed, filament in nozzle")
+            if self.manager.get_entry_switch_state() or self.manager.get_nozzle_switch_state():
+                raise ValueError("Cannot feed, filament in nozzle or toolhead")
 
         try:
             self._feed_to_toolhead_with_extruder_assist(
@@ -1321,7 +1376,9 @@ class AceInstance:
             # Give klipper time to process any pending state changes and avoid reporting not updated sensor state
             self.dwell(1)
             # Consistency check: Validate with sensors (if RDM available)
-            toolhead_clear = not self.manager.get_switch_state(SENSOR_TOOLHEAD)
+            toolhead_clear = (not self.manager.get_entry_switch_state()) and (
+                not self.manager.has_nozzle_sensor() or not self.manager.get_nozzle_switch_state()
+            )
 
             if has_rdm:
                 rdm_clear = not self.manager.get_switch_state(SENSOR_RDM)

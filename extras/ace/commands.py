@@ -14,6 +14,8 @@ from .config import (
     INSTANCE_MANAGERS,
     SENSOR_TOOLHEAD,
     SENSOR_RDM,
+    SENSOR_ENTRY,
+    SENSOR_NOZZLE,
     FILAMENT_STATE_BOWDEN,
     FILAMENT_STATE_SPLITTER,
     FILAMENT_STATE_TOOLHEAD,
@@ -1644,10 +1646,26 @@ def cmd_ACE_DEBUG_SENSORS(gcmd):
         # Get any manager - sensors are shared across all instances
         manager = list(INSTANCE_MANAGERS.values())[0]
 
+        if manager.has_entry_sensor():
+            try:
+                entry_state = manager.get_entry_switch_state()
+                state_str = "TRIGGERED" if entry_state else "CLEAR"
+                gcmd.respond_info(f"Entry Sensor: {state_str}")
+            except Exception as e:
+                gcmd.respond_info(f"Entry Sensor: ERROR - {e}")
+
+        if manager.has_nozzle_sensor():
+            try:
+                nozzle_state = manager.get_nozzle_switch_state()
+                state_str = "TRIGGERED" if nozzle_state else "CLEAR"
+                gcmd.respond_info(f"Nozzle Sensor: {state_str}")
+            except Exception as e:
+                gcmd.respond_info(f"Nozzle Sensor: ERROR - {e}")
+
         try:
             toolhead_state = manager.get_switch_state(SENSOR_TOOLHEAD)
             state_str = "TRIGGERED" if toolhead_state else "CLEAR"
-            gcmd.respond_info(f"Toolhead Sensor: {state_str}")
+            gcmd.respond_info(f"Toolhead Sensor (Active): {state_str}")
         except Exception as e:
             gcmd.respond_info(f"Toolhead Sensor: ERROR - {e}")
 
@@ -1833,14 +1851,18 @@ def cmd_ACE_DEBUG_INJECT_SENSOR_STATE(gcmd):
             return
 
         toolhead = gcmd.get_int("TOOLHEAD", None)
+        entry = gcmd.get_int("ENTRY", None)
+        nozzle = gcmd.get_int("NOZZLE", None)
         rdm = gcmd.get_int("RDM", None)
 
-        if toolhead is None and rdm is None:
-            gcmd.respond_info("ACE: No sensor state specified. Use TOOLHEAD=0/1, RDM=0/1, or RESET=1")
+        if toolhead is None and entry is None and nozzle is None and rdm is None:
+            gcmd.respond_info("ACE: No sensor state specified. Use TOOLHEAD=0/1, ENTRY=0/1, NOZZLE=0/1, RDM=0/1, or RESET=1")
             return
 
         override = {
             **({SENSOR_TOOLHEAD: bool(toolhead)} if toolhead is not None else {}),
+            **({SENSOR_ENTRY: bool(entry)} if entry is not None else {}),
+            **({SENSOR_NOZZLE: bool(nozzle)} if nozzle is not None else {}),
             **({SENSOR_RDM: bool(rdm)} if rdm is not None else {})
         }
 
@@ -1856,6 +1878,10 @@ def cmd_ACE_DEBUG_INJECT_SENSOR_STATE(gcmd):
                 return "NOT SET"
 
         gcmd.respond_info("ACE: Sensor override ENABLED:")
+        if entry is not None:
+            gcmd.respond_info(f"  Entry: {format_sensor_state(SENSOR_ENTRY)}")
+        if nozzle is not None:
+            gcmd.respond_info(f"  Nozzle: {format_sensor_state(SENSOR_NOZZLE)}")
         gcmd.respond_info(f"  Toolhead: {format_sensor_state(SENSOR_TOOLHEAD)}")
         gcmd.respond_info(f"  RDM: {format_sensor_state(SENSOR_RDM)}")
 

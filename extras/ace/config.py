@@ -22,6 +22,8 @@ FILAMENT_STATE_NOZZLE = "nozzle"        # In hotend/nozzle
 # Sensor name constants
 SENSOR_TOOLHEAD = 'toolhead_sensor'
 SENSOR_RDM = 'return_module'
+SENSOR_ENTRY = 'entry_sensor'
+SENSOR_NOZZLE = 'nozzle_sensor'
 
 # Slots per ACE unit (fixed)
 SLOTS_PER_ACE = 4
@@ -116,8 +118,14 @@ def read_ace_config(config):
     ace_config["filament_runout_sensor_name_rdm"] = config.get(
         "filament_runout_sensor_name_rdm", None
     )
+    ace_config["filament_runout_sensor_name_entry"] = config.get(
+        "filament_runout_sensor_name_entry", None
+    )
     ace_config["filament_runout_sensor_name_nozzle"] = config.get(
         "filament_runout_sensor_name_nozzle", "filament_runout_nozzle"
+    )
+    ace_config["max_entry_to_nozzle_length"] = config.getint(
+        "max_entry_to_nozzle_length", 80
     )
     ace_config["feed_assist_active_after_ace_connect"] = config.getboolean(
         "feed_assist_active_after_ace_connect", True

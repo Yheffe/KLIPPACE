@@ -4,6 +4,8 @@ from .config import (
     SLOTS_PER_ACE,
     SENSOR_TOOLHEAD,
     SENSOR_RDM,
+    SENSOR_ENTRY,
+    SENSOR_NOZZLE,
     FILAMENT_STATE_SPLITTER,
     FILAMENT_STATE_BOWDEN,
     FILAMENT_STATE_NOZZLE,
@@ -459,107 +461,92 @@ class AceManager:
         self.state.set_and_save("ace_current_index", -1)
         self.state.set_and_save("ace_filament_pos", FILAMENT_STATE_BOWDEN)
 
-    def _setup_sensors(self):
-        """
-        Register shared sensor access (done ONCE).
-
-        All instances share the same sensors (toolhead + optional RDM).
-        Manager owns the sensors, not instances.
-
-        Toolhead sensor: looked up by the configured name in two forms:
-            1. filament_switch_sensor <name>  (standard Klipper sensor)
-            2. filament_tracker <name>        (encoder-based tracker)
-        No implicit fallbacks — the name must match a section in printer.cfg.
-        """
-        instance = self.instances[0]
-
-        # --- Toolhead sensor ---
-        toolhead_sensor_name = instance.filament_runout_sensor_name_nozzle
-        toolhead_resolved = False
+    def _resolve_sensor_by_name(self, sensor_name, label="sensor"):
+        """Lookup filament sensor or tracker by name from Klipper printer objects."""
+        if not sensor_name:
+            return None
 
         # Try standard filament_switch_sensor <name>
         try:
-            toolhead_sensor = self.printer.lookup_object(
-                f"filament_switch_sensor {toolhead_sensor_name}")
-            self.sensors[SENSOR_TOOLHEAD] = toolhead_sensor.runout_helper
-            self._prev_sensors_enabled_state[SENSOR_TOOLHEAD] = (
-                toolhead_sensor.runout_helper.sensor_enabled)
-            toolhead_resolved = True
-            self.gcode.respond_info(
-                f"ACE: Toolhead sensor '{toolhead_sensor_name}' "
-                f"(filament_switch_sensor)")
+            sensor_obj = self.printer.lookup_object(f"filament_switch_sensor {sensor_name}")
+            self.gcode.respond_info(f"ACE: {label} '{sensor_name}' (filament_switch_sensor)")
+            return sensor_obj.runout_helper
         except Exception:
             pass
 
         # Try filament_tracker <name>
-        if not toolhead_resolved:
-            try:
-                tracker = self.printer.lookup_object(
-                    f"filament_tracker {toolhead_sensor_name}")
-                adapter = FilamentTrackerAdapter(tracker)
-                self.sensors[SENSOR_TOOLHEAD] = adapter
-                self._prev_sensors_enabled_state[SENSOR_TOOLHEAD] = (
-                    adapter.sensor_enabled)
-                toolhead_resolved = True
-                self.gcode.respond_info(
-                    f"ACE: Toolhead sensor '{toolhead_sensor_name}' "
-                    f"(filament_tracker)")
-            except Exception:
-                pass
+        try:
+            tracker_obj = self.printer.lookup_object(f"filament_tracker {sensor_name}")
+            adapter = FilamentTrackerAdapter(tracker_obj)
+            self.gcode.respond_info(f"ACE: {label} '{sensor_name}' (filament_tracker)")
+            return adapter
+        except Exception:
+            pass
 
-        if not toolhead_resolved:
+        return None
+
+    def _setup_sensors(self):
+        """
+        Register shared sensor access (done ONCE).
+
+        All instances share the same sensors (entry, nozzle, toolhead + optional RDM).
+        Manager owns the sensors, not instances.
+        """
+        instance = self.instances[0]
+
+        # 1. Entry sensor (optional, for dual-sensor toolheads)
+        entry_name = getattr(instance, "filament_runout_sensor_name_entry", None)
+        if entry_name:
+            entry_sensor = self._resolve_sensor_by_name(entry_name, "Toolhead entry sensor")
+            if entry_sensor:
+                self.sensors[SENSOR_ENTRY] = entry_sensor
+                self._prev_sensors_enabled_state[SENSOR_ENTRY] = entry_sensor.sensor_enabled
+            else:
+                self.gcode.respond_info(
+                    f"ACE: WARNING - Entry sensor '{entry_name}' not found in printer.cfg"
+                )
+
+        # 2. Nozzle sensor (or primary toolhead sensor)
+        nozzle_name = getattr(instance, "filament_runout_sensor_name_nozzle", None)
+        if nozzle_name:
+            nozzle_sensor = self._resolve_sensor_by_name(nozzle_name, "Toolhead nozzle sensor")
+            if nozzle_sensor:
+                self.sensors[SENSOR_NOZZLE] = nozzle_sensor
+                self._prev_sensors_enabled_state[SENSOR_NOZZLE] = nozzle_sensor.sensor_enabled
+            else:
+                self.gcode.respond_info(
+                    f"ACE: WARNING - Nozzle sensor '{nozzle_name}' not found in printer.cfg"
+                )
+
+        # 3. SENSOR_TOOLHEAD mapping (for backward compatibility)
+        if SENSOR_ENTRY in self.sensors:
+            self.sensors[SENSOR_TOOLHEAD] = self.sensors[SENSOR_ENTRY]
+            self._prev_sensors_enabled_state[SENSOR_TOOLHEAD] = self.sensors[SENSOR_ENTRY].sensor_enabled
+        elif SENSOR_NOZZLE in self.sensors:
+            self.sensors[SENSOR_TOOLHEAD] = self.sensors[SENSOR_NOZZLE]
+            self._prev_sensors_enabled_state[SENSOR_TOOLHEAD] = self.sensors[SENSOR_NOZZLE].sensor_enabled
+        else:
             self.gcode.respond_info(
-                f"ACE: ERROR - No toolhead sensor '{toolhead_sensor_name}' "
-                f"found in printer.cfg (tried [filament_switch_sensor "
-                f"{toolhead_sensor_name}] and [filament_tracker "
-                f"{toolhead_sensor_name}])")
+                f"ACE: ERROR - Neither entry sensor ('{entry_name}') nor nozzle sensor ('{nozzle_name}') "
+                f"could be resolved in printer.cfg"
+            )
             raise self.config.error(
-                f"Missing sensor '{toolhead_sensor_name}' in printer.cfg. "
-                f"Add [filament_switch_sensor {toolhead_sensor_name}] or "
-                f"[filament_tracker {toolhead_sensor_name}].")
+                f"Missing toolhead sensor in printer.cfg. Configure "
+                f"filament_runout_sensor_name_entry and/or filament_runout_sensor_name_nozzle."
+            )
 
-        # --- RDM sensor (optional) ---
-        if instance.filament_runout_sensor_name_rdm is not None:
-            rms_sensor_name = instance.filament_runout_sensor_name_rdm
-            rdm_resolved = False
-
-            # Try standard filament_switch_sensor <name>
-            try:
-                rms_sensor = self.printer.lookup_object(
-                    f"filament_switch_sensor {rms_sensor_name}")
-                self.sensors[SENSOR_RDM] = rms_sensor.runout_helper
-                self._prev_sensors_enabled_state[SENSOR_RDM] = (
-                    rms_sensor.runout_helper.sensor_enabled)
-                rdm_resolved = True
+        # 4. RDM sensor (optional)
+        rdm_name = getattr(instance, "filament_runout_sensor_name_rdm", None)
+        if rdm_name is not None:
+            rdm_sensor = self._resolve_sensor_by_name(rdm_name, "RDM sensor")
+            if rdm_sensor:
+                self.sensors[SENSOR_RDM] = rdm_sensor
+                self._prev_sensors_enabled_state[SENSOR_RDM] = rdm_sensor.sensor_enabled
+            else:
                 self.gcode.respond_info(
-                    f"ACE: RDM sensor '{rms_sensor_name}' "
-                    f"(filament_switch_sensor)")
-            except Exception:
-                pass
-
-            # Try filament_tracker <name>
-            if not rdm_resolved:
-                try:
-                    rdm_tracker = self.printer.lookup_object(
-                        f"filament_tracker {rms_sensor_name}")
-                    adapter = FilamentTrackerAdapter(rdm_tracker)
-                    self.sensors[SENSOR_RDM] = adapter
-                    self._prev_sensors_enabled_state[SENSOR_RDM] = (
-                        adapter.sensor_enabled)
-                    rdm_resolved = True
-                    self.gcode.respond_info(
-                        f"ACE: RDM sensor '{rms_sensor_name}' "
-                        f"(filament_tracker)")
-                except Exception:
-                    pass
-
-            if not rdm_resolved:
-                self.gcode.respond_info(
-                    f"ACE: WARNING - No RDM sensor '{rms_sensor_name}' "
-                    f"found (tried [filament_switch_sensor "
-                    f"{rms_sensor_name}] and [filament_tracker "
-                    f"{rms_sensor_name}]). "
-                    f"No RDM consistency check will be performed.")
+                    f"ACE: WARNING - No RDM sensor '{rdm_name}' found. "
+                    f"No RDM consistency check will be performed."
+                )
 
         # Disable standard runout detection
         self._disable_all_sensor_detection()
@@ -649,31 +636,51 @@ class AceManager:
             bool: True if path is clear (no filament detected)
         """
         toolhead_blocked = self.get_instant_switch_state(SENSOR_TOOLHEAD)
+        entry_blocked = (
+            self.get_instant_switch_state(SENSOR_ENTRY)
+            if self.has_entry_sensor()
+            else False
+        )
+        nozzle_blocked = (
+            self.get_instant_switch_state(SENSOR_NOZZLE)
+            if self.has_nozzle_sensor()
+            else False
+        )
+        rdm_blocked = (
+            self.get_instant_switch_state(SENSOR_RDM)
+            if self.has_rdm_sensor()
+            else False
+        )
 
-        if self.has_rdm_sensor():
-            rdm_blocked = self.get_instant_switch_state(SENSOR_RDM)
-            return not (toolhead_blocked or rdm_blocked)
-        else:
-            return not toolhead_blocked
+        return not (toolhead_blocked or entry_blocked or nozzle_blocked or rdm_blocked)
 
     def is_filament_path_free(self):
         """
         Check if filament path is clear.
 
-        If RDM sensor available: checks both toolhead + RDM
-        If RDM unavailable: checks only toolhead
+        Checks entry, nozzle, toolhead, and optional RDM sensor.
 
         Returns:
             bool: True if path is clear (no filament detected)
         """
         toolhead_blocked = self.get_switch_state(SENSOR_TOOLHEAD)
+        entry_blocked = (
+            self.get_switch_state(SENSOR_ENTRY)
+            if self.has_entry_sensor()
+            else False
+        )
+        nozzle_blocked = (
+            self.get_switch_state(SENSOR_NOZZLE)
+            if self.has_nozzle_sensor()
+            else False
+        )
+        rdm_blocked = (
+            self.get_switch_state(SENSOR_RDM)
+            if self.has_rdm_sensor()
+            else False
+        )
 
-        if self.has_rdm_sensor():
-            rdm_blocked = self.get_switch_state(SENSOR_RDM)
-            return not (toolhead_blocked or rdm_blocked)
-        else:
-            # RDM not available - check only toolhead
-            return not toolhead_blocked
+        return not (toolhead_blocked or entry_blocked or nozzle_blocked or rdm_blocked)
 
     def prepare_toolhead_for_filament_retraction(self, tool_index=-1):
         """
@@ -689,7 +696,7 @@ class AceManager:
             bool: True if filament was present and handling succeeded,
                   False if no filament present or operation completed
         """
-        if not self.get_switch_state(SENSOR_TOOLHEAD):
+        if not (self.get_entry_switch_state() or self.get_nozzle_switch_state()):
             self.gcode.respond_info("ACE: No filament at toolhead, skipping prep")
             return False
 
@@ -946,7 +953,7 @@ class AceManager:
 
         # ===== CASE 2: Given toolindex is set to unknown
         # + any sensor triggered (toolhead or RDM) => CYCLE TO IDENTIFY =====
-        toolhead_triggered = self.get_switch_state(SENSOR_TOOLHEAD)
+        toolhead_triggered = self.get_entry_switch_state() or self.get_nozzle_switch_state()
         rdm_triggered = self.get_switch_state(SENSOR_RDM) if self.has_rdm_sensor() else False
 
         # If any sensor is triggered, we need to cycle to identify the tool,
@@ -1030,7 +1037,7 @@ class AceManager:
         CASE 3: RDM triggered (toolhead clear) → cycle with RDM monitoring
         """
 
-        toolhead_triggered = self.get_switch_state(SENSOR_TOOLHEAD)
+        toolhead_triggered = self.get_entry_switch_state() or self.get_nozzle_switch_state()
         rdm_triggered = self.get_switch_state(SENSOR_RDM) if self.has_rdm_sensor() else False
 
         # CASE 1: No sensors triggered - path is clear
@@ -2764,6 +2771,26 @@ class AceManager:
         """Check if RDM sensor is configured and available."""
         return SENSOR_RDM in self.sensors and self.sensors[SENSOR_RDM] is not None
 
+    def has_entry_sensor(self):
+        """Check if toolhead entry sensor is configured and available."""
+        return SENSOR_ENTRY in self.sensors and self.sensors[SENSOR_ENTRY] is not None
+
+    def has_nozzle_sensor(self):
+        """Check if nozzle sensor is configured and available."""
+        return SENSOR_NOZZLE in self.sensors and self.sensors[SENSOR_NOZZLE] is not None
+
+    def get_entry_switch_state(self):
+        """Get toolhead entry sensor state (or fallback to toolhead sensor)."""
+        if self.has_entry_sensor():
+            return self.get_switch_state(SENSOR_ENTRY)
+        return self.get_switch_state(SENSOR_TOOLHEAD)
+
+    def get_nozzle_switch_state(self):
+        """Get nozzle sensor state (or fallback to toolhead sensor)."""
+        if self.has_nozzle_sensor():
+            return self.get_switch_state(SENSOR_NOZZLE)
+        return self.get_switch_state(SENSOR_TOOLHEAD)
+
     def is_feed_assist_active(self):
         """Check if any ACE instance has feed assist active.
 
@@ -2852,7 +2879,9 @@ class AceManager:
 
             if has_rdm:
                 # Both sensors available - check both
-                toolhead_clear = not self.get_instant_switch_state(SENSOR_TOOLHEAD)
+                toolhead_clear = (not self.get_instant_switch_state(SENSOR_TOOLHEAD)) and (
+                    not self.has_nozzle_sensor() or not self.get_instant_switch_state(SENSOR_NOZZLE)
+                )
                 rdm_clear = not self.get_instant_switch_state(SENSOR_RDM)
                 path_clear = toolhead_clear and rdm_clear
 
@@ -2872,8 +2901,10 @@ class AceManager:
                     )
                     return False
             else:
-                # RDM not available - check only toolhead
-                toolhead_clear = not self.get_instant_switch_state(SENSOR_TOOLHEAD)
+                # RDM not available - check toolhead (entry and nozzle)
+                toolhead_clear = (not self.get_instant_switch_state(SENSOR_TOOLHEAD)) and (
+                    not self.has_nozzle_sensor() or not self.get_instant_switch_state(SENSOR_NOZZLE)
+                )
 
                 if toolhead_clear:
                     self.gcode.respond_info(

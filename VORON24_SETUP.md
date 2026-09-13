@@ -38,11 +38,13 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
 ```
 
 ### Tube Length Calibration
-Your physical lengths configured in `ace_voron24_setting.cfg`:
 - **`spool_load_park_retract_length: 400`**: When a new spool is inserted, the ACE hardware feeds ~500–550mm. KLIPPACE automatically rewinds 400mm so the tip parks ~100–150mm from the ACE (~50mm before the 150mm splitter), keeping the splitter completely open so other slots can feed freely.
 - **`parkposition_to_toolhead_length: 1050`**: During unload, the ACE Pro rewinds this full distance (+ retract length), pulling the filament back out of the toolhead and safely past the 4-in-1 splitter into the individual 150mm ACE tube.
-- **`toolchange_load_length: 850`**: The high-speed feeding distance from the splitter down towards the toolhead.
-- **`extruder_feeding_length: 35`**: Once `EBB:PD0` triggers, the ACE slows down and feeds 35mm in coordination with the extruder stepper to seat into the gears.
+- **`toolchange_load_length: 850`**: The high-speed feeding distance from the splitter down towards the toolhead entry sensor.
+- **`filament_runout_sensor_name_entry: filament_entry_sensor`**: Upper toolhead sensor (`^EBB:PD0`) directly above the extruder gears. Fast Bowden feed stops the instant this switch trips.
+- **`filament_runout_sensor_name_nozzle: filament_nozzle_sensor`**: Lower toolhead sensor (`^EBB:PA15`) near the nozzle.
+- **`extruder_feeding_speed: 8`**: Once the entry sensor trips, the ACE continues actively pushing forward at 8 mm/s while the extruder simultaneously steps forward at 8 mm/s until the nozzle sensor physically trips, overcoming switch mechanical resistance and seating firmly into the drive gears.
+- **`max_entry_to_nozzle_length: 80`**: Safety distance limit for coordinated feeding between the entry sensor and nozzle sensor.
 - **`toolhead_full_purge_length: 50`**: Distance to push through the nozzle to prime.
 
 ---
@@ -132,10 +134,11 @@ ACE_CHANGE_TOOL TOOL=-1
 ```
 Observe that:
 1. Filament feeds rapidly from ACE through the splitter down the 850mm tube.
-2. As soon as it hits `EBB:PD0`, it slows down.
-3. Extruder gears grab and pull it 35mm into the gears.
-4. Nozzle purges over `X90 Y355` and wipes across the brush.
-5. On unload, nozzle heats, `CUT_TIP` shears the tip, and ACE Pro pulls the filament completely out of the toolhead and past the 4-in-1 splitter.
+2. As soon as it hits the entry switch (`EBB:PD0`), fast feed transitions to slow coordinated feeding at 8 mm/s.
+3. The ACE continues pushing forward with active pressure while the extruder motor steps forward synchronously in 2mm chunks, pushing past the switch lever and through the extruder gears.
+4. Coordinated feeding continues until the nozzle sensor (`EBB:PA15`) trips.
+5. Once `EBB:PA15` triggers, ACE feed stops, switches to feed assist, and primes 50mm through the nozzle over `X90 Y355` before wiping across the brush.
+6. On unload, nozzle heats, `CUT_TIP` shears the tip, and ACE Pro pulls the filament completely out of the toolhead and past the 4-in-1 splitter.
 
 ### Step 5: Loading New Spools & Auto-Park
 When inserting a new spool into any slot:

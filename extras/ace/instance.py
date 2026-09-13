@@ -22,6 +22,7 @@ from .config import (
     create_inventory,
     create_status_dict,
     normalize_ace_slot_state,
+    parse_instance_config,
 )
 from .protocol import create_protocol_adapter, normalize_protocol_name, resolve_protocol_name
 from .serial_manager import AceSerialManager

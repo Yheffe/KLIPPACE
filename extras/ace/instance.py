@@ -103,6 +103,22 @@ class AceInstance:
         self.feed_assist_active_after_ace_connect = ace_config.get(
             "feed_assist_active_after_ace_connect", True
         )
+        self.spool_load_park_retract_length = float(
+            parse_instance_config(
+                ace_config.get("spool_load_park_retract_length", 0),
+                instance_num,
+                "spool_load_park_retract_length",
+            )
+        )
+        self.spool_load_park_retract_speed = float(
+            parse_instance_config(
+                ace_config.get("spool_load_park_retract_speed", self.retract_speed),
+                instance_num,
+                "spool_load_park_retract_speed",
+            )
+        )
+        self._auto_parked_slots = set()
+        self._initial_status_received = False
 
         # Not overridable per instance
         self.toolhead_full_purge_length = float(ace_config["toolhead_full_purge_length"])
@@ -602,6 +618,45 @@ class AceInstance:
         monitor.state_data = state_data
 
         return monitor
+
+    def _schedule_auto_park_slot(self, slot_idx):
+        """Schedule a one-shot auto-park retract for a freshly loaded spool."""
+        if self.spool_load_park_retract_length <= 0:
+            return
+
+        def auto_park_timer_cb(eventtime):
+            try:
+                # Ensure ACE status is ready/idle before sending retract
+                self.wait_ready(timeout_s=30.0)
+
+                # Confirm slot is still reported as ready
+                current_status = self.inventory[slot_idx].get("status")
+                if current_status != AceSlotStateMachineState.READY.value:
+                    self.gcode.respond_info(
+                        f"ACE[{self.instance_num}]: Auto-park skipped for slot {slot_idx} "
+                        f"(slot status is '{current_status}')"
+                    )
+                    return self.reactor.NEVER
+
+                retract_len = self.spool_load_park_retract_length
+                retract_spd = self.spool_load_park_retract_speed
+
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Auto-parking slot {slot_idx} "
+                    f"({retract_len:.0f}mm retract to clear 4-in-1 splitter)..."
+                )
+                self._retract(slot_idx, retract_len, retract_spd)
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Slot {slot_idx} parked successfully before splitter."
+                )
+            except Exception as exc:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Auto-park failed for slot {slot_idx}: {exc}"
+                )
+            return self.reactor.NEVER
+
+        # Small 1.0s delay to allow ACE firmware to settle after insertion/RFID check
+        self.reactor.register_timer(auto_park_timer_cb, self.reactor.monotonic() + 1.0)
 
     def _retract(self, slot, length, speed, on_retract_started=None, on_wait_for_ready=None):
         """
@@ -1446,6 +1501,18 @@ class AceInstance:
                         self._query_rfid_full_data(slot_idx)
 
             slots = self._info.get("slots", [])
+            if not self._initial_status_received:
+                # Seed auto_parked_slots on initial connect so existing ready spools aren't retracted on startup
+                for slot_data in slots:
+                    s_idx = slot_data.get("index")
+                    s_stat = normalize_ace_slot_state(
+                        slot_data.get("status"),
+                        default=AceSlotStateMachineState.EMPTY.value,
+                    )
+                    if s_idx is not None and s_stat == AceSlotStateMachineState.READY.value:
+                        self._auto_parked_slots.add(s_idx)
+                self._initial_status_received = True
+
             for slot in slots:
                 idx = slot.get("index")
                 if idx is not None and 0 <= idx < self.SLOT_COUNT:
@@ -1472,10 +1539,15 @@ class AceInstance:
                         inventory_changed = True
 
                         # Log the state transition
-                        if (
-                            old_status == AceSlotStateMachineState.EMPTY.value
+                        is_slot_loaded = (
+                            old_status in (
+                                AceSlotStateMachineState.EMPTY.value,
+                                AceSlotStateMachineState.PRELOAD.value,
+                                AceSlotStateMachineState.IDENTIFYING.value,
+                            )
                             and new_status == AceSlotStateMachineState.READY.value
-                        ):
+                        )
+                        if is_slot_loaded:
                             # Check if the new spool is non-RFID (RFID_STATE_NO_INFO = 0)
                             rfid_state = slot.get("rfid")
                             if rfid_state == RFID_STATE_NO_INFO and saved_rfid:
@@ -1508,6 +1580,11 @@ class AceInstance:
                                 )
                             filament_loaded = True
 
+                            # Auto-park slot if configured and not already parked
+                            if idx not in self._auto_parked_slots and self.spool_load_park_retract_length > 0:
+                                self._auto_parked_slots.add(idx)
+                                self._schedule_auto_park_slot(idx)
+
                         elif (
                             old_status == AceSlotStateMachineState.READY.value
                             and new_status == AceSlotStateMachineState.EMPTY.value
@@ -1519,6 +1596,7 @@ class AceInstance:
 
                     # If slot is empty, clear RFID marker and metadata
                     if new_status == AceSlotStateMachineState.EMPTY.value:
+                        self._auto_parked_slots.discard(idx)
                         updated_rfid = False
                         # Clear all optional RFID fields
                         for key in [
@@ -1936,6 +2014,7 @@ class AceInstance:
     def reset_persistent_inventory(self):
         """Reset persistent inventory to empty slots."""
         self.inventory = create_inventory(self.SLOT_COUNT)
+        self._auto_parked_slots.clear()
         self.gcode.respond_info(
             f"ACE[{self.instance_num}]: Persistent inventory reset to empty"
         )

@@ -39,6 +39,7 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
 
 ### Tube Length Calibration
 Your physical lengths configured in `ace_voron24_setting.cfg`:
+- **`spool_load_park_retract_length: 400`**: When a new spool is inserted, the ACE hardware feeds ~500–550mm. KLIPPACE automatically rewinds 400mm so the tip parks ~100–150mm from the ACE (~50mm before the 150mm splitter), keeping the splitter completely open so other slots can feed freely.
 - **`parkposition_to_toolhead_length: 1050`**: During unload, the ACE Pro rewinds this full distance (+ retract length), pulling the filament back out of the toolhead and safely past the 4-in-1 splitter into the individual 150mm ACE tube.
 - **`toolchange_load_length: 850`**: The high-speed feeding distance from the splitter down towards the toolhead.
 - **`extruder_feeding_length: 35`**: Once `EBB:PD0` triggers, the ACE slows down and feeds 35mm in coordination with the extruder stepper to seat into the gears.
@@ -135,6 +136,18 @@ Observe that:
 3. Extruder gears grab and pull it 35mm into the gears.
 4. Nozzle purges over `X90 Y355` and wipes across the brush.
 5. On unload, nozzle heats, `CUT_TIP` shears the tip, and ACE Pro pulls the filament completely out of the toolhead and past the 4-in-1 splitter.
+
+### Step 5: Loading New Spools & Auto-Park
+When inserting a new spool into any slot:
+1. Push filament into the ACE slot funnel until the motor grabs it.
+2. The ACE feeds ~500–550mm through the tube.
+3. Within 1 second of entering `ready` state, KLIPPACE automatically rewinds **400mm** (`spool_load_park_retract_length: 400`).
+4. The tip retreats out of the 4-in-1 splitter and rests ~50mm before the splitter.
+5. You can now load the next slot without collisions!
+
+*Manual park buttons available in Mainsail/Fluidd:*
+- `PARK_SLOT SLOT=0` (or `SLOT=1`, `2`, `3`)
+- `PARK_ALL_SLOTS`
 
 ---
 

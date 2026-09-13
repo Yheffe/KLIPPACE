@@ -675,6 +675,60 @@ def cmd_ACE_STOP_RETRACT(gcmd):
         gcmd.respond_info(f"ACE_STOP_RETRACT error: {e}")
 
 
+def cmd_ACE_PARK_SLOT(gcmd):
+    """Retract a slot back to its park position before the splitter (e.g. 400mm)."""
+    try:
+        params = gcmd.get_command_parameters()
+        if "SLOT" in params and "T" not in params and "INDEX" not in params:
+            slot = gcmd.get_int("SLOT")
+            ace = ace_get_instance(gcmd)
+        else:
+            ace, slot = ace_get_instance_and_slot(gcmd)
+
+        default_length = int(getattr(ace, "spool_load_park_retract_length", 400))
+        if default_length <= 0:
+            default_length = 400
+        length = gcmd.get_int("LENGTH", default_length)
+        speed = gcmd.get_int("SPEED", int(getattr(ace, "spool_load_park_retract_speed", ace.retract_speed)))
+
+        validate_feed_and_retract_arguments(gcmd, ace, slot, length, speed)
+        gcmd.respond_info(
+            f"ACE[{ace.instance_num}]: Parking slot {slot} (retracting {length}mm at {speed}mm/s)..."
+        )
+        ace._retract(slot, length, speed)
+        if hasattr(ace, "_auto_parked_slots"):
+            ace._auto_parked_slots.add(slot)
+        gcmd.respond_info(
+            f"ACE[{ace.instance_num}]: Slot {slot} parked successfully before splitter."
+        )
+    except Exception as e:
+        gcmd.respond_info(f"ACE_PARK_SLOT error: {e}")
+
+
+def cmd_ACE_PARK_ALL_SLOTS(gcmd):
+    """Retract all loaded slots to park position before the splitter."""
+    try:
+        ace = ace_get_instance(gcmd)
+        default_length = int(getattr(ace, "spool_load_park_retract_length", 400))
+        if default_length <= 0:
+            default_length = 400
+        length = gcmd.get_int("LENGTH", default_length)
+        speed = gcmd.get_int("SPEED", int(getattr(ace, "spool_load_park_retract_speed", ace.retract_speed)))
+
+        parked_count = 0
+        for slot in range(ace.SLOT_COUNT):
+            if not ace._is_slot_empty(slot):
+                gcmd.respond_info(f"ACE[{ace.instance_num}]: Parking slot {slot} ({length}mm)...")
+                ace._retract(slot, length, speed)
+                if hasattr(ace, "_auto_parked_slots"):
+                    ace._auto_parked_slots.add(slot)
+                parked_count += 1
+
+        gcmd.respond_info(f"ACE[{ace.instance_num}]: Parked {parked_count} slot(s) before splitter.")
+    except Exception as e:
+        gcmd.respond_info(f"ACE_PARK_ALL_SLOTS error: {e}")
+
+
 # Predefined color names mapping (0.0-1.0 float range converted to 0-255 RGB)
 COLOR_NAMES = {
     "BLACK": [0, 0, 0],
@@ -2207,6 +2261,10 @@ ACE_COMMANDS = [
      "Show resolved config for ACE instance(s). [INSTANCE=<num>]"),
     ("ACE_FLUSH", cmd_ACE_FLUSH,
      "Persist any pending variable changes to disk immediately"),
+    ("ACE_PARK_SLOT", cmd_ACE_PARK_SLOT,
+     "Retract slot to park position before splitter. SLOT=<0-3> or T=<tool> [LENGTH=400]"),
+    ("ACE_PARK_ALL_SLOTS", cmd_ACE_PARK_ALL_SLOTS,
+     "Retract all loaded slots to park position before splitter. [LENGTH=400]"),
 ]
 
 

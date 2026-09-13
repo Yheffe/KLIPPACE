@@ -92,26 +92,36 @@ Mac: Cmd + Shift + R
 The installer will:
 - Detect your Klipper directory.
 - Create symlinks for the ACE Pro Python modules.
-- Optionally add the required `[include]` lines to your `printer.cfg`.
+- Ask for your printer profile (**Voron 2.4** or **Anycubic / Generic**).
+- Automatically install the matching configuration suite and link it into `printer.cfg`.
 - Optionally install the **ACE Pro Dashboard** for KlipperScreen.
-- Ask for your printer type
+
+> [!TIP]
+> **Voron 2.4 Users**: See [VORON24_SETUP.md](VORON24_SETUP.md) for the complete hardware layout, sensor pins (EBB36), cutter pin calibration, and OrcaSlicer configuration.
 
 **After the installer finishes, restart Klipper**:
 
 ```bash
 sudo service klipper restart
 ```
-Then add the following to your `printer.cfg`:
-
-```ini
-[include acepro.cfg]
-```
-
-Make sure a `[save_variables]` section exists (it is used to persist inventory and tool state).
 
 ---
 
 ## ⚙️ Configuration
+
+Depending on your printer profile selected during installation:
+
+### For Voron 2.4 Users:
+All Voron configuration files are organized in `config/voron24/`:
+- `ace_voron24.cfg`: Master include file.
+- `ace_voron24_vars.cfg`: Coordinates for cutter pin, nozzle brush, and rear purge.
+- `ace_voron24_hardware.cfg`: Toolhead entry sensor (`EBB:PD0`) & nozzle sensor (`EBB:PA15`).
+- `ace_voron24_setting.cfg`: Calibrated tube lengths and driver parameters.
+- `ace_voron24_macros.cfg`: Voron-safe macros (Filametrix cutter, brush wipe, PRINT_START hooks).
+
+### For Anycubic / Generic Users:
+- `acepro_macros.cfg`: Movement coordinates, wipe settings, servo angles, etc.
+- `acepro_setting.cfg`: ACE hardware parameters (feed speed, retract speed, tube lengths).
 
 After installation, adjust the variables in the provided files to match your printer’s geometry and hardware.
 

@@ -112,7 +112,8 @@ is_symlink() {
 # Add a line to printer.cfg if not already present (insert at the top)
 ensure_include_in_printer_cfg() {
     local printer_cfg="$1"
-    local include_line="[include acepro.cfg]"
+    local include_file="${2:-acepro.cfg}"
+    local include_line="[include $include_file]"
 
     if [ ! -f "$printer_cfg" ]; then
         print_warning "printer.cfg not found at $printer_cfg. Creating a new one with include line."
@@ -122,13 +123,13 @@ ensure_include_in_printer_cfg() {
     fi
 
     # Check if include line already exists (with optional spaces)
-    if grep -qE '^\s*\[include\s+acepro\.cfg\]' "$printer_cfg"; then
-        print_success "printer.cfg already includes acepro.cfg"
+    if grep -qE "^\s*\[include\s+${include_file}\]" "$printer_cfg"; then
+        print_success "printer.cfg already includes $include_file"
         return 0
     fi
 
     # Ask user if they want to add it
-    if prompt_yes_no "Add '[include acepro.cfg]' at the top of printer.cfg?"; then
+    if prompt_yes_no "Add '$include_line' at the top of printer.cfg?"; then
         # Backup before modifying
         backup_file "$printer_cfg"
 
@@ -491,197 +492,229 @@ EOF
     fi
     
     # ========================================================================
-    # Step 2: Ensure printer.cfg includes acepro.cfg (at the top) and copy acepro.cfg
+    # Step 2: Printer Configuration Integration
     # ========================================================================
     
-    print_header "Step 2: Printer Configuration Integration"
+    print_header "Step 2: Printer Profile Selection & Configuration"
     
-    # Copy acepro.cfg (the main ACE config) to config directory
-    ACEPRO_SOURCE="$SCRIPT_DIR/config/acepro.cfg"
-    ACEPRO_TARGET="$CONFIG_DIR/acepro.cfg"
+    echo -e "${BLUE}Select your printer profile:${NC}"
+    echo "1) Voron 2.4 (CoreXY / BTT Octopus Max EZ + EBB36)"
+    echo "2) Anycubic Kobra (Bed-slinger default)"
+    echo "3) Generic / Other Klipper Printer"
     
-    if [ ! -f "$ACEPRO_SOURCE" ]; then
-        print_error "acepro.cfg not found: $ACEPRO_SOURCE"
-        exit 1
-    fi
+    PRINTER_PROFILE_CHOICE=$(prompt_input "Enter choice (1, 2, or 3)" "1")
     
-    # Handle acepro.cfg copy (with backup)
-    if [ -f "$ACEPRO_TARGET" ]; then
-        print_warning "acepro.cfg already exists in config directory"
-        local was_symlink=0
-        if is_symlink "$ACEPRO_TARGET"; then
-            was_symlink=1
-            print_info "Current acepro.cfg is a symlink (→ $(readlink "$ACEPRO_TARGET"))"
+    if [ "$PRINTER_PROFILE_CHOICE" = "1" ]; then
+        print_info "Installing Voron 2.4 configuration suite..."
+        VORON_CONFIG_DIR="$SCRIPT_DIR/config/voron24"
+        
+        for vfile in ace_voron24.cfg ace_voron24_vars.cfg ace_voron24_hardware.cfg ace_voron24_setting.cfg ace_voron24_macros.cfg; do
+            vsrc="$VORON_CONFIG_DIR/$vfile"
+            vtgt="$CONFIG_DIR/$vfile"
+            if [ -f "$vsrc" ]; then
+                if [ -f "$vtgt" ]; then
+                    backup_file "$vtgt"
+                fi
+                cp "$vsrc" "$vtgt"
+                print_success "Copied: $vfile → $vtgt"
+            else
+                print_error "Voron config file missing: $vsrc"
+            fi
+        done
+        
+        PRINTER_CFG="$CONFIG_DIR/printer.cfg"
+        ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+        print_success "Voron 2.4 configuration suite installed successfully!"
+        print_info "NOTE: If your printer.cfg defines [gcode_macro CUT_TIP], comment it out"
+        print_info "      as CUT_TIP is provided by ace_voron24_macros.cfg."
+    else
+        # Copy acepro.cfg (the main ACE config) to config directory
+        ACEPRO_SOURCE="$SCRIPT_DIR/config/acepro.cfg"
+        ACEPRO_TARGET="$CONFIG_DIR/acepro.cfg"
+        
+        if [ ! -f "$ACEPRO_SOURCE" ]; then
+            print_error "acepro.cfg not found: $ACEPRO_SOURCE"
+            exit 1
         fi
-
-        if ! prompt_yes_no "Back up and replace acepro.cfg?"; then
-            print_info "Skipped acepro.cfg installation"
-        else
-            local timestamp=$(date +"%Y%m%d_%H%M%S")
-            local backup="${ACEPRO_TARGET}.backup_${timestamp}"
-            cp "$ACEPRO_TARGET" "$backup"
-            print_success "Backed up: $ACEPRO_TARGET → $backup"
-
-            if [ "$was_symlink" -eq 1 ]; then
-                remove_symlink_if_exists "$ACEPRO_TARGET"
+        
+        # Handle acepro.cfg copy (with backup)
+        if [ -f "$ACEPRO_TARGET" ]; then
+            print_warning "acepro.cfg already exists in config directory"
+            local was_symlink=0
+            if is_symlink "$ACEPRO_TARGET"; then
+                was_symlink=1
+                print_info "Current acepro.cfg is a symlink (→ $(readlink "$ACEPRO_TARGET"))"
             fi
 
+            if ! prompt_yes_no "Back up and replace acepro.cfg?"; then
+                print_info "Skipped acepro.cfg installation"
+            else
+                local timestamp=$(date +"%Y%m%d_%H%M%S")
+                local backup="${ACEPRO_TARGET}.backup_${timestamp}"
+                cp "$ACEPRO_TARGET" "$backup"
+                print_success "Backed up: $ACEPRO_TARGET → $backup"
+
+                if [ "$was_symlink" -eq 1 ]; then
+                    remove_symlink_if_exists "$ACEPRO_TARGET"
+                fi
+
+                cp "$ACEPRO_SOURCE" "$ACEPRO_TARGET"
+                print_success "Copied: $ACEPRO_SOURCE → $ACEPRO_TARGET"
+            fi
+        else
             cp "$ACEPRO_SOURCE" "$ACEPRO_TARGET"
             print_success "Copied: $ACEPRO_SOURCE → $ACEPRO_TARGET"
         fi
-    else
-        cp "$ACEPRO_SOURCE" "$ACEPRO_TARGET"
-        print_success "Copied: $ACEPRO_SOURCE → $ACEPRO_TARGET"
-    fi
-    
-    # Now ensure printer.cfg includes acepro.cfg (at the top)
-    PRINTER_CFG="$CONFIG_DIR/printer.cfg"
-    ensure_include_in_printer_cfg "$PRINTER_CFG"
-    
-    # ========================================================================
-    # Step 3: Copy acepro_printer_macros.cfg
-    # ========================================================================
+        
+        # Now ensure printer.cfg includes acepro.cfg (at the top)
+        PRINTER_CFG="$CONFIG_DIR/printer.cfg"
+        ensure_include_in_printer_cfg "$PRINTER_CFG" "acepro.cfg"
+        
+        # ========================================================================
+        # Step 3: Copy acepro_printer_macros.cfg
+        # ========================================================================
 
-    print_header "Step 3: Printer Generic Macros"
+        print_header "Step 3: Printer Generic Macros"
 
-    PRINTER_GENERIC_MACROS_SOURCE="$SCRIPT_DIR/config/acepro_printer_macros.cfg"
-    PRINTER_GENERIC_MACROS_TARGET="$CONFIG_DIR/acepro_printer_macros.cfg"
+        PRINTER_GENERIC_MACROS_SOURCE="$SCRIPT_DIR/config/acepro_printer_macros.cfg"
+        PRINTER_GENERIC_MACROS_TARGET="$CONFIG_DIR/acepro_printer_macros.cfg"
 
-    if [ ! -f "$PRINTER_GENERIC_MACROS_SOURCE" ]; then
-        print_error "acepro_printer_macros.cfg not found: $PRINTER_GENERIC_MACROS_SOURCE"
-        exit 1
-    fi
-
-    if [ -f "$PRINTER_GENERIC_MACROS_TARGET" ]; then
-        print_warning "acepro_printer_macros.cfg already exists"
-        local was_symlink=0
-        if is_symlink "$PRINTER_GENERIC_MACROS_TARGET"; then
-            was_symlink=1
-            print_info "Current acepro_printer_macros.cfg is a symlink (→ $(readlink "$PRINTER_GENERIC_MACROS_TARGET"))"
+        if [ ! -f "$PRINTER_GENERIC_MACROS_SOURCE" ]; then
+            print_error "acepro_printer_macros.cfg not found: $PRINTER_GENERIC_MACROS_SOURCE"
+            exit 1
         fi
 
-        if ! prompt_yes_no "Back up and replace acepro_printer_macros.cfg?"; then
-            print_info "Skipped acepro_printer_macros.cfg installation"
-        else
-            local timestamp=$(date +"%Y%m%d_%H%M%S")
-            PRINTER_GENERIC_MACROS_BACKUP="${PRINTER_GENERIC_MACROS_TARGET}.backup_${timestamp}"
-            cp "$PRINTER_GENERIC_MACROS_TARGET" "$PRINTER_GENERIC_MACROS_BACKUP"
-            print_success "Backed up: $PRINTER_GENERIC_MACROS_TARGET → $PRINTER_GENERIC_MACROS_BACKUP"
-
-            if [ "$was_symlink" -eq 1 ]; then
-                remove_symlink_if_exists "$PRINTER_GENERIC_MACROS_TARGET"
+        if [ -f "$PRINTER_GENERIC_MACROS_TARGET" ]; then
+            print_warning "acepro_printer_macros.cfg already exists"
+            local was_symlink=0
+            if is_symlink "$PRINTER_GENERIC_MACROS_TARGET"; then
+                was_symlink=1
+                print_info "Current acepro_printer_macros.cfg is a symlink (→ $(readlink "$PRINTER_GENERIC_MACROS_TARGET"))"
             fi
 
+            if ! prompt_yes_no "Back up and replace acepro_printer_macros.cfg?"; then
+                print_info "Skipped acepro_printer_macros.cfg installation"
+            else
+                local timestamp=$(date +"%Y%m%d_%H%M%S")
+                PRINTER_GENERIC_MACROS_BACKUP="${PRINTER_GENERIC_MACROS_TARGET}.backup_${timestamp}"
+                cp "$PRINTER_GENERIC_MACROS_TARGET" "$PRINTER_GENERIC_MACROS_BACKUP"
+                print_success "Backed up: $PRINTER_GENERIC_MACROS_TARGET → $PRINTER_GENERIC_MACROS_BACKUP"
+
+                if [ "$was_symlink" -eq 1 ]; then
+                    remove_symlink_if_exists "$PRINTER_GENERIC_MACROS_TARGET"
+                fi
+
+                cp "$PRINTER_GENERIC_MACROS_SOURCE" "$PRINTER_GENERIC_MACROS_TARGET"
+                print_success "Copied: $PRINTER_GENERIC_MACROS_SOURCE → $PRINTER_GENERIC_MACROS_TARGET"
+            fi
+        else
             cp "$PRINTER_GENERIC_MACROS_SOURCE" "$PRINTER_GENERIC_MACROS_TARGET"
             print_success "Copied: $PRINTER_GENERIC_MACROS_SOURCE → $PRINTER_GENERIC_MACROS_TARGET"
         fi
-    else
-        cp "$PRINTER_GENERIC_MACROS_SOURCE" "$PRINTER_GENERIC_MACROS_TARGET"
-        print_success "Copied: $PRINTER_GENERIC_MACROS_SOURCE → $PRINTER_GENERIC_MACROS_TARGET"
-    fi
 
-    # Legacy filename support (cleanup old printer_macros_generic.cfg symlinks)
-    LEGACY_PRINTER_GENERIC_MACROS_TARGET="$CONFIG_DIR/printer_macros_generic.cfg"
-    if is_symlink "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"; then
-        print_warning "Legacy printer_macros_generic.cfg symlink detected"
-        print_info "Current printer_macros_generic.cfg is a symlink (→ $(readlink "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"))"
+        # Legacy filename support (cleanup old printer_macros_generic.cfg symlinks)
+        LEGACY_PRINTER_GENERIC_MACROS_TARGET="$CONFIG_DIR/printer_macros_generic.cfg"
+        if is_symlink "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"; then
+            print_warning "Legacy printer_macros_generic.cfg symlink detected"
+            print_info "Current printer_macros_generic.cfg is a symlink (→ $(readlink "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"))"
 
-        if prompt_yes_no "Replace printer_macros_generic.cfg with a local copy?"; then
-            local timestamp=$(date +"%Y%m%d_%H%M%S")
-            local legacy_backup="${LEGACY_PRINTER_GENERIC_MACROS_TARGET}.backup_${timestamp}"
-            cp "$LEGACY_PRINTER_GENERIC_MACROS_TARGET" "$legacy_backup"
-            print_success "Backed up: $LEGACY_PRINTER_GENERIC_MACROS_TARGET → $legacy_backup"
+            if prompt_yes_no "Replace printer_macros_generic.cfg with a local copy?"; then
+                local timestamp=$(date +"%Y%m%d_%H%M%S")
+                local legacy_backup="${LEGACY_PRINTER_GENERIC_MACROS_TARGET}.backup_${timestamp}"
+                cp "$LEGACY_PRINTER_GENERIC_MACROS_TARGET" "$legacy_backup"
+                print_success "Backed up: $LEGACY_PRINTER_GENERIC_MACROS_TARGET → $legacy_backup"
 
-            remove_symlink_if_exists "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"
-            cp "$PRINTER_GENERIC_MACROS_SOURCE" "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"
-            print_success "Copied: $PRINTER_GENERIC_MACROS_SOURCE → $LEGACY_PRINTER_GENERIC_MACROS_TARGET"
-        else
-            print_info "Skipped printer_macros_generic.cfg replacement"
-        fi
-    fi
-
-    # ========================================================================
-    # Step 4: Copy ACE configuration file (acepro_setting.cfg)
-    # ========================================================================
-
-    print_header "Step 4: ACE Configuration Files"
-
-    ACE_CONFIG_SOURCE="$SCRIPT_DIR/config/acepro_setting.cfg"
-    ACE_CONFIG_TARGET="$CONFIG_DIR/acepro_setting.cfg"
-
-    if [ ! -f "$ACE_CONFIG_SOURCE" ]; then
-        print_error "ACE config file not found: $ACE_CONFIG_SOURCE"
-        exit 1
-    fi
-
-    if [ -f "$ACE_CONFIG_TARGET" ]; then
-        print_warning "acepro_setting.cfg already exists"
-        local was_symlink=0
-        if is_symlink "$ACE_CONFIG_TARGET"; then
-            was_symlink=1
-            print_info "Current acepro_setting.cfg is a symlink (→ $(readlink "$ACE_CONFIG_TARGET"))"
+                remove_symlink_if_exists "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"
+                cp "$PRINTER_GENERIC_MACROS_SOURCE" "$LEGACY_PRINTER_GENERIC_MACROS_TARGET"
+                print_success "Copied: $PRINTER_GENERIC_MACROS_SOURCE → $LEGACY_PRINTER_GENERIC_MACROS_TARGET"
+            else
+                print_info "Skipped printer_macros_generic.cfg replacement"
+            fi
         fi
 
-        if ! prompt_yes_no "Back up and replace acepro_setting.cfg?"; then
-            print_info "Skipped acepro_setting.cfg installation"
-        else
-            local timestamp=$(date +"%Y%m%d_%H%M%S")
-            ACE_CONFIG_BACKUP="${ACE_CONFIG_TARGET}.backup_${timestamp}"
-            cp "$ACE_CONFIG_TARGET" "$ACE_CONFIG_BACKUP"
-            print_success "Backed up: $ACE_CONFIG_TARGET → $ACE_CONFIG_BACKUP"
+        # ========================================================================
+        # Step 4: Copy ACE configuration file (acepro_setting.cfg)
+        # ========================================================================
 
-            if [ "$was_symlink" -eq 1 ]; then
-                remove_symlink_if_exists "$ACE_CONFIG_TARGET"
+        print_header "Step 4: ACE Configuration Files"
+
+        ACE_CONFIG_SOURCE="$SCRIPT_DIR/config/acepro_setting.cfg"
+        ACE_CONFIG_TARGET="$CONFIG_DIR/acepro_setting.cfg"
+
+        if [ ! -f "$ACE_CONFIG_SOURCE" ]; then
+            print_error "ACE config file not found: $ACE_CONFIG_SOURCE"
+            exit 1
+        fi
+
+        if [ -f "$ACE_CONFIG_TARGET" ]; then
+            print_warning "acepro_setting.cfg already exists"
+            local was_symlink=0
+            if is_symlink "$ACE_CONFIG_TARGET"; then
+                was_symlink=1
+                print_info "Current acepro_setting.cfg is a symlink (→ $(readlink "$ACE_CONFIG_TARGET"))"
             fi
 
+            if ! prompt_yes_no "Back up and replace acepro_setting.cfg?"; then
+                print_info "Skipped acepro_setting.cfg installation"
+            else
+                local timestamp=$(date +"%Y%m%d_%H%M%S")
+                ACE_CONFIG_BACKUP="${ACE_CONFIG_TARGET}.backup_${timestamp}"
+                cp "$ACE_CONFIG_TARGET" "$ACE_CONFIG_BACKUP"
+                print_success "Backed up: $ACE_CONFIG_TARGET → $ACE_CONFIG_BACKUP"
+
+                if [ "$was_symlink" -eq 1 ]; then
+                    remove_symlink_if_exists "$ACE_CONFIG_TARGET"
+                fi
+
+                cp "$ACE_CONFIG_SOURCE" "$ACE_CONFIG_TARGET"
+                print_success "Copied: $ACE_CONFIG_SOURCE → $ACE_CONFIG_TARGET"
+            fi
+        else
             cp "$ACE_CONFIG_SOURCE" "$ACE_CONFIG_TARGET"
             print_success "Copied: $ACE_CONFIG_SOURCE → $ACE_CONFIG_TARGET"
         fi
-    else
-        cp "$ACE_CONFIG_SOURCE" "$ACE_CONFIG_TARGET"
-        print_success "Copied: $ACE_CONFIG_SOURCE → $ACE_CONFIG_TARGET"
-    fi
 
-    # ========================================================================
-    # Step 5: Copy ACE macro file (acepro_macros.cfg)
-    # ========================================================================
+        # ========================================================================
+        # Step 5: Copy ACE macro file (acepro_macros.cfg)
+        # ========================================================================
 
-    print_header "Step 5: ACE Macro Files"
+        print_header "Step 5: ACE Macro Files"
 
-    MACROS_SOURCE="$SCRIPT_DIR/config/acepro_macros.cfg"
-    MACROS_TARGET="$CONFIG_DIR/acepro_macros.cfg"
+        MACROS_SOURCE="$SCRIPT_DIR/config/acepro_macros.cfg"
+        MACROS_TARGET="$CONFIG_DIR/acepro_macros.cfg"
 
-    if [ ! -f "$MACROS_SOURCE" ]; then
-        print_error "ACE macros file not found: $MACROS_SOURCE"
-        exit 1
-    fi
-
-    if [ -f "$MACROS_TARGET" ]; then
-        print_warning "acepro_macros.cfg already exists"
-        local was_symlink=0
-        if is_symlink "$MACROS_TARGET"; then
-            was_symlink=1
-            print_info "Current acepro_macros.cfg is a symlink (→ $(readlink "$MACROS_TARGET"))"
+        if [ ! -f "$MACROS_SOURCE" ]; then
+            print_error "ACE macros file not found: $MACROS_SOURCE"
+            exit 1
         fi
 
-        if ! prompt_yes_no "Back up and replace acepro_macros.cfg?"; then
-            print_info "Skipped acepro_macros.cfg installation"
-        else
-            local timestamp=$(date +"%Y%m%d_%H%M%S")
-            ACE_MACROS_BACKUP="${MACROS_TARGET}.backup_${timestamp}"
-            cp "$MACROS_TARGET" "$ACE_MACROS_BACKUP"
-            print_success "Backed up: $MACROS_TARGET → $ACE_MACROS_BACKUP"
-
-            if [ "$was_symlink" -eq 1 ]; then
-                remove_symlink_if_exists "$MACROS_TARGET"
+        if [ -f "$MACROS_TARGET" ]; then
+            print_warning "acepro_macros.cfg already exists"
+            local was_symlink=0
+            if is_symlink "$MACROS_TARGET"; then
+                was_symlink=1
+                print_info "Current acepro_macros.cfg is a symlink (→ $(readlink "$MACROS_TARGET"))"
             fi
 
+            if ! prompt_yes_no "Back up and replace acepro_macros.cfg?"; then
+                print_info "Skipped acepro_macros.cfg installation"
+            else
+                local timestamp=$(date +"%Y%m%d_%H%M%S")
+                ACE_MACROS_BACKUP="${MACROS_TARGET}.backup_${timestamp}"
+                cp "$MACROS_TARGET" "$ACE_MACROS_BACKUP"
+                print_success "Backed up: $MACROS_TARGET → $ACE_MACROS_BACKUP"
+
+                if [ "$was_symlink" -eq 1 ]; then
+                    remove_symlink_if_exists "$MACROS_TARGET"
+                fi
+
+                cp "$MACROS_SOURCE" "$MACROS_TARGET"
+                print_success "Copied: $MACROS_SOURCE → $MACROS_TARGET"
+            fi
+        else
             cp "$MACROS_SOURCE" "$MACROS_TARGET"
             print_success "Copied: $MACROS_SOURCE → $MACROS_TARGET"
         fi
-    else
-        cp "$MACROS_SOURCE" "$MACROS_TARGET"
-        print_success "Copied: $MACROS_SOURCE → $MACROS_TARGET"
     fi
     
     # ========================================================================

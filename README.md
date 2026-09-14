@@ -95,7 +95,7 @@ sudo service klipper restart
 ### Voron 2.4 (CoreXY) Profile
 
 Tailored and battle-tested for high-performance Voron 2.4 builds:
-- **Toolhead**: A4T (Archetype 4 Toolhead) on BTT EBB36 GEN2
+- **Toolhead**: A4T ([A]nother [4]010 [T]oolhead) on BTT EBB36 GEN2
 - **Extruder**: WW BMG (Weight Watchers BMG, 50:17 gear ratio)
 - **Filament Cutter**: Crossbow Cutter (actuated via gantry pin at `X0 Y359`)
 - **Nozzle Seal**: Silicone Stopper park pad (`X90 Y350 Z3.5`) to eliminate oozing during swaps

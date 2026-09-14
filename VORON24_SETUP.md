@@ -29,7 +29,7 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
               │  (Just above Extruder)  │      [filament_entry_sensor]
               └───────────┬─────────────┘
                           │
-                     Extruder Gears (WW BMG / A4T)
+                     Extruder Gears (WristWatch BMG / A4T)
                           │
               ┌───────────┴─────────────┐
               │   Lower Toolhead Sensor │  --> Pin: EBB:PA15

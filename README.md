@@ -40,7 +40,7 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - **Universal Kinematics** – Seamlessly operates on CoreXY flying gantries (Voron 2.4), fixed gantry / bed-slingers (Kobra, Ender, Sovol), and dual-gantry setups.
 - **Multi-ACE Chaining** – Supports 1 to 3 ACE Pro units (up to 12 filament slots).
 - **Dual-Sensor Toolhead Coordination** – Coordinated entry and seating using both an upper entry sensor (`EBB:PD0`) and lower nozzle sensor (`EBB:PA15`).
-- **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears.
+- **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
 - **Silicone Stopper Park / Nozzle Seal** – Parks and rests the hot nozzle against a silicone stopper pad (`X90 Y350 Z3.5`) during tool swaps to eliminate oozing while the ACE switches spools.
 - **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X0 Y359`) with post-cut retraction.
@@ -94,12 +94,19 @@ sudo service klipper restart
 
 ### Voron 2.4 (CoreXY) Profile
 
+Tailored and battle-tested for high-performance Voron 2.4 builds:
+- **Toolhead**: A4T (Archetype 4 Toolhead) on BTT EBB36 GEN2
+- **Extruder**: WW BMG (Weight Watchers BMG, 50:17 gear ratio)
+- **Filament Cutter**: Crossbow Cutter (actuated via gantry pin at `X0 Y359`)
+- **Nozzle Seal**: Silicone Stopper park pad (`X90 Y350 Z3.5`) to eliminate oozing during swaps
+- **Purge & Scrub**: Rear purge chute (`X90 Y355 Z15`) & Decontaminator brush (`X108–X158 Y350 Z6.0`)
+
 The Voron profile is fully modular and lives in `config/voron24/`:
 
 | File | Purpose |
 | :--- | :--- |
 | [`ace_voron24.cfg`](config/voron24/ace_voron24.cfg) | Master include file. Place `[include ace_voron24.cfg]` at the top of your `printer.cfg`. |
-| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Cutter (`X0 Y359`), Stopper (`X90 Y350`), Purge (`X90 Y355`), and Brush (`X108-158 Y350`). |
+| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Crossbow Cutter (`X0 Y359`), Stopper (`X90 Y350`), Purge (`X90 Y355`), and Brush (`X108-158 Y350`). |
 | [`ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardware.cfg) | Pin definitions for Entry Sensor (`^EBB:PD0`) and Nozzle Sensor (`^EBB:PA15`). |
 | [`ace_voron24_setting.cfg`](config/voron24/ace_voron24_setting.cfg) | Calibrated feed lengths (1050mm total, 400mm auto-park, 16/8 mm/s differential entry). |
 | [`ace_voron24_macros.cfg`](config/voron24/ace_voron24_macros.cfg) | Voron-safe macros: `CUT_TIP`, `PARK_ON_STOPPER`, `LIFT_FROM_STOPPER`, `CLEAN_NOZZLE`, `ACE_ON_PRINT_START`. |

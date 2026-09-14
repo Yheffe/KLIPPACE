@@ -4,10 +4,15 @@
 [![Python 3](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Klipper](https://img.shields.io/badge/Klipper-required-green.svg)](https://www.klipper3d.org/)
 [![Status](https://img.shields.io/badge/status-work--in--progress-orange.svg)](#)
+[![AI Assisted](https://img.shields.io/badge/AI-assisted-blueviolet.svg)](#)
 
 > [!WARNING]
 > ### ⚠️ Work in Progress
 > **KLIPPACE is very much an active work in progress!** Features, configuration schemas, and macros are subject to active development and frequent updates. Please test all hardware motions, cutter strokes, and feed distances carefully before running production prints. Feedback, bug reports, and contributions are welcome!
+
+> [!NOTE]
+> ### 🤖 AI Notice
+> This project utilizes Artificial Intelligence (AI) tools to assist with development, code refactoring, and documentation. While configurations are tested and verified on physical hardware, always inspect macros, verify pin assignments, and test mechanical clearances before operating your printer unattended.
 
 A powerful, universal Klipper extension that brings the **Anycubic ACE Pro** multi-material unit to **any** Klipper-based 3D printer — Voron 2.4, RatRig, Anycubic Kobra, Sovol, Ender, and custom CoreXY or bed-slinger machines.
 

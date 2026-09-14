@@ -59,7 +59,8 @@ In [`config/voron24/ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardwa
 | **Lower Nozzle Switch** | `^EBB:PA15` | `filament_nozzle_sensor` | Sits near nozzle / post-extruder. |
 | **Cutter Pin** | N/A (Mechanical) | Engaged at `X0 Y359` | Depresses cutter lever against gantry pin. |
 | **Nozzle Scrubber** | N/A (Mechanical) | `X108-158 Y350 Z6.0` | 50mm scrub stroke across brass/silicone brush. |
-| **Purge Position** | N/A (Space) | `X90 Y355 Z15` | Safe rear rail purge location adjacent to brush. |
+| **Purge Position** | N/A (Space) | `X90 Y355 Z15` | Rear rail purge bucket/chute location adjacent to brush. |
+| **Silicone Stopper** | N/A (Mechanical) | `X90 Y350 Z3.5` | Nozzle rests on silicone pad during filament swaps to prevent oozing. |
 
 > [!NOTE]
 > The Anycubic servo poop basket (`[servo servo_wipe]`) is **disabled** on Voron (`servo_enable: False`). No servo pins are defined, preventing pin conflicts with `EBB:PB14` (the extruder step pin).
@@ -114,11 +115,24 @@ CUT_TIP
 - Retracts 10mm filament
 - Exits to `X0 Y330`
 
-### Step 3: Test Nozzle Scrubber
+### Step 3: Test Nozzle Scrubber & Silicone Stopper
+Test the nozzle clean/scrubber:
 ```gcode
-RESUME_NOZZLE_WIPE_SEQUENCE
+CLEAN_NOZZLE
 ```
 - Toolhead moves to `X108 Y350`, lowers to `Z6.0`, scrubs across the brush 6 times, then lifts to `Z25`.
+
+Test the silicone stopper park position:
+```gcode
+PARK_ON_STOPPER
+```
+- Toolhead travels to `X90 Y350` at safe Z height, then lowers to `Z3.5` to rest the nozzle on the silicone stopper.
+
+Lift off the stopper:
+```gcode
+LIFT_FROM_STOPPER
+```
+- Toolhead lifts safely back up to `Z15`.
 
 ### Step 4: Test First Tool Load & Unload
 With filament loaded in Slot 0 of your ACE Pro:

@@ -21,20 +21,20 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
              │   (Passive Bowden Hub)  │
              └───────────┬─────────────┘
                          │
-                      ~850mm  (Common Reverse Bowden Tube)
-                         │
-                         ▼
-             ┌─────────────────────────┐
-             │  Toolhead Entry Sensor  │  --> Pin: EBB:PD0
-             │  (Just above Extruder)  │      [filament_entry_sensor]
-             └───────────┬─────────────┘
-                         │
-                     Extruder Gears (CW2 / Galileo2)
-                         │
-             ┌───────────┴─────────────┐
-             │   Lower Toolhead Sensor │  --> Pin: EBB:PA15
-             │        (At Nozzle)      │      [filament_nozzle_sensor]
-             └─────────────────────────┘
+                       ~850mm  (Common Reverse Bowden Tube)
+                          │
+                          ▼
+              ┌─────────────────────────┐
+              │  Toolhead Entry Sensor  │  --> Pin: EBB:PD0
+              │  (Just above Extruder)  │      [filament_entry_sensor]
+              └───────────┬─────────────┘
+                          │
+                     Extruder Gears (A4T Toolhead)
+                          │
+              ┌───────────┴─────────────┐
+              │   Lower Toolhead Sensor │  --> Pin: EBB:PA15
+              │        (At Nozzle)      │      [filament_nozzle_sensor]
+              └─────────────────────────┘
 ```
 
 ### Tube Length Calibration
@@ -57,7 +57,7 @@ In [`config/voron24/ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardwa
 | :--- | :--- | :--- | :--- |
 | **Toolhead Entry Switch** | `^EBB:PD0` | `filament_entry_sensor` | Sits just before extruder gears. Triggers ACE fast-feed stop. |
 | **Lower Nozzle Switch** | `^EBB:PA15` | `filament_nozzle_sensor` | Sits near nozzle / post-extruder. |
-| **Cutter Pin** | N/A (Mechanical) | Engaged at `X0 Y359` | Depresses cutter lever against gantry pin. |
+| **Crossbow Cutter Pin** | N/A (Mechanical) | Engaged at `X0 Y359` | Depresses Crossbow cutter lever against gantry pin. |
 | **Nozzle Scrubber** | N/A (Mechanical) | `X108-158 Y350 Z6.0` | 50mm scrub stroke across brass/silicone brush. |
 | **Purge Position** | N/A (Space) | `X90 Y355 Z15` | Rear rail purge bucket/chute location adjacent to brush. |
 | **Silicone Stopper** | N/A (Mechanical) | `X90 Y350 Z3.5` | Nozzle rests on silicone pad during filament swaps to prevent oozing. |

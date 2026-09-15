@@ -138,10 +138,10 @@ For standard bed-slingers and custom printers with servo-actuated purge baskets:
 In your OrcaSlicer **Printer Settings -> Custom G-code -> Machine start G-code**:
 
 ```gcode
-PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool]
+PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type]
 ```
 
-`PRINT_START` will execute QGL, calibrate the bed mesh, heat the hotend, load the designated initial tool (`ACE_ON_PRINT_START`), and prime the nozzle before starting the print.
+`PRINT_START` will execute QGL, calibrate the bed mesh, heat the hotend, load the designated initial tool (`ACE_ON_PRINT_START`), optionally start the ACE Pro dryer (`DRYER_START`), and prime the nozzle before starting the print.
 
 ### 2. Filament Change G-Code
 In OrcaSlicer **Printer Settings -> Multimaterial -> Change filament G-code**:
@@ -185,6 +185,8 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | `LIFT_FROM_STOPPER` | Lift nozzle off the silicone stopper pad to safe clearance height (`Z15`). |
 | `CUT_TIP` | Execute filament cut stroke against gantry cutter pin (`X0 Y359`). |
 | `CLEAN_NOZZLE` | Perform multi-pass nozzle scrub across the brass/silicone brush. |
+| `DRYER_START` | Start ACE Pro dryer with temp and duration (e.g. `TEMP=50 DURATION=240` or `MATERIAL=PLA`). |
+| `DRYER_STOP` | Stop the ACE Pro dryer. |
 | `ACE_FEED T=<tool> LENGTH=<mm>` | Manually feed filament forward from a specific slot. |
 | `ACE_RETRACT T=<tool> LENGTH=<mm>` | Manually retract filament from a specific slot. |
 | `ACE_DEBUG_SENSORS` | Query current real-time state of all configured filament switches. |

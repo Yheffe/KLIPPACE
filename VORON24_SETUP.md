@@ -171,11 +171,11 @@ When inserting a new spool into any slot:
 ## 5. Slicer Configuration (OrcaSlicer)
 
 ### Machine Start G-Code
-Update your **Machine Start G-code** in OrcaSlicer to pass the initial tool:
+Update your **Machine Start G-code** in OrcaSlicer to pass the initial tool (and optional filament drying):
 ```gcode
-PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool]
+PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type]
 ```
-*(Your `PRINT_START` will now automatically ensure the initial tool is loaded and wiped before running `LINE_PURGE`!)*
+*(Your `PRINT_START` will now automatically ensure the initial tool is loaded and wiped, and optionally kick off ACE Pro drying matched to your filament type!)*
 
 ### Tool Change G-Code
 In OrcaSlicer **Printer Settings -> Multimaterial -> Change filament G-code**:

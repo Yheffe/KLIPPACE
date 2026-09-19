@@ -101,7 +101,7 @@ sudo service klipper restart
 
 Tailored and calibrated for my personal Voron 2.4 printer:
 - **Toolhead**: A4T ([A]nother [4]010 [T]oolhead) on BTT EBB36 GEN2
-- **Extruder**: WW BMG (WristWatch BMG, 50:17 gear ratio)
+- **Extruder**: WW BMG (WristWatch BMG, 50:10 gear ratio)
 - **Filament Cutter**: Crossbow Cutter (actuated via gantry pin at `X0 Y359`)
 - **Nozzle Seal**: Silicone Stopper park pad (`X90 Y350 Z3.5`) to eliminate oozing during swaps
 - **Purge & Scrub**: Rear purge chute (`X90 Y355 Z15`) & Decontaminator brush (`X108–X158 Y350 Z6.0`)

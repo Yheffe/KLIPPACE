@@ -30,6 +30,10 @@ if [ -z "$INSTALL_HOME" ]; then
     INSTALL_HOME="$HOME"
 fi
 
+FLAG_ASSUME_YES=0
+FLAG_COPY_VORON_CFG=0
+PRINTER_PROFILE_OVERRIDE=""
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -59,6 +63,10 @@ print_error() {
 # Yes/No prompt
 prompt_yes_no() {
     local prompt="$1"
+    if [ "${FLAG_ASSUME_YES:-0}" -eq 1 ]; then
+        echo -e "${BLUE}${prompt}${NC} [y/N]: y (auto)"
+        return 0
+    fi
     local response
     while true; do
         read -p "$(echo -e ${BLUE}${prompt}${NC} [y/N]: )" response
@@ -74,7 +82,21 @@ prompt_yes_no() {
 prompt_input() {
     local prompt="$1"
     local default="$2"
-    local response
+    local response=""
+    if [ "${FLAG_ASSUME_YES:-0}" -eq 1 ]; then
+        if [ -t 0 ]; then
+            echo "$default"
+            return 0
+        else
+            if read -r response; then
+                echo "${response:-$default}"
+                return 0
+            else
+                echo "$default"
+                return 0
+            fi
+        fi
+    fi
     read -p "$(echo -e ${BLUE}${prompt}${NC} [${default}]: )" response
     echo "${response:-$default}"
 }
@@ -316,9 +338,56 @@ create_or_replace_symlink() {
 # ============================================================================
 
 main() {
+    local klipper_dir_override=""
+    local config_dir_override=""
+
+    # Parse command line options
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --copy-voron|--copy-voron-cfg|--voron|-v)
+                FLAG_COPY_VORON_CFG=1
+                PRINTER_PROFILE_OVERRIDE="1"
+                shift
+                ;;
+            --klipper-dir)
+                klipper_dir_override="$2"
+                shift 2
+                ;;
+            --config-dir)
+                config_dir_override="$2"
+                shift 2
+                ;;
+            -y|--yes)
+                FLAG_ASSUME_YES=1
+                shift
+                ;;
+            -h|--help)
+                echo "Usage: ./installer.sh [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  --voron, --copy-voron-cfg, -v  Select Voron 2.4 profile and copy Voron machine configs"
+                echo "  --klipper-dir <dir>            Path to Klipper installation directory"
+                echo "  --config-dir <dir>             Path to Klipper config directory (e.g. ~/printer_data/config)"
+                echo "  -y, --yes                      Non-interactive mode (assume yes to prompts)"
+                echo "  -h, --help                     Show this help message"
+                exit 0
+                ;;
+            *)
+                print_warning "Unknown option: $1"
+                shift
+                ;;
+        esac
+    done
+
     print_header "ACE Pro Klipper Driver - Interactive Installer"
     
-    # Track backup files for final instructions
+    # Track files for final instructions (ensures set -u never fails)
+    ACEPRO_TARGET=""
+    ACE_CONFIG_TARGET=""
+    MACROS_TARGET=""
+    PRINTER_GENERIC_MACROS_TARGET=""
+    PRINTER_CFG=""
+    VORON_COPIED_FILES=()
     ACE_CONFIG_BACKUP=""
     ACE_MACROS_BACKUP=""
     PRINTER_GENERIC_MACROS_BACKUP=""
@@ -333,8 +402,12 @@ main() {
     print_info "Default target user/home: $INSTALL_USER ($INSTALL_HOME)"
     
     # 1.1 - Klipper installation directory
-    DEFAULT_KLIPPER_DIR="$INSTALL_HOME/klipper"
-    KLIPPER_DIR=$(prompt_input "Klipper installation directory (press ENTER to use default)" "$DEFAULT_KLIPPER_DIR")
+    if [ -n "$klipper_dir_override" ]; then
+        KLIPPER_DIR="$klipper_dir_override"
+    else
+        DEFAULT_KLIPPER_DIR="$INSTALL_HOME/klipper"
+        KLIPPER_DIR=$(prompt_input "Klipper installation directory (press ENTER to use default)" "$DEFAULT_KLIPPER_DIR")
+    fi
     
     if [ ! -d "$KLIPPER_DIR" ]; then
         print_error "Klipper directory not found: $KLIPPER_DIR"
@@ -343,8 +416,12 @@ main() {
     print_success "Using Klipper directory: $KLIPPER_DIR"
     
     # 1.2 - Config directory
-    DEFAULT_CONFIG_DIR="$INSTALL_HOME/printer_data/config"
-    CONFIG_DIR=$(prompt_input "\nKlipper config directory" "$DEFAULT_CONFIG_DIR")
+    if [ -n "$config_dir_override" ]; then
+        CONFIG_DIR="$config_dir_override"
+    else
+        DEFAULT_CONFIG_DIR="$INSTALL_HOME/printer_data/config"
+        CONFIG_DIR=$(prompt_input "\nKlipper config directory" "$DEFAULT_CONFIG_DIR")
+    fi
     
     if [ ! -d "$CONFIG_DIR" ]; then
         print_error "Config directory not found: $CONFIG_DIR"
@@ -502,12 +579,20 @@ EOF
     echo "2) Anycubic Kobra (Bed-slinger default)"
     echo "3) Generic / Other Klipper Printer"
     
-    PRINTER_PROFILE_CHOICE=$(prompt_input "Enter choice (1, 2, or 3)" "1")
+    if [ -n "$PRINTER_PROFILE_OVERRIDE" ]; then
+        PRINTER_PROFILE_CHOICE="$PRINTER_PROFILE_OVERRIDE"
+        print_info "Printer profile pre-selected via flag: Voron 2.4"
+    else
+        PRINTER_PROFILE_CHOICE=$(prompt_input "Enter choice (1, 2, or 3)" "1")
+    fi
+
+    PRINTER_CFG="$CONFIG_DIR/printer.cfg"
     
     if [ "$PRINTER_PROFILE_CHOICE" = "1" ]; then
         print_info "Installing Voron 2.4 configuration suite..."
         VORON_CONFIG_DIR="$SCRIPT_DIR/config/voron24"
         
+        # 1. Core KLIPPACE Voron 2.4 integration files
         for vfile in ace_voron24.cfg ace_voron24_vars.cfg ace_voron24_hardware.cfg ace_voron24_setting.cfg ace_voron24_macros.cfg; do
             vsrc="$VORON_CONFIG_DIR/$vfile"
             vtgt="$CONFIG_DIR/$vfile"
@@ -517,13 +602,94 @@ EOF
                 fi
                 cp "$vsrc" "$vtgt"
                 print_success "Copied: $vfile → $vtgt"
+                VORON_COPIED_FILES+=("$vfile")
             else
                 print_error "Voron config file missing: $vsrc"
             fi
         done
+
+        # 2. Blobifier configuration files (blobifier.cfg & blobifier_hw.cfg)
+        echo ""
+        if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Install Blobifier configuration files (blobifier.cfg & blobifier_hw.cfg)?"; then
+            for bfile in blobifier.cfg blobifier_hw.cfg; do
+                bsrc="$VORON_CONFIG_DIR/$bfile"
+                btgt="$CONFIG_DIR/$bfile"
+                if [ -f "$bsrc" ]; then
+                    if [ -f "$btgt" ]; then
+                        backup_file "$btgt"
+                    fi
+                    cp "$bsrc" "$btgt"
+                    print_success "Copied Blobifier config: $bfile → $btgt"
+                    VORON_COPIED_FILES+=("$bfile")
+                fi
+            done
+        else
+            print_info "Skipped Blobifier configuration files"
+        fi
+
+        # 3. Voron 2.4 Machine Configuration Files (from VORON/ directory)
+        VORON_MACHINE_DIR="$SCRIPT_DIR/VORON"
+        if [ -d "$VORON_MACHINE_DIR" ]; then
+            echo ""
+            print_header "Voron 2.4 Machine Configuration Files (VORON/)"
+            echo -e "Found complete Voron machine configs in ${BLUE}VORON/${NC}:"
+            echo "  - ebb36_gen2.cfg        (Toolhead CAN/USB board: extruder, fans, probe)"
+            echo "  - sensorless_homing.cfg (X and Y sensorless homing macros)"
+            echo "  - timelapse.cfg         (Moonraker timelapse macro support)"
+            echo "  - blobifier.cfg         (Blobifier purge & servo ejection macro)"
+            echo "  - blobifier_hw.cfg      (Blobifier Octopus Max EZ PE9 servo pin)"
+            echo "  - printer.cfg           (Complete reference Voron 2.4 350mm configuration)"
+            echo ""
+
+            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Copy Voron 2.4 machine config files from VORON/ to $CONFIG_DIR?"; then
+                for vmfile in ebb36_gen2.cfg sensorless_homing.cfg timelapse.cfg blobifier.cfg blobifier_hw.cfg; do
+                    vmsrc="$VORON_MACHINE_DIR/$vmfile"
+                    vmtgt="$CONFIG_DIR/$vmfile"
+                    if [ -f "$vmsrc" ]; then
+                        if [ -f "$vmtgt" ]; then
+                            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "$vmfile already exists in config dir. Back up and replace?"; then
+                                backup_file "$vmtgt"
+                                cp "$vmsrc" "$vmtgt"
+                                print_success "Copied: $vmfile → $vmtgt"
+                                VORON_COPIED_FILES+=("$vmfile")
+                            else
+                                print_info "Kept existing $vmfile"
+                            fi
+                        else
+                            cp "$vmsrc" "$vmtgt"
+                            print_success "Copied: $vmfile → $vmtgt"
+                            VORON_COPIED_FILES+=("$vmfile")
+                        fi
+                    fi
+                done
+
+                # Reference printer.cfg handling
+                REF_PRINTER_CFG="$VORON_MACHINE_DIR/printer.cfg"
+                if [ -f "$REF_PRINTER_CFG" ]; then
+                    if [ -f "$PRINTER_CFG" ]; then
+                        if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Also replace existing printer.cfg with reference VORON/printer.cfg? (A backup will be created)"; then
+                            backup_file "$PRINTER_CFG"
+                            cp "$REF_PRINTER_CFG" "$PRINTER_CFG"
+                            print_success "Copied reference: VORON/printer.cfg → $PRINTER_CFG"
+                            VORON_COPIED_FILES+=("printer.cfg")
+                        else
+                            print_info "Kept existing printer.cfg"
+                            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+                        fi
+                    else
+                        cp "$REF_PRINTER_CFG" "$PRINTER_CFG"
+                        print_success "Installed reference: VORON/printer.cfg → $PRINTER_CFG"
+                        VORON_COPIED_FILES+=("printer.cfg")
+                    fi
+                fi
+            else
+                print_info "Skipped copying VORON/ machine configs"
+                ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+            fi
+        else
+            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+        fi
         
-        PRINTER_CFG="$CONFIG_DIR/printer.cfg"
-        ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
         print_success "Voron 2.4 configuration suite installed successfully!"
         print_info "NOTE: If your printer.cfg defines [gcode_macro CUT_TIP], comment it out"
         print_info "      as CUT_TIP is provided by ace_voron24_macros.cfg."
@@ -835,7 +1001,57 @@ EOF
     
     print_header "Installation Complete!"
     
-    cat << EOF
+    if [ "$PRINTER_PROFILE_CHOICE" = "1" ]; then
+        cat << EOF
+ACE Pro driver (Voron 2.4 Profile) installation finished!
+
+Configuration Files:
+  Master Voron config:            $CONFIG_DIR/ace_voron24.cfg
+  Voron variables:                $CONFIG_DIR/ace_voron24_vars.cfg
+  Voron hardware & sensors:       $CONFIG_DIR/ace_voron24_hardware.cfg
+  Voron driver settings:          $CONFIG_DIR/ace_voron24_setting.cfg
+  Voron macros:                   $CONFIG_DIR/ace_voron24_macros.cfg
+EOF
+        if [ ${#VORON_COPIED_FILES[@]} -gt 0 ]; then
+            echo ""
+            echo "Installed/Updated Voron files in $CONFIG_DIR:"
+            for f in "${VORON_COPIED_FILES[@]}"; do
+                echo "  ✓ $f"
+            done
+        fi
+
+        cat << EOF
+
+Next steps:
+  1. Review and customize Voron configuration:
+      $CONFIG_DIR/ace_voron24_vars.cfg
+      - Verify cutter coordinates (default X0 Y359)
+      - Verify silicone stopper pad (default X90 Y350 Z3.5) and brush coordinates
+      $CONFIG_DIR/ace_voron24_setting.cfg
+      - Adjust purge lengths and feed speeds
+
+  2. Verify printer.cfg includes ace_voron24.cfg:
+      $PRINTER_CFG
+      - If using Blobifier, uncomment '[include blobifier.cfg]'
+
+  3. Restart Klipper if not already restarted:
+     sudo systemctl restart klipper
+
+  4. Test basic commands in Klipper console:
+     e.g. ACE_GET_STATUS, ACE_QUERY_SLOTS
+
+  5. In OrcaSlicer:
+     - In Machine Start G-code, pass:
+       PRINT_START ... INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type[initial_tool]]
+     - In Change filament G-code, pass:
+       {if flush_length > 0}
+       ACE_SET_PURGE_AMOUNT PURGELENGTH=[flush_length]
+       {endif}
+       T[next_extruder] PURGE_LENGTH=[flush_length]
+
+EOF
+    else
+        cat << EOF
 ACE Pro driver installation finished!
 
 Configuration Files:
@@ -844,19 +1060,18 @@ Configuration Files:
   ACE macros:                     $MACROS_TARGET
   Printer generic macros:         $PRINTER_GENERIC_MACROS_TARGET
 EOF
-    
-    # Show backup files if any were created
-    if [ -n "$ACE_CONFIG_BACKUP" ] && [ -f "$ACE_CONFIG_BACKUP" ]; then
-        echo "  Backed up acepro_setting.cfg: $ACE_CONFIG_BACKUP"
-    fi
-    if [ -n "$ACE_MACROS_BACKUP" ] && [ -f "$ACE_MACROS_BACKUP" ]; then
-        echo "  Backed up acepro_macros.cfg: $ACE_MACROS_BACKUP"
-    fi
-    if [ -n "$PRINTER_GENERIC_MACROS_BACKUP" ] && [ -f "$PRINTER_GENERIC_MACROS_BACKUP" ]; then
-        echo "  Backed up acepro_printer_macros.cfg: $PRINTER_GENERIC_MACROS_BACKUP"
-    fi
-    
-    cat << EOF
+        # Show backup files if any were created
+        if [ -n "$ACE_CONFIG_BACKUP" ] && [ -f "$ACE_CONFIG_BACKUP" ]; then
+            echo "  Backed up acepro_setting.cfg: $ACE_CONFIG_BACKUP"
+        fi
+        if [ -n "$ACE_MACROS_BACKUP" ] && [ -f "$ACE_MACROS_BACKUP" ]; then
+            echo "  Backed up acepro_macros.cfg: $ACE_MACROS_BACKUP"
+        fi
+        if [ -n "$PRINTER_GENERIC_MACROS_BACKUP" ] && [ -f "$PRINTER_GENERIC_MACROS_BACKUP" ]; then
+            echo "  Backed up acepro_printer_macros.cfg: $PRINTER_GENERIC_MACROS_BACKUP"
+        fi
+
+        cat << EOF
 
 Next steps:
   1. Review and customize ACE configuration:
@@ -891,6 +1106,7 @@ Next steps:
      See README.md section on Orca Slicer integration for detailed instructions
 
 EOF
+    fi
 }
 
 # ============================================================================

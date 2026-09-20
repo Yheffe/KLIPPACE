@@ -608,26 +608,7 @@ EOF
             fi
         done
 
-        # 2. Blobifier configuration files (blobifier.cfg & blobifier_hw.cfg)
-        echo ""
-        if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Install Blobifier configuration files (blobifier.cfg & blobifier_hw.cfg)?"; then
-            for bfile in blobifier.cfg blobifier_hw.cfg; do
-                bsrc="$VORON_CONFIG_DIR/$bfile"
-                btgt="$CONFIG_DIR/$bfile"
-                if [ -f "$bsrc" ]; then
-                    if [ -f "$btgt" ]; then
-                        backup_file "$btgt"
-                    fi
-                    cp "$bsrc" "$btgt"
-                    print_success "Copied Blobifier config: $bfile → $btgt"
-                    VORON_COPIED_FILES+=("$bfile")
-                fi
-            done
-        else
-            print_info "Skipped Blobifier configuration files"
-        fi
-
-        # 3. Voron 2.4 Machine Configuration Files (from VORON/ directory)
+        # 2. Complete Voron 2.4 Machine Configuration Files (from VORON/ directory)
         VORON_MACHINE_DIR="$SCRIPT_DIR/VORON"
         if [ -d "$VORON_MACHINE_DIR" ]; then
             echo ""
@@ -641,7 +622,7 @@ EOF
             echo "  - printer.cfg           (Complete reference Voron 2.4 350mm configuration)"
             echo ""
 
-            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Copy Voron 2.4 machine config files from VORON/ to $CONFIG_DIR?"; then
+            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Copy complete Voron machine configs (including Blobifier, EBB36, Homing)?"; then
                 for vmfile in ebb36_gen2.cfg sensorless_homing.cfg timelapse.cfg blobifier.cfg blobifier_hw.cfg; do
                     vmsrc="$VORON_MACHINE_DIR/$vmfile"
                     vmtgt="$CONFIG_DIR/$vmfile"

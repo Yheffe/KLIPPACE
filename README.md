@@ -16,7 +16,7 @@
 
 A powerful, universal Klipper extension that brings the **Anycubic ACE Pro** multi-material unit to **any** Klipper-based 3D printer — Voron 2.4, RatRig, Anycubic Kobra, Sovol, Ender, and custom CoreXY or bed-slinger machines.
 
-KLIPPACE manages high-speed Bowden feeding, dual-sensor toolhead coordination, differential pressure feeding, filament tip cutting, silicone stopper nozzle parking, purge management, nozzle scrubbing, endless spool failover, and Moonraker lane synchronization.
+KLIPPACE manages high-speed Bowden feeding, dual-sensor toolhead coordination, differential pressure feeding, filament tip cutting, Blobifier tray nozzle parking, purge management, nozzle scrubbing, endless spool failover, and Moonraker lane synchronization.
 
 Supports **up to 3 ACE Pro units (12 tools)** chained together.
 
@@ -47,7 +47,7 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - **Dual-Sensor Toolhead Coordination** – Coordinated entry and seating using both an upper entry sensor (`EBB:PD0`) and lower nozzle sensor (`EBB:PA15`).
 - **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
-- **Silicone Stopper Park / Nozzle Seal** – Parks and rests the hot nozzle against a silicone stopper pad (`X90 Y350 Z3.5`) during tool swaps to eliminate oozing while the ACE switches spools.
+- **Blobifier Tray Park / Anti-Ooze** – Parks and rests the nozzle over the extended Blobifier tray (`X5 Y360 Z3.5`) during tool swaps to catch any oozing while the ACE switches spools.
 - **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X0 Y359`) with post-cut retraction.
 - **Decontaminator Nozzle Scrubber** – Configurable multi-pass brush scrubbing (`CLEAN_NOZZLE` at `X108-X158 Y350 Z6.0`).
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
@@ -103,18 +103,18 @@ Tailored and calibrated for my personal Voron 2.4 printer:
 - **Toolhead**: A4T ([A]nother [4]010 [T]oolhead) on BTT EBB36 GEN2
 - **Extruder**: WW BMG (WristWatch BMG, 50:10 gear ratio)
 - **Filament Cutter**: Crossbow Cutter (actuated via gantry pin at `X0 Y359`)
-- **Nozzle Seal**: Silicone Stopper park pad (`X90 Y350 Z3.5`) to eliminate oozing during swaps
-- **Purge & Scrub**: Rear purge chute (`X90 Y355 Z15`) & Decontaminator brush (`X108–X158 Y350 Z6.0`)
+- **Blobifier Purge & Park**: Blobifier tray at `X5 Y360 Z3.5` (handles both anti-ooze parking and pulsating purge blobs)
+- **Nozzle Scrubbing**: Decontaminator brush (`X96–X136 Y360 Z3.0`)
 
 The Voron profile is fully modular and lives in `config/voron24/`:
 
 | File | Purpose |
 | :--- | :--- |
 | [`ace_voron24.cfg`](config/voron24/ace_voron24.cfg) | Master include file. Place `[include ace_voron24.cfg]` at the top of your `printer.cfg`. |
-| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Crossbow Cutter (`X0 Y359`), Stopper (`X90 Y350`), Purge (`X90 Y355`), and Brush (`X108-158 Y350`). |
+| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Crossbow Cutter (`X0 Y359`), Blobifier Tray (`X5 Y360 Z3.5`), and Brush (`X96-136 Y360 Z3.0`). |
 | [`ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardware.cfg) | Pin definitions for Entry Sensor (`^EBB:PD0`) and Nozzle Sensor (`^EBB:PA15`). |
 | [`ace_voron24_setting.cfg`](config/voron24/ace_voron24_setting.cfg) | Calibrated feed lengths (1050mm total, 400mm auto-park, 16/8 mm/s differential entry). |
-| [`ace_voron24_macros.cfg`](config/voron24/ace_voron24_macros.cfg) | Voron-safe macros: `CUT_TIP`, `PARK_ON_STOPPER`, `LIFT_FROM_STOPPER`, `CLEAN_NOZZLE`, `ACE_ON_PRINT_START`. |
+| [`ace_voron24_macros.cfg`](config/voron24/ace_voron24_macros.cfg) | Voron-safe macros: `CUT_TIP`, `BLOBIFIER_PARK`, `PARK_ON_STOPPER`, `LIFT_FROM_STOPPER`, `CLEAN_NOZZLE`, `ACE_ON_PRINT_START`. |
 
 > [!TIP]
 > **Complete Voron Setup Guide**: Read [VORON24_SETUP.md](VORON24_SETUP.md) for full physical tube routing diagrams, step-by-step sensor calibration, and wiring details.
@@ -181,8 +181,8 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | `ACE_CHANGE_TOOL TOOL=<n>` | Change to tool `<n>`. Set `TOOL=-1` to perform a complete unload back to the ACE. |
 | `PARK_SLOT SLOT=<n>` | Manually rewind slot `<n>` by 400mm back before the 4-in-1 splitter. |
 | `PARK_ALL_SLOTS` | Rewind all loaded slots by 400mm back before the splitter. |
-| `PARK_ON_STOPPER` | Park nozzle sealed against the silicone stopper pad (`X90 Y350 Z3.5`). |
-| `LIFT_FROM_STOPPER` | Lift nozzle off the silicone stopper pad to safe clearance height (`Z15`). |
+| `BLOBIFIER_PARK` / `PARK` | Park nozzle over the extended Blobifier tray (`X5 Y360 Z3.5`). |
+| `LIFT_FROM_STOPPER` | Lift nozzle off the Blobifier tray to safe clearance height (`Z15`). |
 | `CUT_TIP` | Execute filament cut stroke against gantry cutter pin (`X0 Y359`). |
 | `CLEAN_NOZZLE` | Perform multi-pass nozzle scrub across the brass/silicone brush. |
 | `DRYER_START` | Start ACE Pro dryer with temp and duration (e.g. `TEMP=50 DURATION=240` or `MATERIAL=PLA`). |

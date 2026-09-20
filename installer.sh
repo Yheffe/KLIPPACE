@@ -656,6 +656,7 @@ EOF
                         else
                             print_info "Kept existing printer.cfg"
                             ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+                            ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
                         fi
                     else
                         cp "$REF_PRINTER_CFG" "$PRINTER_CFG"
@@ -1011,9 +1012,9 @@ Next steps:
       $CONFIG_DIR/ace_voron24_setting.cfg
       - Adjust purge lengths and feed speeds
 
-  2. Verify printer.cfg includes ace_voron24.cfg:
+  2. Verify printer.cfg includes ace_voron24.cfg and blobifier.cfg:
       $PRINTER_CFG
-      - If using Blobifier, uncomment '[include blobifier.cfg]'
+      - Verify '[include ace_voron24.cfg]' and '[include blobifier.cfg]' are active
 
   3. Restart Klipper if not already restarted:
      sudo systemctl restart klipper

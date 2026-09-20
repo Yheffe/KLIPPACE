@@ -2085,6 +2085,9 @@ class AceManager:
                 f"PURGE_MAX_CHUNK_LENGTH={self.purge_max_chunk_length}"
             )
 
+            # Reset purge length to default so one-off slicer overrides do not stick
+            self.toolchange_purge_length = self.default_color_change_purge_length
+
             gcode_move.reset_last_position()
             status = f"Tool {current_tool} → {target_tool} (ACE[{target_ace.instance_num}])"
         else:

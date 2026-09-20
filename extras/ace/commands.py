@@ -1475,6 +1475,19 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
         gcode.respond_info(f"ACE: Warning - could not verify homing: {e}")
 
     try:
+        # Support PURGE_LENGTH or PURGELENGTH parameter from slicer (e.g. T0 PURGE_LENGTH=65)
+        purge_param = gcmd.get_float('PURGE_LENGTH', None)
+        if purge_param is None:
+            purge_param = gcmd.get_float('PURGELENGTH', None)
+        if purge_param is not None and purge_param >= 0:
+            manager.toolchange_purge_length = purge_param
+            printer.lookup_object("gcode").respond_info(
+                f"ACE: Toolchange purge length overridden by command parameter: {purge_param:.1f}mm"
+            )
+    except Exception:
+        pass
+
+    try:
         current_tool = manager.state.get("ace_current_index", -1)
 
         status = manager.perform_tool_change(current_tool, tool_index)

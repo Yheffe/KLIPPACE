@@ -57,7 +57,7 @@ In [`config/voron24/ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardwa
 | :--- | :--- | :--- | :--- |
 | **Toolhead Entry Switch** | `^EBB:PD0` | `filament_entry_sensor` | Sits just before extruder gears. Triggers ACE fast-feed stop. |
 | **Lower Nozzle Switch** | `^EBB:PA15` | `filament_nozzle_sensor` | Sits near nozzle / post-extruder. |
-| **Crossbow Cutter Pin** | N/A (Mechanical) | Engaged at `X0 Y359` | Depresses Crossbow cutter lever against gantry pin. |
+| **Crossbow Cutter Pin** | N/A (Mechanical) | Engaged at `X2 Y357` | Depresses Crossbow cutter lever against gantry pin. |
 | **Blobifier Purge/Park Tray** | `PE9` (Servo) | `X5 Y360 Z3.5` | Purge tray and anti-ooze parking station during filament swaps. |
 | **Nozzle Scrubber** | N/A (Mechanical) | `X96-136 Y360 Z3.0` | Scrub stroke across Decontaminator brush. |
 
@@ -110,10 +110,10 @@ M109 S220
 CUT_TIP
 ```
 - If the toolhead is behind or alongside the arm (`Y > 330`), it automatically adjusts X outward to `X35` and Y forward to `Y330` first to prevent going behind or clipping the cutter arm.
-- Toolhead aligns at `X0 Y330` in front of the arm, then approaches `X0 Y340` along the pure Y axis.
-- Moves to `X0 Y359` at F2000 to depress the cutter pin.
+- Toolhead aligns at `X2 Y330` in front of the arm, then approaches `X2 Y340` along the pure Y axis.
+- Moves to `X2 Y357` at F2000 to depress the cutter pin.
 - Retracts 10mm filament while pressed.
-- Exits along pure Y axis to `X0 Y330`, then steps outward to `X35 Y330` clear of the arm.
+- Exits along pure Y axis to `X2 Y330`, then steps outward to `X35 Y330` clear of the arm.
 
 ### Step 3: Test Blobifier Tray & Nozzle Scrubber
 Test the Blobifier servo deployment:

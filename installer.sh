@@ -1011,7 +1011,7 @@ EOF
 Next steps:
   1. Review and customize Voron configuration:
       $CONFIG_DIR/ace_voron24_vars.cfg
-      - Verify cutter coordinates (default X0 Y359)
+      - Verify cutter coordinates (default X2 Y357)
       - Verify Blobifier tray park & purge coordinates (default X5 Y360 Z3.5)
       - Verify nozzle brush coordinates (default X96-X136 Y360 Z3.0)
       $CONFIG_DIR/ace_voron24_setting.cfg

@@ -592,8 +592,8 @@ EOF
         print_info "Installing Voron 2.4 configuration suite..."
         VORON_CONFIG_DIR="$SCRIPT_DIR/config/voron24"
         
-        # 1. Core KLIPPACE Voron 2.4 integration files
-        for vfile in ace_voron24.cfg ace_voron24_vars.cfg ace_voron24_hardware.cfg ace_voron24_setting.cfg ace_voron24_macros.cfg; do
+        # 1. Core KLIPPACE Voron 2.4 integration files (including Blobifier)
+        for vfile in ace_voron24.cfg ace_voron24_vars.cfg ace_voron24_hardware.cfg ace_voron24_setting.cfg ace_voron24_macros.cfg blobifier.cfg blobifier_hw.cfg; do
             vsrc="$VORON_CONFIG_DIR/$vfile"
             vtgt="$CONFIG_DIR/$vfile"
             if [ -f "$vsrc" ]; then
@@ -667,9 +667,11 @@ EOF
             else
                 print_info "Skipped copying VORON/ machine configs"
                 ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+                ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
             fi
         else
             ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+            ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
         fi
         
         print_success "Voron 2.4 configuration suite installed successfully!"
@@ -993,6 +995,8 @@ Configuration Files:
   Voron hardware & sensors:       $CONFIG_DIR/ace_voron24_hardware.cfg
   Voron driver settings:          $CONFIG_DIR/ace_voron24_setting.cfg
   Voron macros:                   $CONFIG_DIR/ace_voron24_macros.cfg
+  Blobifier macros:               $CONFIG_DIR/blobifier.cfg
+  Blobifier hardware:             $CONFIG_DIR/blobifier_hw.cfg
 EOF
         if [ ${#VORON_COPIED_FILES[@]} -gt 0 ]; then
             echo ""
@@ -1008,9 +1012,13 @@ Next steps:
   1. Review and customize Voron configuration:
       $CONFIG_DIR/ace_voron24_vars.cfg
       - Verify cutter coordinates (default X0 Y359)
-      - Verify silicone stopper pad (default X90 Y350 Z3.5) and brush coordinates
+      - Verify silicone stopper pad (default X90 Y350 Z3.5)
+      - Verify Blobifier tray coordinates (default X5 Y360 Z3.5)
+      - Verify nozzle brush coordinates (default X96-X136 Y360 Z3.0)
       $CONFIG_DIR/ace_voron24_setting.cfg
       - Adjust purge lengths and feed speeds
+      $CONFIG_DIR/blobifier.cfg
+      - Blobifier v1.5 pulsating purge & bucket parameters
 
   2. Verify printer.cfg includes ace_voron24.cfg and blobifier.cfg:
       $PRINTER_CFG

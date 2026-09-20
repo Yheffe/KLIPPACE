@@ -48,7 +48,7 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
 - **Blobifier Tray Park / Anti-Ooze** – Parks and rests the nozzle over the extended Blobifier tray (`X5 Y360 Z3.5`) during tool swaps to catch any oozing while the ACE switches spools.
-- **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X0 Y359`) with post-cut retraction.
+- **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X0 Y359`) with obstacle avoidance and post-cut retraction.
 - **Decontaminator Nozzle Scrubber** – Configurable multi-pass brush scrubbing (`CLEAN_NOZZLE` at `X108-X158 Y350 Z6.0`).
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
 - **Moonraker & OrcaSlicer Lane Sync** – Real-time lane data synchronization for filament type, color, and spool parameters.

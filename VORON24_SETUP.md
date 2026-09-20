@@ -109,10 +109,11 @@ G28
 M109 S220
 CUT_TIP
 ```
-- Toolhead moves to `X0 Y340`
-- Moves to `X0 Y359` at F2000 to depress the cutter pin
-- Retracts 10mm filament
-- Exits to `X0 Y330`
+- If the toolhead is behind or alongside the arm (`Y > 330`), it automatically adjusts X outward to `X35` and Y forward to `Y330` first to prevent going behind or clipping the cutter arm.
+- Toolhead aligns at `X0 Y330` in front of the arm, then approaches `X0 Y340` along the pure Y axis.
+- Moves to `X0 Y359` at F2000 to depress the cutter pin.
+- Retracts 10mm filament while pressed.
+- Exits along pure Y axis to `X0 Y330`, then steps outward to `X35 Y330` clear of the arm.
 
 ### Step 3: Test Blobifier Tray & Nozzle Scrubber
 Test the Blobifier servo deployment:

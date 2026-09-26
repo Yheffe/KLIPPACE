@@ -232,6 +232,39 @@ ensure_moonraker_ace_status() {
     print_success "Added [ace_status] to $conf"
 }
 
+# Ensure [update_manager KLIPPACE] section exists in moonraker.conf
+ensure_moonraker_update_manager() {
+    local conf="$1"
+
+    if [ -f "$conf" ] && grep -qiE '^[[:space:]]*\[update_manager[[:space:]]+KLIPPACE\]' "$conf"; then
+        print_success "moonraker.conf: [update_manager KLIPPACE] already present"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$conf")"
+    if [ ! -f "$conf" ]; then
+        printf '# Moonraker configuration\n\n' > "$conf"
+        print_warning "Created new moonraker.conf at $conf"
+    fi
+
+    local current_branch
+    current_branch=$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "dev")
+    local remote_origin
+    remote_origin=$(git -C "$SCRIPT_DIR" config --get remote.origin.url 2>/dev/null || echo "https://github.com/Yheffe/KLIPPACE.git")
+
+    cat << EOF >> "$conf"
+
+# KLIPPACE update manager
+[update_manager KLIPPACE]
+type: git_repo
+path: $SCRIPT_DIR
+origin: $remote_origin
+primary_branch: $current_branch
+managed_services: klipper moonraker
+EOF
+    print_success "Added [update_manager KLIPPACE] to $conf"
+}
+
 # Ensure font_size = small is set in the user-editable section of KlipperScreen.conf
 # Handles missing file, missing [main] section, wrong value, and #~# auto-generated block.
 ensure_klipperscreen_font_size() {
@@ -344,6 +377,23 @@ main() {
     # Parse command line options
     while [ $# -gt 0 ]; do
         case "$1" in
+            --profile)
+                case "$2" in
+                    1|[vV]oron*)
+                        PRINTER_PROFILE_OVERRIDE="1"
+                        ;;
+                    2|[kK]obra*)
+                        PRINTER_PROFILE_OVERRIDE="2"
+                        ;;
+                    3|[gG]eneric*)
+                        PRINTER_PROFILE_OVERRIDE="3"
+                        ;;
+                    *)
+                        print_warning "Unknown profile: $2 (expected 1/voron, 2/kobra, 3/generic)"
+                        ;;
+                esac
+                shift 2
+                ;;
             --copy-voron|--copy-voron-cfg|--voron|-v)
                 FLAG_COPY_VORON_CFG=1
                 PRINTER_PROFILE_OVERRIDE="1"
@@ -365,11 +415,12 @@ main() {
                 echo "Usage: ./installer.sh [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  --voron, --copy-voron-cfg, -v  Select Voron 2.4 profile and copy Voron machine configs"
-                echo "  --klipper-dir <dir>            Path to Klipper installation directory"
-                echo "  --config-dir <dir>             Path to Klipper config directory (e.g. ~/printer_data/config)"
-                echo "  -y, --yes                      Non-interactive mode (assume yes to prompts)"
-                echo "  -h, --help                     Show this help message"
+                echo "  --profile <1|2|3|voron|kobra|generic>  Select printer profile"
+                echo "  --voron, --copy-voron-cfg, -v          Select Voron 2.4 profile and copy Voron machine configs"
+                echo "  --klipper-dir <dir>                    Path to Klipper installation directory"
+                echo "  --config-dir <dir>                     Path to Klipper config directory (e.g. ~/printer_data/config)"
+                echo "  -y, --yes                              Non-interactive mode (assume yes to prompts)"
+                echo "  -h, --help                             Show this help message"
                 exit 0
                 ;;
             *)
@@ -518,9 +569,10 @@ EOF
                 create_or_replace_symlink "$ACE_STATUS_SOURCE" "$ACE_STATUS_TARGET" "ACE status Moonraker component"
                 MOONRAKER_RESTART_NEEDED=1
 
-                # Ensure moonraker.conf has [ace_status]
+                # Ensure moonraker.conf has [ace_status] and [update_manager KLIPPACE]
                 ACE_MOONRAKER_CONF=$(prompt_input "moonraker.conf path (press ENTER to use default)" "$ACE_MOONRAKER_CONF_DEFAULT")
                 ensure_moonraker_ace_status "$ACE_MOONRAKER_CONF"
+                ensure_moonraker_update_manager "$ACE_MOONRAKER_CONF"
             else
                 print_warning "Moonraker components directory not found: $ACE_MOONRAKER_COMPONENTS"
                 print_info "Skipping Moonraker ACE status symlink"
@@ -566,6 +618,19 @@ EOF
     else
         print_warning "Dashboard directory not found: $ACE_STATUS_DIR"
         print_info "Skipping ACE status integration (directory missing)"
+    fi
+
+    # Optional: ensure Moonraker update manager is configured even if dashboard wasn't linked
+    local mr_conf_candidate="$CONFIG_DIR/moonraker.conf"
+    if [ ! -f "$mr_conf_candidate" ] && [ -f "$INSTALL_HOME/printer_data/config/moonraker.conf" ]; then
+        mr_conf_candidate="$INSTALL_HOME/printer_data/config/moonraker.conf"
+    fi
+    if [ -f "$mr_conf_candidate" ] && ! grep -qiE '^[[:space:]]*\[update_manager[[:space:]]+KLIPPACE\]' "$mr_conf_candidate"; then
+        echo ""
+        if prompt_yes_no "Configure Moonraker update_manager for KLIPPACE (enables web UI updates)?"; then
+            ensure_moonraker_update_manager "$mr_conf_candidate"
+            MOONRAKER_RESTART_NEEDED=1
+        fi
     fi
     
     # ========================================================================
@@ -655,8 +720,8 @@ EOF
                             VORON_COPIED_FILES+=("printer.cfg")
                         else
                             print_info "Kept existing printer.cfg"
-                            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
                             ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
+                            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
                         fi
                     else
                         cp "$REF_PRINTER_CFG" "$PRINTER_CFG"
@@ -666,12 +731,12 @@ EOF
                 fi
             else
                 print_info "Skipped copying VORON/ machine configs"
-                ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
                 ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
+                ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
             fi
         else
-            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
             ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
+            ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
         fi
         
         print_success "Voron 2.4 configuration suite installed successfully!"
@@ -865,6 +930,19 @@ EOF
             cp "$MACROS_SOURCE" "$MACROS_TARGET"
             print_success "Copied: $MACROS_SOURCE → $MACROS_TARGET"
         fi
+
+        # Optional Spoolman integration helper (spoolman_logic.cfg)
+        SPOOLMAN_SOURCE="$SCRIPT_DIR/config/spoolman_logic.cfg"
+        SPOOLMAN_TARGET="$CONFIG_DIR/spoolman_logic.cfg"
+        if [ -f "$SPOOLMAN_SOURCE" ]; then
+            if prompt_yes_no "Copy Spoolman RFID & slot tracking helper (spoolman_logic.cfg)?"; then
+                if [ -f "$SPOOLMAN_TARGET" ]; then
+                    backup_file "$SPOOLMAN_TARGET"
+                fi
+                cp "$SPOOLMAN_SOURCE" "$SPOOLMAN_TARGET"
+                print_success "Copied: spoolman_logic.cfg → $SPOOLMAN_TARGET"
+            fi
+        fi
     fi
     
     # ========================================================================
@@ -935,12 +1013,18 @@ EOF
 
     if [ "$MOONRAKER_RESTART_NEEDED" -eq 1 ]; then
         if prompt_yes_no "Restart Moonraker service now?"; then
-            print_info "Restarting Moonraker..."
-            sudo systemctl restart moonraker
-            if [ $? -eq 0 ]; then
-                print_success "Moonraker restarted"
+            if command -v systemctl >/dev/null 2>&1; then
+                print_info "Restarting Moonraker..."
+                if sudo systemctl restart moonraker; then
+                    print_success "Moonraker restarted"
+                else
+                    print_error "Failed to restart Moonraker"
+                fi
+            elif command -v service >/dev/null 2>&1; then
+                print_info "Restarting Moonraker via service..."
+                sudo service moonraker restart && print_success "Moonraker restarted" || print_error "Failed to restart Moonraker"
             else
-                print_error "Failed to restart Moonraker"
+                print_warning "systemctl/service not available; please restart Moonraker manually."
             fi
         else
             print_warning "Moonraker not restarted. You can restart manually:"
@@ -950,12 +1034,18 @@ EOF
     fi
 
     if prompt_yes_no "Restart Klipper service now?"; then
-        print_info "Restarting Klipper..."
-        sudo systemctl restart klipper
-        if [ $? -eq 0 ]; then
-            print_success "Klipper restarted"
+        if command -v systemctl >/dev/null 2>&1; then
+            print_info "Restarting Klipper..."
+            if sudo systemctl restart klipper; then
+                print_success "Klipper restarted"
+            else
+                print_error "Failed to restart Klipper"
+            fi
+        elif command -v service >/dev/null 2>&1; then
+            print_info "Restarting Klipper via service..."
+            sudo service klipper restart && print_success "Klipper restarted" || print_error "Failed to restart Klipper"
         else
-            print_error "Failed to restart Klipper"
+            print_warning "systemctl/service not available; please restart Klipper manually."
         fi
     else
         print_warning "Klipper not restarted. You can restart manually:"
@@ -965,12 +1055,16 @@ EOF
     if [ -d "$KLIPPERSCREEN_PANELS_DIR" ]; then
         echo ""
         if prompt_yes_no "Restart KlipperScreen service now?"; then
-            print_info "Restarting KlipperScreen..."
-            sudo systemctl restart KlipperScreen 2>/dev/null || \
-            sudo supervisorctl restart klipperscreen 2>/dev/null || \
-            print_warning "Could not restart KlipperScreen. You can restart manually or via supervisor"
-            if [ $? -eq 0 ]; then
-                print_success "KlipperScreen restarted"
+            if command -v systemctl >/dev/null 2>&1; then
+                print_info "Restarting KlipperScreen..."
+                sudo systemctl restart KlipperScreen 2>/dev/null && print_success "KlipperScreen restarted" || \
+                sudo supervisorctl restart klipperscreen 2>/dev/null && print_success "KlipperScreen restarted" || \
+                print_warning "Could not restart KlipperScreen. You can restart manually or via supervisor"
+            elif command -v supervisorctl >/dev/null 2>&1; then
+                sudo supervisorctl restart klipperscreen 2>/dev/null && print_success "KlipperScreen restarted" || \
+                print_warning "Could not restart KlipperScreen."
+            else
+                print_warning "systemctl not available; please restart KlipperScreen manually."
             fi
         else
             print_warning "KlipperScreen not restarted. You can restart manually:"

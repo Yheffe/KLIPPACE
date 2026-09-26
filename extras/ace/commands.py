@@ -1450,6 +1450,9 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
             if success:
                 # gcmd.respond_info(f"ACE: Tool {current_tool} unloaded successfully")
                 manager.state.set("ace_current_index", -1)
+                printer.lookup_object("gcode").run_script_from_command(
+                    "SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE=-1"
+                )
             else:
                 gcmd.respond_info(f"ACE: Smart unload of tool {current_tool} failed")
         except Exception as e:
@@ -1514,8 +1517,6 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
         if ace_state and hasattr(ace_state, 'variables'):
             is_startup = ace_state.variables.get('startup_toolchange', 0) == 1
 
-        # Keep existing print/pause recovery behavior (set requested tool),
-        # but use smarter fallback while idle/startup.
         fallback_tool = current_tool if 'current_tool' in locals() else manager.state.get("ace_current_index", -1)
         filament_pos = None
         try:
@@ -1523,11 +1524,34 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
         except Exception:
             filament_pos = None
 
-        if is_printing and not is_startup:
-            active_tool = tool_index
+        toolhead_has_filament = False
+        try:
+            toolhead_has_filament = not manager.is_filament_path_free()
+        except Exception:
+            try:
+                toolhead_has_filament = (
+                    manager.get_switch_state(SENSOR_TOOLHEAD)
+                    or (manager.has_entry_sensor() and manager.get_switch_state(SENSOR_ENTRY))
+                    or (manager.has_nozzle_sensor() and manager.get_switch_state(SENSOR_NOZZLE))
+                    or (manager.has_rdm_sensor() and manager.get_switch_state(SENSOR_RDM))
+                )
+            except Exception:
+                pass
+
+        # On tool change failure, NEVER mark the destination tool_index as loaded!
+        if filament_pos == FILAMENT_STATE_BOWDEN or not toolhead_has_filament:
+            active_tool = -1
+            if not toolhead_has_filament:
+                try:
+                    manager.state.set("ace_filament_pos", FILAMENT_STATE_BOWDEN)
+                except Exception:
+                    pass
+        elif fallback_tool != -1 and fallback_tool != tool_index:
+            # Unload of previous tool failed; previous tool remains physically loaded
+            active_tool = fallback_tool
         else:
-            # If unload already completed, clear active tool in idle/startup mode.
-            active_tool = -1 if filament_pos == FILAMENT_STATE_BOWDEN else fallback_tool
+            # Load failed or path uncertain; cannot confirm any valid tool is loaded
+            active_tool = -1
 
         manager.state.set(
             "ace_current_index",
@@ -1539,17 +1563,14 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
         )
 
         gcode.respond_info(f"ACE: Tool change to T{tool_index} FAILED: {e}")
-        if is_printing:
+        if active_tool == -1:
             gcode.respond_info(
-                f"ACE: State updated - current tool marked as T{tool_index} (failed load, print recovery)"
+                f"ACE: State updated - no active tool loaded (failed tool change to T{tool_index})"
             )
         else:
-            if active_tool == -1 and filament_pos == FILAMENT_STATE_BOWDEN:
-                gcode.respond_info("ACE: State updated - no active tool (idle/startup failure after unload)")
-            else:
-                gcode.respond_info(
-                    f"ACE: State preserved - current tool remains T{active_tool} (idle/startup failure)"
-                )
+            gcode.respond_info(
+                f"ACE: State preserved - current tool remains T{active_tool} (unload failed before changing to T{tool_index})"
+            )
 
         # During G9111: startup_toolchange=1 -> raise exception to abort macro
         # During print: startup_toolchange=0 -> pause and show dialog for recovery

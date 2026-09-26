@@ -1999,6 +1999,10 @@ class AceManager:
                     if not success:
                         raise Exception(f"Failed to unload tool {current_tool}")
                     self.gcode.respond_info(f"ACE: Tool {current_tool} unloaded successfully")
+                    self.state.set("ace_current_index", -1)
+                    self.gcode.run_script_from_command(
+                        "SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE=-1"
+                    )
 
             elif filament_pos == FILAMENT_STATE_BOWDEN:
                 self.gcode.respond_info(
@@ -2012,6 +2016,10 @@ class AceManager:
                     success = self.smart_unload(tool_index=current_tool)
                     if not success:
                         raise Exception(f"Failed to unload tool {current_tool}")
+                    self.state.set("ace_current_index", -1)
+                    self.gcode.run_script_from_command(
+                        "SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE=-1"
+                    )
                 else:
                     self.gcode.respond_info("ACE: No filament at toolhead, correcting state to bowden (unloaded)")
                     self.state.set("ace_filament_pos", FILAMENT_STATE_BOWDEN)
@@ -2023,6 +2031,10 @@ class AceManager:
                 f"ACE: Endless spool mode - skipping unload of tool {current_tool} (already empty)"
             )
             self.state.set("ace_filament_pos", FILAMENT_STATE_BOWDEN)
+            self.state.set("ace_current_index", -1)
+            self.gcode.run_script_from_command(
+                "SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE=-1"
+            )
 
         # ===== LOAD NEW TOOL =====
         if target_tool != -1:
@@ -2043,13 +2055,6 @@ class AceManager:
 
             # Capture the amount purged during loading
             purged_amount = target_ace._feed_filament_into_toolhead(target_tool, check_pre_condition=False)
-
-            self.state.set("ace_current_index", target_tool)
-            self.gcode.run_script_from_command(
-                f"SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE={target_tool}"
-            )
-            self.gcode.respond_info(f"// Current tool index: {target_tool}")
-            self.gcode.respond_info(f"ACE: State updated - current tool marked as T{target_tool}")
 
             gcode_move.reset_last_position()
 
@@ -2092,6 +2097,13 @@ class AceManager:
 
             # Reset purge length to default so one-off slicer overrides do not stick
             self.toolchange_purge_length = self.default_color_change_purge_length
+
+            self.state.set("ace_current_index", target_tool)
+            self.gcode.run_script_from_command(
+                f"SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE={target_tool}"
+            )
+            self.gcode.respond_info(f"// Current tool index: {target_tool}")
+            self.gcode.respond_info(f"ACE: State updated - current tool marked as T{target_tool}")
 
             gcode_move.reset_last_position()
             status = f"Tool {current_tool} → {target_tool} (ACE[{target_ace.instance_num}])"

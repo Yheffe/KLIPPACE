@@ -47,9 +47,14 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - **Dual-Sensor Toolhead Coordination** – Coordinated entry and seating using both an upper entry sensor (`EBB:PD0`) and lower nozzle sensor (`EBB:PA15`).
 - **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
-- **Blobifier Tray Park / Anti-Ooze** – Parks and rests the nozzle over the extended Blobifier tray (`X5 Y360 Z3.5`) during tool swaps to catch any oozing while the ACE switches spools.
+- **Coordinated Dual-Blob Toolchanging (Voron 2.4 Profile)**:
+  - **Blob 1 (Load Feed Blob)** – As new filament enters the extruder, KLIPPACE coordinates an exponential Z-lift (`Z2.6 → Z12.6`) via `_ACE_LOAD_PURGE` with 100% part cooling during the ACE push to create a solid, clean vertical load blob instead of buckling.
+  - **Blob 2 (Purge Blob)** – Pulsating extrusion via Blobifier v1.5 (`BLOBIFIER_PURGE`) flushes the transition color cleanly into the purge bucket.
+  - **High-Velocity Cooling Freeze** – Blasts dual 24V part cooling fans at 100% power during a 5-second dwell (`pressure_release_time: 5000`), freezing the blob rock-solid so the servo tray retracts without squishing or stringing.
+- **Continuous Zigzag Scrubbing with Y-Axis Jitter** – Advanced 40mm nozzle wipe across the Decontaminator brush (`X96–X136 Y360 Z3.0`) with sinusoidal Y-axis jitter ($\pm 4.0\text{mm}$, alternating between Y358.0 and Y360.0) every 5mm along X for complete, non-linear nozzle tip and flank cleaning.
+- **Dual 24V Part Cooling Architecture** – Fully harnesses upgraded 24V blower fans via `[multi_pin dual_fan]` on `EBB:PD3` and `EBB:PA5` driven at 100% full power (`max_power: 1.0`).
 - **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X2 Y357`) with obstacle avoidance and post-cut retraction.
-- **Decontaminator Nozzle Scrubber** – Configurable multi-pass brush scrubbing (`CLEAN_NOZZLE` at `X108-X158 Y350 Z6.0`).
+- **Smart Adaptive Bed Line Purge (`LINE_PURGE`)** – Primes the nozzle directly adjacent to the sliced model's first layer at print start; toolchange waste is handled exclusively off-bed at the Blobifier tray.
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
 - **Moonraker & OrcaSlicer Lane Sync** – Real-time lane data synchronization for filament type, color, and spool parameters.
 - **Integrated Chamber Dryer Control** – Regulates and monitors heating in the ACE Pro drying chamber (`[temperature_ace]`).
@@ -63,26 +68,36 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - One or more Anycubic ACE Pro units connected via USB.
 - Moonraker and Mainsail or Fluidd installed.
 
-### Interactive One-Click Installer
+### Interactive Setup & Installer
 
-Clone the repository and run the interactive setup script:
+Clone the repository and run the setup script:
 
 ```bash
 cd ~
 git clone -b dev https://github.com/Yheffe/KLIPPACE.git
 cd KLIPPACE
-chmod +x installer.sh
+chmod +x installer.sh uninstaller.sh
 ./installer.sh
+```
+
+**Non-Interactive / Scripted Usage:**
+```bash
+# Voron 2.4 Profile
+./installer.sh --profile voron -y
+
+# Generic / Bed-Slinger Profile
+./installer.sh --profile generic -y
 ```
 
 The installer will:
 1. Detect your Klipper directory and symlink the core Python modules into `klippy/extras/`.
 2. Symlink `virtual_pins.py` and the `temperature_ace.py` sensor.
 3. Prompt you to select your printer profile:
-   - **`1) Voron 2.4`**: Copies the modular `config/voron24/` suite into `~/printer_data/config/` and adds `[include ace_voron24.cfg]` to `printer.cfg`.
-   - **`2) Anycubic Kobra`** or **`3) Generic`**: Copies `acepro.cfg`, `acepro_setting.cfg`, and `acepro_macros.cfg`.
-4. Optionally install the **ACE Status Moonraker Component** and Web Dashboard for Mainsail / Fluidd.
-5. Optionally link the **KlipperScreen** panel.
+   - **`1) Voron 2.4`**: Copies the modular `config/voron24/` suite (including Blobifier v1.5) into `~/printer_data/config/` and adds `[include ace_voron24.cfg]` and `[include blobifier.cfg]` to `printer.cfg`.
+   - **`2) Anycubic Kobra`** or **`3) Generic`**: Copies `acepro.cfg`, `acepro_setting.cfg`, `acepro_macros.cfg`, and optional `spoolman_logic.cfg`.
+4. Configure the **Moonraker Update Manager** (`[update_manager KLIPPACE]`) in `moonraker.conf` for one-click Web UI updates.
+5. Optionally install the **ACE Status Moonraker Component** and Web Dashboard for Mainsail / Fluidd.
+6. Optionally link the **KlipperScreen** panel and menu entries.
 
 Restart Klipper when the installer completes:
 
@@ -93,28 +108,42 @@ sudo service klipper restart
 > [!NOTE]
 > After updating or installing the web dashboard, perform a hard refresh in your browser (`Ctrl + F5` on Windows/Linux, `Cmd + Shift + R` on macOS).
 
+### Clean Uninstallation
+
+If you ever wish to remove KLIPPACE:
+
+```bash
+./uninstaller.sh
+```
+
+The uninstaller creates timestamped backups of all modified files, cleanly strips include lines and Moonraker sections, removes web dashboard assets, and prompts before deleting configuration files.
+
 ---
 
 ## ⚙️ Printer Profiles & Configuration
 
 ### Voron 2.4 (CoreXY) Profile
 
-Tailored and calibrated for my personal Voron 2.4 printer:
-- **Toolhead**: A4T ([A]nother [4]010 [T]oolhead) on BTT EBB36 GEN2
+Calibrated for a Voron 2.4 (350mm) running an A4T toolhead with multi-material Bowden feeding:
+- **Toolhead Board**: BTT EBB36 GEN2 (STM32G0B1, CAN/USB)
+- **Part Cooling**: Dual 24V blower fans via `[multi_pin dual_fan]` (`EBB:PD3` and `EBB:PA5`) at `max_power: 1.0`
 - **Extruder**: WW BMG (WristWatch BMG, 50:10 gear ratio)
-- **Filament Cutter**: Crossbow Cutter (actuated via gantry pin at `X2 Y357`)
-- **Blobifier Purge & Park**: Blobifier tray at `X5 Y360 Z3.5` (handles both anti-ooze parking and pulsating purge blobs)
-- **Nozzle Scrubbing**: Decontaminator brush (`X96–X136 Y360 Z3.0`)
+- **Sensors**: Dual-sensor toolhead entry switch (`^EBB:PD0`) and nozzle seated switch (`^EBB:PA15`)
+- **Filament Cutter**: Crossbow Cutter (gantry pin at `X2 Y357`, approach `X2 Y340`)
+- **Blobifier Purge & Park**: Servo tray at `X5 Y360` (Tray top: `Z2.4`, Purge height: `Z2.6`)
+- **Nozzle Scrubbing**: Decontaminator brush (`X96–X136 Y360 Z3.0`) with $\pm 4.0\text{mm}$ Y-axis zigzag jitter
 
 The Voron profile is fully modular and lives in `config/voron24/`:
 
 | File | Purpose |
 | :--- | :--- |
 | [`ace_voron24.cfg`](config/voron24/ace_voron24.cfg) | Master include file. Place `[include ace_voron24.cfg]` at the top of your `printer.cfg`. |
-| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Crossbow Cutter (`X2 Y357`), Blobifier Tray (`X5 Y360 Z3.5`), and Brush (`X96-136 Y360 Z3.0`). |
+| [`ace_voron24_vars.cfg`](config/voron24/ace_voron24_vars.cfg) | Physical coordinates for Crossbow Cutter (`X2 Y357`), Blobifier Tray (`X5 Y360 Z2.6`), and Brush (`X96-136 Y360 Z3.0`). |
 | [`ace_voron24_hardware.cfg`](config/voron24/ace_voron24_hardware.cfg) | Pin definitions for Entry Sensor (`^EBB:PD0`) and Nozzle Sensor (`^EBB:PA15`). |
 | [`ace_voron24_setting.cfg`](config/voron24/ace_voron24_setting.cfg) | Calibrated feed lengths (1050mm total, 400mm auto-park, 16/8 mm/s differential entry). |
-| [`ace_voron24_macros.cfg`](config/voron24/ace_voron24_macros.cfg) | Voron-safe macros: `CUT_TIP`, `BLOBIFIER_PARK`, `PARK_ON_STOPPER`, `LIFT_FROM_STOPPER`, `CLEAN_NOZZLE`, `ACE_ON_PRINT_START`. |
+| [`ace_voron24_macros.cfg`](config/voron24/ace_voron24_macros.cfg) | Voron-safe macros: `CUT_TIP`, `_ACE_LOAD_PURGE`, `BLOBIFIER_PARK`, `CLEAN_NOZZLE`, `RESUME_NOZZLE_WIPE_SEQUENCE`. |
+| [`blobifier.cfg`](config/voron24/blobifier.cfg) | Official Blobifier v1.5 pulsating purge routine, bucket ejection, and shake-off sequence. |
+| [`blobifier_hw.cfg`](config/voron24/blobifier_hw.cfg) | Hardware pin definitions for Blobifier servo (`PE9` on Octopus Max EZ). |
 
 > [!TIP]
 > **Complete Voron Setup Guide**: Read [VORON24_SETUP.md](VORON24_SETUP.md) for full physical tube routing diagrams, step-by-step sensor calibration, and wiring details.
@@ -129,6 +158,7 @@ For standard bed-slingers and custom printers with servo-actuated purge baskets:
 | `acepro_setting.cfg` | Driver parameters, tube lengths, feed speeds, and sensor assignments. |
 | `acepro_macros.cfg` | Purge, wipe, servo poop basket angles, and pause/resume logic. |
 | `acepro_printer_macros.cfg` | Generic `MY_START_PRINT` and printer helper hooks. |
+| `spoolman_logic.cfg` | (Optional) Spoolman RFID tag mapping and slot tracking integration. |
 
 ---
 
@@ -141,7 +171,7 @@ In your OrcaSlicer **Printer Settings -> Custom G-code -> Machine start G-code**
 PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type]
 ```
 
-`PRINT_START` will execute QGL, calibrate the bed mesh, heat the hotend, load the designated initial tool (`ACE_ON_PRINT_START`), optionally start the ACE Pro dryer (`DRYER_START`), and prime the nozzle before starting the print.
+`PRINT_START` will home, heat the bed, execute Quad Gantry Leveling (QGL), calibrate bed mesh, park the nozzle over the Blobifier tray (`X5 Y360 Z2.6`), heat the hotend to initial extrusion temperature, load the designated initial tool (`ACE_ON_PRINT_START`) while forming the initial load feed blob, scrub the nozzle across the Decontaminator brush, optionally start the ACE Pro dryer (`DRYER_START`), and execute an adaptive first-layer line purge (`LINE_PURGE`) next to the sliced object before beginning the first layer.
 
 ### 2. Filament Change G-Code
 In OrcaSlicer **Printer Settings -> Multimaterial -> Change filament G-code**:
@@ -181,7 +211,12 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | `ACE_CHANGE_TOOL TOOL=<n>` | Change to tool `<n>`. Set `TOOL=-1` to perform a complete unload back to the ACE. |
 | `PARK_SLOT SLOT=<n>` | Manually rewind slot `<n>` by 400mm back before the 4-in-1 splitter. |
 | `PARK_ALL_SLOTS` | Rewind all loaded slots by 400mm back before the splitter. |
-| `BLOBIFIER_PARK` / `PARK` | Park nozzle over the extended Blobifier tray (`X5 Y360 Z3.5`). |
+| `BLOBIFIER_PARK` / `PARK` | Park nozzle over the extended Blobifier tray (`X5 Y360 Z2.6`). |
+| `_ACE_LOAD_PURGE` | Coordinated exponential Z-lift (`Z2.6 → Z12.6`) and 100% fan during initial load feed to form load blob. |
+| `BLOBIFIER_PURGE` | Execute Blobifier v1.5 pulsating purge blob, 5-second cooling freeze, and strip-off ejection. |
+| `BLOBIFIER_SERVO POS=out\|in` | Manually command the Blobifier servo tray extended (`out`) or retracted (`in`). |
+| `RESUME_NOZZLE_WIPE_SEQUENCE` | Execute continuous 40mm X-axis scrub across brush with alternating $\pm 4.0\text{mm}$ Y-axis jitter. |
+| `LINE_PURGE` / `ADAPTIVE_PURGE` | Adaptive first-layer bed line purge adjacent to object perimeter (used in `PRINT_START`). |
 | `LIFT_FROM_STOPPER` | Lift nozzle off the Blobifier tray to safe clearance height (`Z15`). |
 | `CUT_TIP` | Execute filament cut stroke against gantry cutter pin (`X2 Y357`). |
 | `CLEAN_NOZZLE` | Perform multi-pass nozzle scrub across the brass/silicone brush. |
@@ -236,6 +271,21 @@ The included `acepro-mmu-dashboard` embeds interactive multi-material controls d
 - Spool material and color assignment with Spoolman integration.
 - Manual feed, retract, and park controls.
 - Dryer temperature monitoring and timer controls.
+
+### Moonraker Update Manager Integration
+
+To enable one-click updates for KLIPPACE directly from the Mainsail or Fluidd web interface, add the following to your `moonraker.conf`:
+
+```ini
+[update_manager KLIPPACE]
+type: git_repo
+path: ~/KLIPPACE
+origin: https://github.com/Yheffe/KLIPPACE.git
+primary_branch: dev
+managed_services: klipper moonraker
+```
+
+*(Note: `installer.sh` will automatically offer to configure this for you during setup.)*
 
 ### KlipperScreen Panel
 A native touchscreen panel is available for KlipperScreen:

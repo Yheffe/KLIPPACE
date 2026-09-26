@@ -1076,12 +1076,13 @@ class AceInstance:
             if load_macro is not None:
                 self.gcode.run_script_from_command(
                     f"_ACE_LOAD_PURGE LENGTH={self.toolhead_full_purge_length} "
-                    f"SPEED={self.toolhead_slow_loading_speed}"
+                    f"SPEED={self.toolhead_slow_loading_speed * 60.0:.1f}"
                 )
             else:
                 self._extruder_move(
                     self.toolhead_full_purge_length,
-                    self.toolhead_slow_loading_speed
+                    self.toolhead_slow_loading_speed,
+                    z_lift=10.0
                 )
 
         toolhead = self.printer.lookup_object('toolhead')

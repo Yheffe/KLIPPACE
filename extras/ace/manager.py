@@ -2036,6 +2036,11 @@ class AceManager:
 
             self.gcode.respond_info(f"ACE[{target_ace.instance_num}]: Loading tool {target_tool}...")
 
+            # Ensure toolhead is safely parked on Blobifier tray before feeding new filament
+            park_macro = self.printer.lookup_object('gcode_macro BLOBIFIER_PARK', None)
+            if park_macro is not None:
+                self.gcode.run_script_from_command("BLOBIFIER_PARK")
+
             # Capture the amount purged during loading
             purged_amount = target_ace._feed_filament_into_toolhead(target_tool, check_pre_condition=False)
 

@@ -1071,10 +1071,18 @@ class AceInstance:
             f"ACE[{self.instance_num}]: Feeding from sensor to nozzle..."
         )
 
-        self._extruder_move(
-            self.toolhead_full_purge_length,
-            self.toolhead_slow_loading_speed
-        )
+        if self.toolhead_full_purge_length > 0:
+            load_macro = self.printer.lookup_object('gcode_macro _ACE_LOAD_PURGE', None)
+            if load_macro is not None:
+                self.gcode.run_script_from_command(
+                    f"_ACE_LOAD_PURGE LENGTH={self.toolhead_full_purge_length} "
+                    f"SPEED={self.toolhead_slow_loading_speed}"
+                )
+            else:
+                self._extruder_move(
+                    self.toolhead_full_purge_length,
+                    self.toolhead_slow_loading_speed
+                )
 
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.wait_moves()
@@ -2065,9 +2073,9 @@ class AceInstance:
                 f"requested={delay:.2f}s, actual={actual_delay:.2f}s"
             )
 
-    def _extruder_move(self, length, speed, wait_for_move_end=False):
-        """Move extruder (relative) via motion planner, synchronously."""
-        if length == 0:
+    def _extruder_move(self, length, speed, wait_for_move_end=False, z_lift=0.0):
+        """Move extruder (relative) via motion planner, synchronously with optional Z lift."""
+        if length == 0 and z_lift == 0.0:
             self.gcode.respond_info(
                 f"ACE[{self.instance_num}]: _extruder_move() -> Skipping zero-length move"
             )
@@ -2077,6 +2085,8 @@ class AceInstance:
         cur_pos = list(toolhead.get_position())  # [X, Y, Z, E]
 
         new_pos = cur_pos[:]
+        if z_lift != 0.0:
+            new_pos[2] += z_lift
         new_pos[3] += length
 
         toolhead.move(new_pos, speed)

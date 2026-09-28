@@ -3,6 +3,6 @@ import re
 with open("/home/pi/fluidd/assets/index-D-yWxGqL.js", 'r', encoding='utf-8', errors='ignore') as fp:
     c = fp.read()
 
-for m in re.finditer(r'mmu\s*:\s*\{', c):
+for m in re.finditer(r'\{show:!0,filename:', c):
     idx = m.start()
-    print("Match at", idx, ":", c[max(0, idx-100):min(len(c), idx+400)])
+    print("Match at", idx, ":", c[max(0, idx-200):min(len(c), idx+200)])

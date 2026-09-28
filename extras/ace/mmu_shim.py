@@ -200,43 +200,6 @@ class MmuShim:
             }
 
 
-class MmuMachineShim:
-    """
-    Klipper printer object shim implementing the Happy Hare MMU Machine topology interface.
-    Exposes unit definitions (unit_0, unit_1, etc.) for Fluidd / Mainsail MMU unit rendering.
-    """
-
-    def __init__(self, manager):
-        self.manager = manager
-
-    def get_status(self, eventtime=None) -> Dict[str, Any]:
-        instances = getattr(self.manager, "instances", [])
-        num_units = max(len(instances), 1)
-        res: Dict[str, Any] = {"num_units": num_units}
-
-        for idx, inst in enumerate(instances):
-            slots = getattr(inst, "slots", [None] * 4)
-            res[f"unit_{idx}"] = {
-                "name": f"ACE Pro {idx}",
-                "vendor": "Anycubic",
-                "version": "1.0",
-                "num_gates": len(slots),
-                "first_gate": idx * 4,
-                "has_bypass": False,
-            }
-
-        if not instances:
-            res["unit_0"] = {
-                "name": "ACE Pro 0",
-                "vendor": "Anycubic",
-                "version": "1.0",
-                "num_gates": 4,
-                "first_gate": 0,
-                "has_bypass": False,
-            }
-
-        return res
-
     # =========================================================================
     # G-Code Command Implementations
     # =========================================================================
@@ -343,3 +306,42 @@ class MmuMachineShim:
         else:
             ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
             gcmd.respond_info(f"MMU Tool-to-Gate Map: {ttg_str}")
+
+
+class MmuMachineShim:
+    """
+    Klipper printer object shim implementing the Happy Hare MMU Machine topology interface.
+    Exposes unit definitions (unit_0, unit_1, etc.) for Fluidd / Mainsail MMU unit rendering.
+    """
+
+    def __init__(self, manager):
+        self.manager = manager
+
+    def get_status(self, eventtime=None) -> Dict[str, Any]:
+        instances = getattr(self.manager, "instances", [])
+        num_units = max(len(instances), 1)
+        res: Dict[str, Any] = {"num_units": num_units}
+
+        for idx, inst in enumerate(instances):
+            slots = getattr(inst, "slots", [None] * 4)
+            res[f"unit_{idx}"] = {
+                "name": f"ACE Pro {idx}",
+                "vendor": "Anycubic",
+                "version": "1.0",
+                "num_gates": len(slots),
+                "first_gate": idx * 4,
+                "has_bypass": False,
+            }
+
+        if not instances:
+            res["unit_0"] = {
+                "name": "ACE Pro 0",
+                "vendor": "Anycubic",
+                "version": "1.0",
+                "num_gates": 4,
+                "first_gate": 0,
+                "has_bypass": False,
+            }
+
+        return res
+

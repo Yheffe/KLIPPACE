@@ -1,11 +1,10 @@
-import re
+import glob, re
 
-for fname in ["/home/pi/fluidd/assets/ConsoleCard-D57rnBpM.js", "/home/pi/fluidd/assets/Console-tguDUHtD.js"]:
-    with open(fname, 'r', encoding='utf-8', errors='ignore') as fp:
+for f in glob.glob("/home/pi/fluidd/assets/*.js"):
+    with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
         c = fp.read()
-    print("=== FILE:", fname)
-    # Search for any style, class, svg, color, warning, yellow, border, stroke
-    matches = re.findall(r'class:"[^"]+"', c)
-    print("Classes:", set(matches))
-    for m in re.finditer(r'\{[^\}]*(?:border|stroke|fill|color|background)[^\}]*\}', c):
-        print("Style match:", m.group(0)[:120])
+    if "gcode_store" in c:
+        print("gcode_store in:", f)
+        # Search for around gcode_store
+        for m in re.finditer(r'gcode_store.{0,200}', c):
+            print("  snippet:", m.group(0))

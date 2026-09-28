@@ -1,8 +1,6 @@
-import re
-
 with open("/home/pi/fluidd/assets/index-D-yWxGqL.js", 'r', encoding='utf-8', errors='ignore') as fp:
     c = fp.read()
 
-for m in re.finditer(r'\{show:!0,filename:', c):
-    idx = m.start()
-    print("Match at", idx, ":", c[max(0, idx-200):min(len(c), idx+200)])
+idx = 174644
+print("Around 174644:")
+print(c[idx-1000:idx+500])

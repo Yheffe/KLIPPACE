@@ -209,7 +209,7 @@ class MmuShim:
         """Change to specified tool: MMU_CHANGE_TOOL TOOL=<int>"""
         tool = gcmd.get_int("TOOL", None)
         if tool is None:
-            gcmd.respond_error("MMU_CHANGE_TOOL: TOOL parameter is required")
+            gcmd.respond_info("!! MMU_CHANGE_TOOL: TOOL parameter is required")
             return
         gcmd.respond_info(f"MMU: Changing to Tool T{tool}")
         self.gcode.run_script_from_command(f"T{tool}")
@@ -220,7 +220,7 @@ class MmuShim:
         gate = gcmd.get_int("GATE", None)
         target = tool if tool is not None else gate
         if target is None:
-            gcmd.respond_error("MMU_SELECT: TOOL or GATE parameter is required")
+            gcmd.respond_info("!! MMU_SELECT: TOOL or GATE parameter is required")
             return
         gcmd.respond_info(f"MMU: Selecting tool T{target}")
         self.gcode.run_script_from_command(f"T{target}")
@@ -254,7 +254,7 @@ class MmuShim:
         if self.printer.lookup_object("gcode_macro CUT_TIP", None):
             self.gcode.run_script_from_command("CUT_TIP")
         else:
-            gcmd.respond_error("CUT_TIP macro not found")
+            gcmd.respond_info("!! CUT_TIP macro not found")
 
     def cmd_MMU_RECOVER(self, gcmd):
         """Reset state / recover MMU status."""
@@ -303,7 +303,7 @@ class MmuShim:
                 self.tool_to_gate_map[tool] = gate
                 gcmd.respond_info(f"MMU: Mapped Tool T{tool} to Gate {gate}")
             else:
-                gcmd.respond_error("MMU_TTG_MAP: Tool or gate out of range")
+                gcmd.respond_info("!! MMU_TTG_MAP: Tool or gate out of range")
         else:
             ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
             gcmd.respond_info(f"MMU Tool-to-Gate Map: {ttg_str}")
@@ -317,7 +317,7 @@ class MmuShim:
             for line in out.splitlines()[:30]:
                 gcmd.respond_info(line)
         except Exception as e:
-            gcmd.respond_error(str(e))
+            gcmd.respond_info(f"!! ERROR: {e}")
 
 
 class MmuMachineShim:

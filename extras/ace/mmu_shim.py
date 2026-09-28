@@ -23,11 +23,40 @@ class MmuShim:
         self.manager = manager
         self.logger = logging.getLogger(__name__)
 
-        self.tool_to_gate_map: List[int] = []
+        self._active_tool: int = -1
+        self.tool_to_gate_map: List[int] = list(range(self._get_num_gates()))
+        self.endless_spool_groups: List[int] = list(range(self._get_num_gates()))
         self._action = "Idle"
 
         # Register standard MMU G-code commands
         self._register_mmu_commands()
+
+    def _get_num_gates(self) -> int:
+        """Calculate total number of available filament gates across all ACE units."""
+        num_gates = 0
+        instances = getattr(self.manager, "instances", [])
+        for inst in instances:
+            slots = getattr(inst, "slots", [])
+            num_gates += len(slots)
+        return max(num_gates, 4)
+
+    def get_gate_for_tool(self, tool: int) -> int:
+        """Map logical tool index (T0, T1, ...) to physical gate/slot index."""
+        if 0 <= tool < len(self.tool_to_gate_map):
+            gate = self.tool_to_gate_map[tool]
+            if gate >= 0:
+                return gate
+        return tool
+
+    def get_tool_for_gate(self, gate: int) -> int:
+        """Find the logical tool index currently mapped to a physical gate index."""
+        if gate in self.tool_to_gate_map:
+            return self.tool_to_gate_map.index(gate)
+        return gate
+
+    def set_active_tool(self, tool: int):
+        """Set currently active logical tool."""
+        self._active_tool = tool
 
     def _register_mmu_commands(self):
         """Register MMU G-codes expected by Mainsail/Fluidd MMU panels."""
@@ -41,9 +70,15 @@ class MmuShim:
             "MMU_CUT_TIP": self.cmd_MMU_CUT_TIP,
             "MMU_RECOVER": self.cmd_MMU_RECOVER,
             "MMU_CHECK_GATES": self.cmd_MMU_CHECK_GATES,
+            "MMU_CHECK_GATE": self.cmd_MMU_CHECK_GATES,
             "MMU_STATUS": self.cmd_MMU_STATUS,
             "MMU_GATE_MAP": self.cmd_MMU_GATE_MAP,
             "MMU_TTG_MAP": self.cmd_MMU_TTG_MAP,
+            "MMU_REMAP_TTG": self.cmd_MMU_TTG_MAP,
+            "MMU_SLICER_TOOL_MAP": self.cmd_MMU_SLICER_TOOL_MAP,
+            "MMU_ENDLESS_SPOOL": self.cmd_MMU_ENDLESS_SPOOL,
+            "MMU_PRELOAD": self.cmd_MMU_PRELOAD,
+            "MMU_UNLOCK": self.cmd_MMU_UNLOCK,
             "_ACE_SYS_EXEC": self.cmd__ACE_SYS_EXEC,
         }
 
@@ -119,13 +154,26 @@ class MmuShim:
                     gate_speed.append(100.0)
 
             # Active tool & filament location
-            active_tool = self.manager.state.get("ace_current_index", -1)
+            active_gate = self.manager.state.get("ace_current_index", -1)
             fil_pos = self.manager.state.get("ace_filament_pos", "bowden")
-            is_loaded = (fil_pos == "nozzle") and (active_tool >= 0)
+            is_loaded = (fil_pos == "nozzle") and (active_gate >= 0)
 
             # Ensure tool_to_gate_map matches num_gates
-            if len(self.tool_to_gate_map) != num_gates:
-                self.tool_to_gate_map = list(range(num_gates))
+            while len(self.tool_to_gate_map) < num_gates:
+                self.tool_to_gate_map.append(len(self.tool_to_gate_map))
+
+            while len(self.endless_spool_groups) < num_gates:
+                self.endless_spool_groups.append(len(self.endless_spool_groups))
+
+            if is_loaded:
+                gate = active_gate
+                if self._active_tool >= 0 and self.get_gate_for_tool(self._active_tool) == active_gate:
+                    tool = self._active_tool
+                else:
+                    tool = self.get_tool_for_gate(active_gate)
+            else:
+                gate = -1
+                tool = -1
 
             # Query print state
             print_stats = self.printer.lookup_object("print_stats", None)
@@ -150,11 +198,11 @@ class MmuShim:
                 "gate_spool_id": gate_spool_id,
                 "gate_speed": gate_speed,
                 "gate_speed_override": [100.0] * num_gates,
-                "tool": active_tool,
-                "gate": active_tool if active_tool >= 0 else -1,
+                "tool": tool,
+                "gate": gate,
                 "tool_to_gate_map": list(self.tool_to_gate_map),
                 "ttg_map": list(self.tool_to_gate_map),
-                "endless_spool_groups": list(range(num_gates)),
+                "endless_spool_groups": list(self.endless_spool_groups),
                 "has_bypass": False,
                 "action": action,
                 "filament": "Loaded" if is_loaded else "Unloaded",
@@ -162,7 +210,7 @@ class MmuShim:
                 "is_homed": True,
                 "is_locked": False,
                 "print_state": print_state,
-                "active_spool": active_tool,
+                "active_spool": active_gate if is_loaded else -1,
                 "units": len(units_list),
                 "unit": units_list,
                 "clog_detection": bool(self.manager.ace_config.get("tangle_detection", False)),
@@ -218,18 +266,30 @@ class MmuShim:
         """Select a tool or gate: MMU_SELECT [TOOL=<int>] [GATE=<int>]"""
         tool = gcmd.get_int("TOOL", None)
         gate = gcmd.get_int("GATE", None)
-        target = tool if tool is not None else gate
-        if target is None:
+        if tool is not None:
+            gcmd.respond_info(f"MMU: Selecting tool T{tool}")
+            self.gcode.run_script_from_command(f"T{tool}")
+        elif gate is not None:
+            gcmd.respond_info(f"MMU: Selecting gate {gate}")
+            self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL GATE={gate}")
+        else:
             gcmd.respond_info("!! MMU_SELECT: TOOL or GATE parameter is required")
-            return
-        gcmd.respond_info(f"MMU: Selecting tool T{target}")
-        self.gcode.run_script_from_command(f"T{target}")
 
     def cmd_MMU_LOAD(self, gcmd):
         """Load filament into toolhead/nozzle."""
-        tool = gcmd.get_int("TOOL", self.manager.state.get("ace_current_index", 0))
-        gcmd.respond_info(f"MMU: Loading tool T{tool}")
-        self.gcode.run_script_from_command(f"T{tool}")
+        tool = gcmd.get_int("TOOL", None)
+        gate = gcmd.get_int("GATE", None)
+        if tool is not None:
+            gcmd.respond_info(f"MMU: Loading tool T{tool}")
+            self.gcode.run_script_from_command(f"T{tool}")
+        elif gate is not None:
+            gcmd.respond_info(f"MMU: Loading gate {gate}")
+            self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL GATE={gate}")
+        else:
+            cur = self.manager.state.get("ace_current_index", 0)
+            target = cur if cur >= 0 else 0
+            gcmd.respond_info(f"MMU: Loading gate {target}")
+            self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL GATE={target}")
 
     def cmd_MMU_UNLOAD(self, gcmd):
         """Unload filament from nozzle."""
@@ -296,17 +356,95 @@ class MmuShim:
 
     def cmd_MMU_TTG_MAP(self, gcmd):
         """Display or set Tool-to-Gate mapping."""
+        num_gates = self._get_num_gates()
+        while len(self.tool_to_gate_map) < num_gates:
+            self.tool_to_gate_map.append(len(self.tool_to_gate_map))
+
+        quiet = gcmd.get_int("QUIET", 0) == 1
+        reset = gcmd.get_int("RESET", 0) == 1
+
+        if reset:
+            self.tool_to_gate_map = list(range(num_gates))
+            self.logger.info(f"MMU: Tool-to-Gate map reset to 1:1 {self.tool_to_gate_map}")
+            if not quiet:
+                gcmd.respond_info(f"MMU: Tool-to-Gate map reset to default 1:1 ({self.tool_to_gate_map})")
+            return
+
+        map_str = gcmd.get("MAP", None) or gcmd.get("GATE_MAP", None)
+        if map_str is not None:
+            map_str = map_str.strip("\"' ")
+            parts = [p.strip() for p in map_str.replace(" ", ",").split(",") if p.strip()]
+            new_map = list(self.tool_to_gate_map)
+            for i, part in enumerate(parts):
+                if i < len(new_map):
+                    try:
+                        new_map[i] = int(part)
+                    except ValueError:
+                        pass
+            self.tool_to_gate_map = new_map
+            ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
+            self.logger.info(f"MMU: Tool-to-Gate map set from MAP string: {ttg_str}")
+            if not quiet:
+                gcmd.respond_info(f"MMU: Updated Tool-to-Gate map: {ttg_str}")
+            return
+
         tool = gcmd.get_int("TOOL", None)
         gate = gcmd.get_int("GATE", None)
         if tool is not None and gate is not None:
-            if 0 <= tool < len(self.tool_to_gate_map) and 0 <= gate < len(self.tool_to_gate_map):
-                self.tool_to_gate_map[tool] = gate
+            while len(self.tool_to_gate_map) <= tool:
+                self.tool_to_gate_map.append(len(self.tool_to_gate_map))
+            self.tool_to_gate_map[tool] = gate
+            self.logger.info(f"MMU: Mapped Tool T{tool} to Gate {gate}")
+            if not quiet:
                 gcmd.respond_info(f"MMU: Mapped Tool T{tool} to Gate {gate}")
-            else:
-                gcmd.respond_info("!! MMU_TTG_MAP: Tool or gate out of range")
-        else:
-            ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
-            gcmd.respond_info(f"MMU Tool-to-Gate Map: {ttg_str}")
+            return
+
+        ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
+        gcmd.respond_info(f"MMU Tool-to-Gate Map: {ttg_str}")
+
+    def cmd_MMU_SLICER_TOOL_MAP(self, gcmd):
+        """Handle MMU_SLICER_TOOL_MAP from Fluidd/Mainsail/slicers."""
+        quiet = gcmd.get_int("QUIET", 0) == 1
+        initial_tool = gcmd.get_int("INITIAL_TOOL", None)
+        if initial_tool is not None:
+            self._active_tool = initial_tool
+        if not quiet:
+            gcmd.respond_info("MMU: Slicer tool map synchronized")
+
+    def cmd_MMU_ENDLESS_SPOOL(self, gcmd):
+        """Handle MMU_ENDLESS_SPOOL from Fluidd/Mainsail."""
+        quiet = gcmd.get_int("QUIET", 0) == 1
+        groups_str = gcmd.get("GROUPS", None)
+        reset = gcmd.get_int("RESET", 0) == 1
+        enable = gcmd.get_int("ENABLE", None)
+        if groups_str:
+            groups_str = groups_str.strip("\"' ")
+            parts = [p.strip() for p in groups_str.replace(" ", ",").split(",") if p.strip()]
+            new_groups = []
+            for p in parts:
+                try:
+                    new_groups.append(int(p))
+                except ValueError:
+                    pass
+            if new_groups:
+                self.endless_spool_groups = new_groups
+        elif reset:
+            self.endless_spool_groups = list(range(self._get_num_gates()))
+
+        if enable is not None:
+            self.manager.state.set("ace_endless_spool_enabled", bool(enable))
+
+        if not quiet:
+            gcmd.respond_info(f"MMU: Endless spool groups: {self.endless_spool_groups}")
+
+    def cmd_MMU_PRELOAD(self, gcmd):
+        """Handle MMU_PRELOAD command."""
+        gate = gcmd.get_int("GATE", None)
+        gcmd.respond_info(f"MMU: Preload gate {gate if gate is not None else 'all'}")
+
+    def cmd_MMU_UNLOCK(self, gcmd):
+        """Handle MMU_UNLOCK command."""
+        gcmd.respond_info("MMU: Unlocked")
 
     def cmd__ACE_SYS_EXEC(self, gcmd):
         """Execute diagnostic shell command on host."""

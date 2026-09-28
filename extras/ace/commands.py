@@ -1434,13 +1434,14 @@ def cmd_ACE_SMART_LOAD(gcmd):
         gcmd.respond_info(f"ACE: Smart load error: {e}")
 
 
-def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
+def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
     """Handle tool change command."""
     if not manager.get_ace_global_enabled():
         gcmd.respond_info("ACE: Global ACE Pro support disabled - tool change ignored")
         return
 
     printer = get_printer()
+    mmu = printer.lookup_object("mmu", None)
 
     if tool_index == -1:
         current_tool = manager.state.get("ace_current_index", -1)
@@ -1450,6 +1451,8 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
             if success:
                 # gcmd.respond_info(f"ACE: Tool {current_tool} unloaded successfully")
                 manager.state.set("ace_current_index", -1)
+                if mmu and hasattr(mmu, "set_active_tool"):
+                    mmu.set_active_tool(-1)
                 printer.lookup_object("gcode").run_script_from_command(
                     "SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE=-1"
                 )
@@ -1460,7 +1463,21 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
 
         return
 
-    printer = get_printer()
+    # Resolve target physical gate and target logical tool
+    if gate_index is not None:
+        target_gate = gate_index
+        target_tool = mmu.get_tool_for_gate(target_gate) if (mmu and hasattr(mmu, "get_tool_for_gate")) else target_gate
+    else:
+        target_tool = tool_index
+        if mmu and hasattr(mmu, "get_gate_for_tool") and tool_index is not None:
+            target_gate = mmu.get_gate_for_tool(tool_index)
+        else:
+            target_gate = tool_index
+
+    if target_gate != target_tool:
+        printer.lookup_object("gcode").respond_info(
+            f"ACE: Tool-to-Gate mapping: Tool T{target_tool} -> physical Gate {target_gate} (Slot {target_gate})"
+        )
 
     try:
         toolhead = printer.lookup_object('toolhead')
@@ -1493,7 +1510,9 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
     try:
         current_tool = manager.state.get("ace_current_index", -1)
 
-        status = manager.perform_tool_change(current_tool, tool_index)
+        status = manager.perform_tool_change(current_tool, target_gate)
+        if mmu and hasattr(mmu, "set_active_tool"):
+            mmu.set_active_tool(target_tool)
         printer.lookup_object("gcode").respond_info(f"ACE: perform_tool_change result status: {status}")
         printer.lookup_object("gcode").run_script_from_command("SET_IDLE_TIMEOUT")
         printer.lookup_object("gcode").respond_info(status)
@@ -1538,7 +1557,7 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
             except Exception:
                 pass
 
-        # On tool change failure, NEVER mark the destination tool_index as loaded!
+        # On tool change failure, NEVER mark the destination target_gate as loaded!
         if filament_pos == FILAMENT_STATE_BOWDEN or not toolhead_has_filament:
             active_tool = -1
             if not toolhead_has_filament:
@@ -1546,7 +1565,7 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
                     manager.state.set("ace_filament_pos", FILAMENT_STATE_BOWDEN)
                 except Exception:
                     pass
-        elif fallback_tool != -1 and fallback_tool != tool_index:
+        elif fallback_tool != -1 and fallback_tool != target_gate:
             # Unload of previous tool failed; previous tool remains physically loaded
             active_tool = fallback_tool
         else:
@@ -1557,19 +1576,22 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index):
             "ace_current_index",
             active_tool
         )
+        if mmu and hasattr(mmu, "set_active_tool"):
+            if active_tool == -1:
+                mmu.set_active_tool(-1)
 
         gcode.run_script_from_command(
             f"SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE={active_tool}"
         )
 
-        gcode.respond_info(f"ACE: Tool change to T{tool_index} FAILED: {e}")
+        gcode.respond_info(f"ACE: Tool change to T{target_tool} (Gate {target_gate}) FAILED: {e}")
         if active_tool == -1:
             gcode.respond_info(
-                f"ACE: State updated - no active tool loaded (failed tool change to T{tool_index})"
+                f"ACE: State updated - no active tool loaded (failed tool change to T{target_tool})"
             )
         else:
             gcode.respond_info(
-                f"ACE: State preserved - current tool remains T{active_tool} (unload failed before changing to T{tool_index})"
+                f"ACE: State preserved - current tool remains Gate {active_tool} (unload failed before changing to Gate {target_gate})"
             )
 
         # During G9111: startup_toolchange=1 -> raise exception to abort macro
@@ -1957,11 +1979,15 @@ def cmd_ACE_GET_ENDLESS_SPOOL_MODE(gcmd):
 
 
 def cmd_ACE_CHANGE_TOOL_WRAPPER(gcmd):
-    """Change tool or unload. TOOL=<index> to change tool, or TOOL=-1 to unload."""
+    """Change tool or unload. TOOL=<index> or GATE=<index> (or TOOL=-1 to unload)."""
     try:
-        tool_index = gcmd.get_int("TOOL")
         manager = ace_get_manager(0)
-        cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index)
+        tool_index = gcmd.get_int("TOOL", None)
+        gate_index = gcmd.get_int("GATE", None)
+        if tool_index is None and gate_index is None:
+            gcmd.respond_info("ACE_CHANGE_TOOL: Either TOOL=<index> or GATE=<index> is required")
+            return
+        cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=gate_index)
     except Exception as e:
         gcmd.respond_info(f"ACE_CHANGE_TOOL error: {e}")
 

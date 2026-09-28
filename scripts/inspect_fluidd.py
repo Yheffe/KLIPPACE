@@ -2,24 +2,22 @@ import glob
 import os
 import re
 
-print("=== SEARCHING FLUIDD ASSETS ===")
-js_files = glob.glob("/home/pi/fluidd/assets/*.js")
-css_files = glob.glob("/home/pi/fluidd/assets/*.css")
-
-for f in css_files:
-    with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
-        content = fp.read()
-        matches = re.findall(r'[^{}]*\{[^{}]*(?:border|outline|box-shadow)[^{}]*\}', content)
-        for m in matches:
-            if any(k in m for k in ['console', 'warning', 'amber', 'yellow', 'gold', 'orange', 'card', 'group']):
-                print(f"[{os.path.basename(f)}] {m[:150]}")
-
-print("=== SEARCHING JS FOR CONSOLE CARD / PRINT BORDER ===")
-for f in js_files:
-    if "Console" in f or "Dashboard" in f or "index" in f:
+print("=== SEARCHING FOR BORDER-WARNING ===")
+for f in glob.glob("/home/pi/fluidd/assets/*"):
+    if f.endswith(('.js', '.css')):
         with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
             content = fp.read()
-            for m in re.finditer(r'(?:border|outline|bracket|highlight|group|print_stats)[^;,\{\}]{0,50}', content, re.I):
-                s = m.group(0)
-                if any(k in s.lower() for k in ['color', 'warning', 'style', 'class', 'console']):
-                    print(f"[{os.path.basename(f)}] {s}")
+            if "border-warning" in content:
+                print(f"FOUND IN: {os.path.basename(f)}")
+                for m in re.finditer(r'([^{;,\n]{0,80}border-warning[^{;,\n]{0,80})', content):
+                    print("  -->", m.group(1))
+
+print("=== SEARCHING FOR [data-v-e901643b] ===")
+for f in glob.glob("/home/pi/fluidd/assets/*"):
+    if f.endswith(('.js', '.css')):
+        with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
+            content = fp.read()
+            if "e901643b" in content:
+                print(f"FOUND IN: {os.path.basename(f)}")
+                for m in re.finditer(r'([^{;,\n]{0,100}e901643b[^{;,\n]{0,100})', content):
+                    print("  -->", m.group(1))

@@ -2,11 +2,10 @@ with open("/home/pi/fluidd/assets/index-D-yWxGqL.js", 'r', encoding='utf-8', err
     c = fp.read()
 
 import re
-idx = c.find("var tu=")
+# Find components in ConsoleBrowser
+idx = c.find("eb66d612")
 if idx != -1:
-    print("tu definition:")
-    print(c[idx:idx+2500])
-else:
-    # search for tu=
-    for m in re.finditer(r'(?:var|let|const)\s+tu\s*=', c):
-        print("MATCH:", c[m.start():m.start()+2500])
+    print("Near eb66d612:")
+    start = max(0, idx - 1500)
+    end = min(len(c), idx + 2000)
+    print(c[start:end])

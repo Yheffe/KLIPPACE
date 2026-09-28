@@ -32,7 +32,7 @@ from . import commands
 from .config import read_ace_config
 from .protocol import create_protocol_adapter, resolve_protocol_name
 from .serial_manager import AceSerialManager
-from .mmu_shim import MmuShim
+from .mmu_shim import MmuShim, MmuMachineShim
 import logging
 import serial
 import time
@@ -246,13 +246,15 @@ class AceManager:
             # Non-fatal; fall back to per-instance status only.
             pass
 
-        # Expose Happy Hare MMU compatible object for Mainsail/Fluidd MMU cards
+        # Expose Happy Hare MMU compatible objects for Mainsail/Fluidd MMU cards
         try:
             self.mmu_shim = MmuShim(self.printer, self.gcode, self)
             self.printer.add_object("mmu", self.mmu_shim)
-            logging.info("ACE: Registered 'mmu' printer object for Mainsail/Fluidd compatibility")
+            self.mmu_machine_shim = MmuMachineShim(self)
+            self.printer.add_object("mmu_machine", self.mmu_machine_shim)
+            logging.info("ACE: Registered 'mmu' and 'mmu_machine' printer objects for Mainsail/Fluidd compatibility")
         except Exception as e:
-            logging.warning(f"ACE: Failed to register mmu compatibility object: {e}")
+            logging.warning(f"ACE: Failed to register mmu compatibility objects: {e}")
 
         # Connection health monitoring state
         self._connection_supervision_enabled = self.ace_config.get(

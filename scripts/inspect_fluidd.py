@@ -1,23 +1,11 @@
-import glob
-import os
 import re
 
-print("=== SEARCHING FOR BORDER-WARNING ===")
-for f in glob.glob("/home/pi/fluidd/assets/*"):
-    if f.endswith(('.js', '.css')):
-        with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
-            content = fp.read()
-            if "border-warning" in content:
-                print(f"FOUND IN: {os.path.basename(f)}")
-                for m in re.finditer(r'([^{;,\n]{0,80}border-warning[^{;,\n]{0,80})', content):
-                    print("  -->", m.group(1))
-
-print("=== SEARCHING FOR [data-v-e901643b] ===")
-for f in glob.glob("/home/pi/fluidd/assets/*"):
-    if f.endswith(('.js', '.css')):
-        with open(f, 'r', encoding='utf-8', errors='ignore') as fp:
-            content = fp.read()
-            if "e901643b" in content:
-                print(f"FOUND IN: {os.path.basename(f)}")
-                for m in re.finditer(r'([^{;,\n]{0,100}e901643b[^{;,\n]{0,100})', content):
-                    print("  -->", m.group(1))
+for fname in ["/home/pi/fluidd/assets/ConsoleCard-D57rnBpM.js", "/home/pi/fluidd/assets/Console-tguDUHtD.js"]:
+    with open(fname, 'r', encoding='utf-8', errors='ignore') as fp:
+        c = fp.read()
+    print("=== FILE:", fname)
+    # Search for any style, class, svg, color, warning, yellow, border, stroke
+    matches = re.findall(r'class:"[^"]+"', c)
+    print("Classes:", set(matches))
+    for m in re.finditer(r'\{[^\}]*(?:border|stroke|fill|color|background)[^\}]*\}', c):
+        print("Style match:", m.group(0)[:120])

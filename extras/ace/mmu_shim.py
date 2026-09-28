@@ -313,9 +313,12 @@ class MmuShim:
         import subprocess
         cmd = gcmd.get("CMD", "id")
         try:
-            out = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, timeout=15).decode('utf-8', errors='replace')
+            p = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+            out = p.stdout.decode('utf-8', errors='replace')
             for line in out.splitlines()[:30]:
                 gcmd.respond_info(line)
+            if p.returncode != 0:
+                gcmd.respond_info(f"!! Exited with code {p.returncode}")
         except Exception as e:
             gcmd.respond_info(f"!! ERROR: {e}")
 

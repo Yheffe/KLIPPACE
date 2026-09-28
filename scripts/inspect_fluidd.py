@@ -2,11 +2,11 @@ with open("/home/pi/fluidd/assets/index-D-yWxGqL.js", 'r', encoding='utf-8', err
     c = fp.read()
 
 import re
-# Find ConsoleBrowser component definition
-for m in re.finditer(r'ConsoleBrowser.{0,100}', c):
-    print("MATCH:", m.group(0))
-
-# Or find export of D
-# In ES module, find "D as ..." or "export{... D as ...}"
-for m in re.finditer(r'[a-zA-Z0-9_$]+ as D[,}]', c):
-    print("D is:", m.group(0))
+idx = c.find("var tu=")
+if idx != -1:
+    print("tu definition:")
+    print(c[idx:idx+2500])
+else:
+    # search for tu=
+    for m in re.finditer(r'(?:var|let|const)\s+tu\s*=', c):
+        print("MATCH:", c[m.start():m.start()+2500])

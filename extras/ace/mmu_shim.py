@@ -56,7 +56,9 @@ class MmuShim:
 
     def set_active_tool(self, tool: int):
         """Set currently active logical tool."""
-        self._active_tool = tool
+        if self._active_tool != tool:
+            self._last_tool = self._active_tool
+            self._active_tool = tool
 
     def _register_mmu_commands(self):
         """Register MMU G-codes expected by Mainsail/Fluidd MMU panels."""
@@ -187,6 +189,29 @@ class MmuShim:
             elif print_state == "printing":
                 action = "Printing"
 
+            slicer_tools = []
+            for t_idx in range(num_gates):
+                g_idx = self.get_gate_for_tool(t_idx)
+                c = gate_color[g_idx] if g_idx < len(gate_color) else "#ffffff"
+                m = gate_material[g_idx] if g_idx < len(gate_material) else "PLA"
+                spool_id = gate_spool_id[g_idx] if g_idx < len(gate_spool_id) else -1
+                slicer_tools.append({
+                    "tool": t_idx,
+                    "name": f"Tool {t_idx} (Gate {g_idx})",
+                    "material": m,
+                    "color": c,
+                    "temp": 220,
+                    "in_use": True,
+                    "spool_id": spool_id,
+                })
+
+            slicer_map = {
+                "tools": slicer_tools,
+                "referenced_tools": list(range(num_gates)),
+                "initial_tool": self._active_tool if self._active_tool >= 0 else 0,
+                "purge_volumes": getattr(self, "_purge_volumes", []),
+            }
+
             return {
                 "enabled": True,
                 "is_enabled": True,
@@ -200,9 +225,11 @@ class MmuShim:
                 "gate_speed_override": [100.0] * num_gates,
                 "tool": tool,
                 "gate": gate,
+                "last_tool": getattr(self, "_last_tool", -1),
                 "tool_to_gate_map": list(self.tool_to_gate_map),
                 "ttg_map": list(self.tool_to_gate_map),
                 "endless_spool_groups": list(self.endless_spool_groups),
+                "slicer_tool_map": slicer_map,
                 "has_bypass": False,
                 "action": action,
                 "filament": "Loaded" if is_loaded else "Unloaded",
@@ -375,12 +402,13 @@ class MmuShim:
             map_str = map_str.strip("\"' ")
             parts = [p.strip() for p in map_str.replace(" ", ",").split(",") if p.strip()]
             new_map = list(self.tool_to_gate_map)
+            while len(new_map) < len(parts):
+                new_map.append(len(new_map))
             for i, part in enumerate(parts):
-                if i < len(new_map):
-                    try:
-                        new_map[i] = int(part)
-                    except ValueError:
-                        pass
+                try:
+                    new_map[i] = int(part)
+                except ValueError:
+                    pass
             self.tool_to_gate_map = new_map
             ttg_str = ", ".join(f"T{t}->G{g}" for t, g in enumerate(self.tool_to_gate_map))
             self.logger.info(f"MMU: Tool-to-Gate map set from MAP string: {ttg_str}")

@@ -10,8 +10,8 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 echo "=== KLIPPACE Update Post-Hook ==="
 
-# 1. Update executable permissions
-chmod +x "${REPO_DIR}/scripts/"*.sh 2>/dev/null || true
+# 1. Ignore fileMode differences in Git so permission tweaks never dirty the repo
+git -C "${REPO_DIR}" config core.fileMode false
 
 # 2. Symlink MCU updater script to /home/pi/scripts/
 mkdir -p "${HOME}/scripts"

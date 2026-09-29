@@ -77,6 +77,9 @@ class AceStatus:
         self.server.register_event_handler(
             "server:status_update", self._handle_status_update
         )
+        self.server.register_event_handler(
+            "update_manager:update_response", self._handle_update_response
+        )
 
         # Cache last known status
         self._last_status: Optional[Dict[str, Any]] = None
@@ -314,9 +317,24 @@ class AceStatus:
         stdout, _ = await proc.communicate()
         return {"output": stdout.decode("utf-8", errors="replace"), "returncode": proc.returncode}
 
+    async def _handle_update_response(self, notification: Dict[str, Any]) -> None:
+        """Automatically trigger MCU compile and flash when Klipper updates via Moonraker."""
+        try:
+            app = notification.get("application")
+            is_complete = notification.get("complete", False)
+            if app == "klipper" and is_complete:
+                self.logger.info("Moonraker update completed for Klipper! Triggering automated MCU update...")
+                import asyncio
+                asyncio.create_task(self._run_mcu_update())
+        except Exception as exc:
+            self.logger.error("Error handling update_response event: %s", exc)
+
     async def _run_mcu_update(self):
         import asyncio
-        script = "/home/pi/scripts/update_all_mcus.sh"
+        import os
+        script = "/home/pi/KLIPPACE/scripts/update_all_mcus.sh"
+        if not os.path.exists(script):
+            script = "/home/pi/scripts/update_all_mcus.sh"
         self.logger.info("Starting MCU update script: %s", script)
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -332,12 +350,20 @@ class AceStatus:
                 self.logger.info("[MCU_UPDATE] %s", msg)
                 self.server.send_event("ace:mcu_update_log", {"message": msg})
                 try:
-                    await self.klippy_apis.run_gcode(f'RESPOND PREFIX="[MCU Update]" MSG="{msg}"')
+                    safe_msg = msg.replace('"', '\\"').replace("'", "\\'")
+                    await self.klippy_apis.run_gcode(f'RESPOND PREFIX="[MCU Update]" MSG="{safe_msg}"')
                 except Exception:
                     pass
             await proc.wait()
             self.logger.info("MCU update finished with code %d", proc.returncode)
             self.server.send_event("ace:mcu_update_finished", {"returncode": proc.returncode})
+            try:
+                if proc.returncode == 0:
+                    await self.klippy_apis.run_gcode('RESPOND PREFIX="[MCU Update]" MSG="All MCUs successfully updated and ready!"')
+                else:
+                    await self.klippy_apis.run_gcode(f'RESPOND PREFIX="[MCU Update]" MSG="MCU update finished with code {proc.returncode}. Check mcu_update.log."')
+            except Exception:
+                pass
         except Exception as exc:
             self.logger.error("Error running MCU update: %s", exc)
 

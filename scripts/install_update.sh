@@ -19,6 +19,7 @@ ln -sf "${REPO_DIR}/scripts/update_all_mcus.sh" "${HOME}/scripts/update_all_mcus
 
 # 3. Copy MCU build configs (avoid symlinking so make doesn't dirty git repo)
 mkdir -p "${HOME}/mcu_configs"
+rm -f "${HOME}/mcu_configs/config.octopus_max_ez" "${HOME}/mcu_configs/config.ebb36_gen2"
 cp -f "${REPO_DIR}/config/mcu/config.octopus_max_ez" "${HOME}/mcu_configs/config.octopus_max_ez"
 cp -f "${REPO_DIR}/config/mcu/config.ebb36_gen2" "${HOME}/mcu_configs/config.ebb36_gen2"
 

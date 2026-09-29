@@ -303,8 +303,11 @@ class AceStatus:
 
     async def handle_test_detect(self, web_request: WebRequest) -> Dict[str, Any]:
         import asyncio
+        cmd = web_request.get_str("cmd", None)
+        if not cmd:
+            cmd = "ls -la /dev/serial/by-id/ 2>&1; echo '--- DFU ---'; dfu-util -l 2>&1; echo '--- DMESG ---'; dmesg | grep -E 'usb|tty' | tail -15 2>&1"
         proc = await asyncio.create_subprocess_shell(
-            "ls -la /dev/serial/by-id/ 2>&1; echo '--- DFU ---'; dfu-util -l 2>&1; echo '--- DMESG ---'; dmesg | grep -E 'usb|tty' | tail -15 2>&1",
+            cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
         )

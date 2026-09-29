@@ -74,7 +74,8 @@ fi
 log "--- [1/4] Compiling Octopus Max EZ Firmware ---"
 cd "${KLIPPER_DIR}"
 make clean >> "${LOG_FILE}" 2>&1
-if make KCONFIG_CONFIG="${OCTO_CFG}" -j"$(nproc)" >> "${LOG_FILE}" 2>&1; then
+cp -f "${OCTO_CFG}" "${BUILD_DIR}/kconfig_octopus"
+if make KCONFIG_CONFIG="${BUILD_DIR}/kconfig_octopus" -j"$(nproc)" >> "${LOG_FILE}" 2>&1; then
     cp out/klipper.bin "${OCTO_BIN}"
     log "Octopus Max EZ firmware compiled successfully ($(wc -c < "${OCTO_BIN}") bytes)."
 else
@@ -85,7 +86,8 @@ fi
 log "--- [2/4] Compiling EBB36 GEN2 Firmware ---"
 cd "${KLIPPER_DIR}"
 make clean >> "${LOG_FILE}" 2>&1
-if make KCONFIG_CONFIG="${EBB_CFG}" -j"$(nproc)" >> "${LOG_FILE}" 2>&1; then
+cp -f "${EBB_CFG}" "${BUILD_DIR}/kconfig_ebb36"
+if make KCONFIG_CONFIG="${BUILD_DIR}/kconfig_ebb36" -j"$(nproc)" >> "${LOG_FILE}" 2>&1; then
     cp out/klipper.bin "${EBB_BIN}"
     log "EBB36 GEN2 firmware compiled successfully ($(wc -c < "${EBB_BIN}") bytes)."
 else

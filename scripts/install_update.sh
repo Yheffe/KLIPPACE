@@ -17,10 +17,10 @@ chmod +x "${REPO_DIR}/scripts/"*.sh 2>/dev/null || true
 mkdir -p "${HOME}/scripts"
 ln -sf "${REPO_DIR}/scripts/update_all_mcus.sh" "${HOME}/scripts/update_all_mcus.sh"
 
-# 3. Symlink MCU build configs
+# 3. Copy MCU build configs (avoid symlinking so make doesn't dirty git repo)
 mkdir -p "${HOME}/mcu_configs"
-ln -sf "${REPO_DIR}/config/mcu/config.octopus_max_ez" "${HOME}/mcu_configs/config.octopus_max_ez"
-ln -sf "${REPO_DIR}/config/mcu/config.ebb36_gen2" "${HOME}/mcu_configs/config.ebb36_gen2"
+cp -f "${REPO_DIR}/config/mcu/config.octopus_max_ez" "${HOME}/mcu_configs/config.octopus_max_ez"
+cp -f "${REPO_DIR}/config/mcu/config.ebb36_gen2" "${HOME}/mcu_configs/config.ebb36_gen2"
 
 # 4. Symlink Moonraker ace_status component
 if [ -d "${HOME}/moonraker/moonraker/components" ]; then

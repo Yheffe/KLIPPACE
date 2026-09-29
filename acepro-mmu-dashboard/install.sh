@@ -292,16 +292,26 @@ main() {
     
     if [ -n "$MAINSAIL_DIR" ]; then
         print_header "Linking dashboard files into Mainsail"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
+        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg klippace-tool-mapper.js klippace-tool-mapper.css; do
             create_or_replace_symlink "$SOURCE_DIR/web/$file" "$MAINSAIL_DIR/$file" "Mainsail $file"
         done
+        if [ -f "$MAINSAIL_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$MAINSAIL_DIR/index.html"; then
+            sed -i 's|</head>|  <link rel="stylesheet" href="./klippace-tool-mapper.css">\n</head>|' "$MAINSAIL_DIR/index.html" 2>/dev/null || true
+            sed -i 's|</body>|  <script type="module" src="./klippace-tool-mapper.js"></script>\n</body>|' "$MAINSAIL_DIR/index.html" 2>/dev/null || true
+            print_success "Injected Tool Mapper into Mainsail index.html"
+        fi
     fi
     
     if [ -n "$FLUIDD_DIR" ]; then
         print_header "Linking dashboard files into Fluidd"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
+        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg klippace-tool-mapper.js klippace-tool-mapper.css; do
             create_or_replace_symlink "$SOURCE_DIR/web/$file" "$FLUIDD_DIR/$file" "Fluidd $file"
         done
+        if [ -f "$FLUIDD_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$FLUIDD_DIR/index.html"; then
+            sed -i 's|</head>|  <link rel="stylesheet" href="./klippace-tool-mapper.css">\n</head>|' "$FLUIDD_DIR/index.html" 2>/dev/null || true
+            sed -i 's|</body>|  <script type="module" src="./klippace-tool-mapper.js"></script>\n</body>|' "$FLUIDD_DIR/index.html" 2>/dev/null || true
+            print_success "Injected Tool Mapper into Fluidd index.html"
+        fi
     fi
     
     # ========================================================================

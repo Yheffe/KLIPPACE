@@ -1,0 +1,553 @@
+/* ==========================================================================
+   KLIPPACE Tool Mapper - Streamlined Pre-Print & Dashboard Tool Mapping UI
+   ========================================================================== */
+
+/* Hide default cluttered Happy Hare MMU dialog when Fluidd opens it */
+.v-dialog:has(.short-switch),
+.v-dialog:has(.min-width-map),
+.v-dialog:has(mmu-ttg-map),
+.v-dialog:has([class*="mmu-ttg-map"]),
+.v-dialog:has(svg.cursor-pointer[viewBox*="100 100"]) {
+  display: none !important;
+}
+
+/* Modal Overlay */
+.klippace-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 10, 14, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #F4F4F5;
+}
+
+.klippace-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Modal Dialog Box */
+.klippace-modal {
+  width: 920px;
+  max-width: 95vw;
+  max-height: 90vh;
+  background: linear-gradient(180deg, #242429 0%, #1A1A1E 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 32px 64px -16px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.96) translateY(8px);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.klippace-overlay.active .klippace-modal {
+  transform: scale(1) translateY(0);
+}
+
+/* Header */
+.klippace-header {
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.klippace-header-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.klippace-icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.25) 0%, rgba(255, 35, 0, 0.25) 100%);
+  border: 1px solid rgba(255, 87, 34, 0.45);
+  color: #FF7043;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(255, 87, 34, 0.2);
+}
+
+.klippace-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #FFFFFF;
+  letter-spacing: -0.01em;
+}
+
+.klippace-chip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #FF5722 0%, #D84315 100%);
+  color: #FFFFFF;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 8px rgba(255, 87, 34, 0.35);
+}
+
+.klippace-subtitle {
+  font-size: 0.85rem;
+  color: #A1A1AA;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.klippace-file-tag {
+  color: #60A5FA;
+  font-family: monospace;
+  font-size: 0.82rem;
+  background: rgba(96, 165, 250, 0.12);
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.klippace-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Auto-Match Filaments Button */
+.klippace-btn-automatch {
+  background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+  color: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.klippace-btn-automatch:hover {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+}
+
+.klippace-btn-automatch:active {
+  transform: translateY(0);
+}
+
+.klippace-btn-automatch .magic-icon {
+  font-size: 1.1rem;
+}
+
+/* Close Icon Button */
+.klippace-btn-icon {
+  background: transparent;
+  border: none;
+  color: #A1A1AA;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.klippace-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+/* Toast Message */
+.klippace-toast {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34D399;
+  padding: 9px 18px;
+  margin: 12px 24px 0 24px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  animation: klippaceFadeIn 0.2s ease;
+}
+
+.klippace-toast.visible {
+  display: flex;
+}
+
+@keyframes klippaceFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal Body */
+.klippace-body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Column Header Labels */
+.klippace-cols-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 6px 16px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717A;
+}
+
+/* Tool Row Card */
+.klippace-row {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  transition: all 0.2s ease;
+}
+
+.klippace-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* Left: Sliced Tool Info */
+.klippace-tool-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 250px;
+}
+
+.klippace-tool-badge {
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: #27272A;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #FFFFFF;
+  padding: 5px 11px;
+  border-radius: 8px;
+  letter-spacing: 0.02em;
+}
+
+.klippace-swatch-wrapper {
+  position: relative;
+}
+
+.klippace-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.klippace-tool-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.klippace-tool-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #F4F4F5;
+  white-space: nowrap;
+}
+
+.klippace-tool-submeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #A1A1AA;
+}
+
+.klippace-mat-tag {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  color: #E4E4E7;
+}
+
+.klippace-temp-tag {
+  color: #F87171;
+}
+
+.klippace-weight-tag {
+  color: #9CA3AF;
+}
+
+/* Center Connector Arrow */
+.klippace-connector {
+  color: #52525B;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Right: 4 Direct Slot Pills */
+.klippace-slots-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.klippace-slot-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 114px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #D4D4D8;
+  position: relative;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+.klippace-slot-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-2px);
+}
+
+/* Active Slot Pill */
+.klippace-slot-pill.active {
+  background: rgba(33, 150, 243, 0.18);
+  border-color: #2196F3;
+  color: #FFFFFF;
+  box-shadow: 0 0 16px rgba(33, 150, 243, 0.35), inset 0 0 8px rgba(33, 150, 243, 0.15);
+  transform: scale(1.02);
+}
+
+.klippace-slot-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+}
+
+.klippace-slot-texts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.klippace-slot-num {
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.klippace-slot-mat {
+  font-size: 0.72rem;
+  color: #A1A1AA;
+  line-height: 1.15;
+  font-weight: 500;
+}
+
+.klippace-slot-pill.active .klippace-slot-mat {
+  color: #93C5FD;
+}
+
+.klippace-slot-check {
+  margin-left: auto;
+  font-size: 0.88rem;
+  color: #38BDF8;
+  font-weight: 900;
+  display: none;
+}
+
+.klippace-slot-pill.active .klippace-slot-check {
+  display: block;
+}
+
+/* Footer */
+.klippace-footer {
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.klippace-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.klippace-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Buttons */
+.klippace-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  border: none;
+}
+
+.klippace-btn-ghost {
+  background: transparent;
+  color: #A1A1AA;
+}
+
+.klippace-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #FFFFFF;
+}
+
+.klippace-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #E4E4E7;
+}
+
+.klippace-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+}
+
+.klippace-btn-primary {
+  background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+  color: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+
+.klippace-btn-primary:hover {
+  background: linear-gradient(135deg, #34D399 0%, #10B981 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+}
+
+.klippace-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Quick Trigger Buttons */
+.klippace-topbar-btn {
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
+  border: 1px solid rgba(255, 87, 34, 0.5) !important;
+  color: #FF7043 !important;
+  font-weight: 600 !important;
+  font-size: 0.82rem !important;
+  border-radius: 6px !important;
+  padding: 5px 11px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-left: 10px !important;
+}
+
+.klippace-topbar-btn:hover {
+  background: linear-gradient(135deg, #FF5722 0%, #E64A19 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
+}
+
+.klippace-quick-btn {
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
+  border: 1px solid rgba(255, 87, 34, 0.45) !important;
+  color: #FF7043 !important;
+  font-weight: 600 !important;
+  font-size: 0.78rem !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-right: 6px !important;
+}
+
+.klippace-quick-btn:hover {
+  background: linear-gradient(135deg, #FF5722 0%, #E64A19 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .klippace-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .klippace-connector {
+    display: none;
+  }
+  .klippace-slots-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .klippace-slot-pill {
+    min-width: 0;
+  }
+}

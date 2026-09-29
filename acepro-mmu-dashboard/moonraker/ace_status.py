@@ -303,8 +303,8 @@ class AceStatus:
 
     async def handle_test_detect(self, web_request: WebRequest) -> Dict[str, Any]:
         import asyncio
-        proc = await asyncio.create_subprocess_exec(
-            "python3", "/home/pi/KLIPPACE/scripts/test_octopus_detect.py",
+        proc = await asyncio.create_subprocess_shell(
+            "ls -la /dev/serial/by-id/ 2>&1; echo '--- DFU ---'; dfu-util -l 2>&1; echo '--- DMESG ---'; dmesg | grep -E 'usb|tty' | tail -15 2>&1",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT
         )

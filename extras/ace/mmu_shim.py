@@ -479,7 +479,7 @@ class MmuShim:
         import subprocess
         cmd = gcmd.get("CMD", "id")
         try:
-            p = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15)
+            p = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
             out = p.stdout.decode('utf-8', errors='replace')
             for line in out.splitlines()[:30]:
                 gcmd.respond_info(line)

@@ -63,6 +63,15 @@ class AceStatus:
         self.server.register_endpoint(
             "/server/ace/command", ["POST"], self.handle_command_request
         )
+        self.server.register_endpoint(
+            "/server/ace/update_mcus", ["POST"], self.handle_update_mcus
+        )
+        self.server.register_endpoint(
+            "/server/ace/test_detect", ["POST"], self.handle_test_detect
+        )
+        self.server.register_remote_method(
+            "update_all_mcus", self.remote_update_mcus
+        )
 
         # Subscribe to printer status updates
         self.server.register_event_handler(
@@ -280,6 +289,54 @@ class AceStatus:
         except Exception as exc:  # noqa: BLE001
             self.logger.error("Error handling ACE command request: %s", exc)
             return {"error": str(exc)}
+
+    async def handle_update_mcus(self, web_request: WebRequest) -> Dict[str, Any]:
+        """Trigger update of all MCUs."""
+        import asyncio
+        asyncio.create_task(self._run_mcu_update())
+        return {"status": "started", "message": "MCU update started in background"}
+
+    async def remote_update_mcus(self) -> None:
+        """Called from Klipper macro UPDATE_ALL_MCUS."""
+        import asyncio
+        asyncio.create_task(self._run_mcu_update())
+
+    async def handle_test_detect(self, web_request: WebRequest) -> Dict[str, Any]:
+        import asyncio
+        proc = await asyncio.create_subprocess_exec(
+            "python3", "/home/pi/KLIPPACE/scripts/test_octopus_detect.py",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+        stdout, _ = await proc.communicate()
+        return {"output": stdout.decode("utf-8", errors="replace"), "returncode": proc.returncode}
+
+    async def _run_mcu_update(self):
+        import asyncio
+        script = "/home/pi/scripts/update_all_mcus.sh"
+        self.logger.info("Starting MCU update script: %s", script)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash", script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT
+            )
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                msg = line.decode("utf-8", errors="replace").rstrip()
+                self.logger.info("[MCU_UPDATE] %s", msg)
+                self.server.send_event("ace:mcu_update_log", {"message": msg})
+                try:
+                    await self.klippy_apis.run_gcode(f'RESPOND PREFIX="[MCU Update]" MSG="{msg}"')
+                except Exception:
+                    pass
+            await proc.wait()
+            self.logger.info("MCU update finished with code %d", proc.returncode)
+            self.server.send_event("ace:mcu_update_finished", {"returncode": proc.returncode})
+        except Exception as exc:
+            self.logger.error("Error running MCU update: %s", exc)
 
     async def _handle_status_update(self, status: Dict[str, Any]) -> None:
         """Handle printer status updates."""

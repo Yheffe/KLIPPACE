@@ -1,0 +1,25 @@
+{
+  "capabilities": [
+    {
+      "ACE Pro": true
+    },
+    {
+      "Sync ACE Pro Filaments": true
+    }
+  ],
+  "enabled": true,
+  "installed_from": "local",
+  "installed_version": "1.0.0",
+  "permissions": {
+    "fs_read": [],
+    "fs_readwrite": [],
+    "network_http": [
+      "http://192.168.1.168:7125/*",
+      "http://192.168.1.168/*",
+      "http://127.0.0.1:7125/*"
+    ],
+    "network_socket": [],
+    "process": []
+  },
+  "plugin_name": "KLIPPACE ACE Pro Sync"
+}

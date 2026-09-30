@@ -2110,6 +2110,7 @@ class AceManager:
             self.toolchange_purge_length = self.default_color_change_purge_length
 
             self.state.set("ace_current_index", target_tool)
+            self.state.set("ace_last_loaded_tool", target_tool)
             self.gcode.run_script_from_command(
                 f"SET_GCODE_VARIABLE MACRO=_ACE_STATE VARIABLE=active VALUE={target_tool}"
             )

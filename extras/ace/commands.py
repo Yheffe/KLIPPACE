@@ -1398,6 +1398,7 @@ def cmd_ACE_HANDLE_PRINT_END(gcmd):
         success = manager.smart_unload(tool_index, prepare_toolhead=True)
         if success:
             gcmd.respond_info(f"ACE: Tool T{tool_index} successfully unloaded")
+            manager.state.set("ace_last_loaded_tool", tool_index)
             manager.state.set("ace_current_index", -1)
             for_each_instance(lambda inst_num, mgr, instance: instance._disable_feed_assist(instance._feed_assist_index))
         else:
@@ -1450,6 +1451,8 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
             success = manager.smart_unload(current_tool)
             if success:
                 # gcmd.respond_info(f"ACE: Tool {current_tool} unloaded successfully")
+                if current_tool >= 0:
+                    manager.state.set("ace_last_loaded_tool", current_tool)
                 manager.state.set("ace_current_index", -1)
                 if mmu and hasattr(mmu, "set_active_tool"):
                     mmu.set_active_tool(-1)

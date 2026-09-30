@@ -381,6 +381,13 @@ class MmuShim:
         """Display gate map."""
         self.cmd_MMU_STATUS(gcmd)
 
+    def reset_tool_to_gate_map(self):
+        """Reset tool-to-gate mapping back to default 1:1."""
+        num_gates = self._get_num_gates()
+        self.tool_to_gate_map = list(range(num_gates))
+        self.logger.info(f"MMU: Tool-to-Gate map reset to 1:1 {self.tool_to_gate_map}")
+        return self.tool_to_gate_map
+
     def cmd_MMU_TTG_MAP(self, gcmd):
         """Display or set Tool-to-Gate mapping."""
         num_gates = self._get_num_gates()
@@ -391,8 +398,7 @@ class MmuShim:
         reset = gcmd.get_int("RESET", 0) == 1
 
         if reset:
-            self.tool_to_gate_map = list(range(num_gates))
-            self.logger.info(f"MMU: Tool-to-Gate map reset to 1:1 {self.tool_to_gate_map}")
+            self.reset_tool_to_gate_map()
             if not quiet:
                 gcmd.respond_info(f"MMU: Tool-to-Gate map reset to default 1:1 ({self.tool_to_gate_map})")
             return

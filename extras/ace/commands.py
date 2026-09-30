@@ -1407,6 +1407,15 @@ def cmd_ACE_HANDLE_PRINT_END(gcmd):
     except Exception as e:
         gcmd.respond_info(f"ACE: PRINT_END error: {e}")
     finally:
+        # Reset Tool-to-Gate mapping back to default 1:1 post-print
+        try:
+            printer = get_printer()
+            mmu = printer.lookup_object("mmu", None)
+            if mmu and hasattr(mmu, "reset_tool_to_gate_map"):
+                mmu.reset_tool_to_gate_map()
+                gcmd.respond_info("ACE: Tool-to-Gate mapping reset to default 1:1")
+        except Exception:
+            logging.exception("ACE: Failed to reset TTG map at print end")
         # Flush all deferred state changes to disk now that the print is over.
         try:
             manager.state.flush()

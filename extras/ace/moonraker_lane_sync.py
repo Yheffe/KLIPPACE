@@ -258,10 +258,14 @@ class MoonrakerLaneSyncAdapter:
                 nozzle_temp = self._safe_temp(inv.get("temp"))
                 if nozzle_temp is not None:
                     entry["nozzle_temp"] = nozzle_temp
+                elif has_filament:
+                    entry["nozzle_temp"] = 210
 
                 bed_temp = self._extract_bed_temp(inv.get("hotbed_temp"))
                 if bed_temp is not None:
                     entry["bed_temp"] = bed_temp
+                elif has_filament:
+                    entry["bed_temp"] = 60
 
                 spool_id = self._extract_spool_id(inv)
                 if has_filament and inv.get("brand"):

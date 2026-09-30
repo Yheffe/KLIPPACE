@@ -213,24 +213,31 @@ def sync_filaments_to_orcaslicer(host=None):
             continue
 
         slot_idx = s["index"]
-        mat = s["material"] or "PLA"
-        col = s["color"]
-        col_name = s["color_name"] or col
-        temp = s["temp"]
-        bed_temp = s["bed_temp"]
-        vendor = s["vendor"] or "Anycubic"
-        sku = s["sku"]
+        mat = s.get("material") or "PLA"
+        if not mat or mat.upper() in ("UNKNOWN", "???", "NONE", "N/A"):
+            mat = "PLA"
+
+        col = s.get("color") or "#000000"
+        col_name = s.get("color_name") or get_color_name(col) or col
+        temp = s.get("temp", 0)
+        if not temp or temp <= 0:
+            temp = 210
+        bed_temp = s.get("bed_temp", 0)
+        if not bed_temp or bed_temp <= 0:
+            bed_temp = 60
+
+        vendor = s.get("vendor") or "Anycubic"
+        sku = s.get("sku", "")
 
         preset_name = f"ACE T{slot_idx} - {mat} {col_name}".strip()
-        inherits_name = f"Generic {mat} @System"
-        if mat.upper() == "PLA":
-            inherits_name = "Generic PLA @System"
-        elif mat.upper() == "PETG":
-            inherits_name = "Generic PETG @System"
-        elif mat.upper() == "ABS":
-            inherits_name = "Generic ABS @System"
-        elif mat.upper() == "ASA":
-            inherits_name = "Generic ASA @System"
+        inherits_map = {
+            "PLA": "Generic PLA @System",
+            "PETG": "Generic PETG @System",
+            "ABS": "Generic ABS @System",
+            "ASA": "Generic ASA @System",
+            "TPU": "Generic TPU @System",
+        }
+        inherits_name = inherits_map.get(mat.upper(), "Generic PLA @System")
 
         preset_payload = {
             "compatible_printers": [
@@ -456,7 +463,7 @@ if orca:
         def get_name(self):
             return "Sync ACE Pro Filaments"
 
-        def execute(self, ctx):
+        def execute(self, ctx=None):
             result = sync_filaments_to_orcaslicer()
             if hasattr(orca, "host") and hasattr(orca.host, "ui"):
                 msg_fn = getattr(orca.host.ui, "message", None)

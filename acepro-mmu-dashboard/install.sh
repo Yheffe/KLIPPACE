@@ -292,7 +292,7 @@ main() {
     
     if [ -n "$MAINSAIL_DIR" ]; then
         print_header "Linking dashboard files into Mainsail"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg klippace-tool-mapper.js klippace-tool-mapper.css; do
+        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg vue.global.prod.js klippace-tool-mapper.js klippace-tool-mapper.css; do
             create_or_replace_symlink "$SOURCE_DIR/web/$file" "$MAINSAIL_DIR/$file" "Mainsail $file"
         done
         if [ -f "$MAINSAIL_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$MAINSAIL_DIR/index.html"; then
@@ -304,7 +304,7 @@ main() {
     
     if [ -n "$FLUIDD_DIR" ]; then
         print_header "Linking dashboard files into Fluidd"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg klippace-tool-mapper.js klippace-tool-mapper.css; do
+        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg vue.global.prod.js klippace-tool-mapper.js klippace-tool-mapper.css; do
             create_or_replace_symlink "$SOURCE_DIR/web/$file" "$FLUIDD_DIR/$file" "Fluidd $file"
         done
         if [ -f "$FLUIDD_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$FLUIDD_DIR/index.html"; then

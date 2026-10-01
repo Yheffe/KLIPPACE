@@ -1,13 +1,12 @@
-// ValgACE Dashboard Configuration
-// ACE Dashboard Configuration
+// KLIPPACE ACE Dashboard Configuration
 
-const ACE_DASHBOARD_CONFIG = {
+var ACE_DASHBOARD_CONFIG = (typeof window !== 'undefined' && window.ACE_DASHBOARD_CONFIG) || {
     // Moonraker API base URL
     // Defaults to current host. Override if needed, e.g.:
     // apiBase: 'http://localhost:7125',
     // apiBase: 'http://192.168.1.100:7125',
     // apiBase: 'https://moonraker.example.com',
-    apiBase: window.location.origin,
+    apiBase: (typeof window !== 'undefined' && window.location) ? window.location.origin : '',
     
     // WebSocket base URL
     // Automatically derived from apiBase if null.
@@ -53,6 +52,8 @@ function getWebSocketUrl() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}/websocket`;
     }
+if (typeof window !== 'undefined') {
+    window.ACE_DASHBOARD_CONFIG = ACE_DASHBOARD_CONFIG;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

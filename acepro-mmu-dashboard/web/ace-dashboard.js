@@ -1,5 +1,82 @@
-// ValgACE Dashboard JavaScript
-const { createApp } = Vue;
+// KLIPPACE ACE Dashboard JavaScript - Resilient Preamble
+const VueInstance = (typeof Vue !== 'undefined') ? Vue : (typeof window !== 'undefined' ? window.Vue : null);
+
+/**
+ * 1. Robust Error UI Injection
+ * Prevents blank screens if Vue fails to load.
+ */
+if (!VueInstance) {
+    console.error('[ACE Dashboard] Vue 3 is not loaded! The dashboard cannot initialize.');
+    const injectErrorUI = () => {
+        if (typeof document !== 'undefined') {
+            const app = document.getElementById('app');
+            if (app) {
+                app.innerHTML = `
+                    <div style="padding: 30px; color: #ff5555; font-family: sans-serif; text-align: center; background: #222; border-radius: 8px; margin: 40px auto; max-width: 500px; border: 1px solid #ff5555;">
+                        <h2 style="margin-top:0;">ACE Dashboard Error</h2>
+                        <p>Vue 3 framework failed to load. Please check your network connection or reload the page.</p>
+                    </div>`;
+            }
+        }
+    };
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', injectErrorUI);
+        } else {
+            injectErrorUI();
+        }
+    }
+}
+
+/**
+ * 2. Deep-Chainable Shim
+ * Prevents TypeError when the main app calls .use(), .component(), or .mount()
+ */
+const createSafeApp = () => {
+    const safeObj = {
+        use: () => safeObj,
+        component: () => safeObj,
+        directive: () => safeObj,
+        mixin: () => safeObj,
+        provide: () => safeObj,
+        mount: () => { console.warn('[ACE Dashboard] Attempted to mount a failed Vue instance.'); }
+    };
+    return safeObj;
+};
+const createApp = VueInstance ? VueInstance.createApp : createSafeApp;
+
+/**
+ * 3. Resilient Configuration Merging
+ * Merges user config over defaults to prevent undefined property errors.
+ */
+const _RAW_CFG = (typeof window !== 'undefined' && window.ACE_DASHBOARD_CONFIG) ? window.ACE_DASHBOARD_CONFIG : {};
+const DEFAULT_CONFIG = {
+    apiBase: (typeof window !== 'undefined' && window.location) ? window.location.origin : '',
+    wsBase: null,
+    autoRefreshInterval: 5000,
+    wsReconnectTimeout: 3000,
+    debug: false,
+    defaults: {
+        feedLength: 50,
+        feedSpeed: 25,
+        retractLength: 50,
+        retractSpeed: 25,
+        dryingTemp: 50,
+        dryingDuration: 240,
+        presetFeedLength: 50,
+        presetRetractLength: 50
+    }
+};
+
+const safeConfig = {
+    ...DEFAULT_CONFIG,
+    ..._RAW_CFG,
+    defaults: {
+        ...DEFAULT_CONFIG.defaults,
+        ...((_RAW_CFG && _RAW_CFG.defaults) ? _RAW_CFG.defaults : {})
+    }
+};
+
 
 // ===== Extensive material list (provided earlier, de‑duplicated) =====
 const BUILT_IN_MATERIALS = [
@@ -159,7 +236,7 @@ createApp({
             // Connection
             wsConnected: false,
             ws: null,
-            apiBase: ACE_DASHBOARD_CONFIG?.apiBase || window.location.origin,
+            apiBase: safeConfig?.apiBase || window.location.origin,
 
             // Device Status
             deviceStatus: {
@@ -182,8 +259,8 @@ createApp({
                 duration: 0,
                 remain_time: 0
             },
-            dryingTemp: ACE_DASHBOARD_CONFIG?.defaults?.dryingTemp || 50,
-            dryingDuration: ACE_DASHBOARD_CONFIG?.defaults?.dryingDuration || 240,
+            dryingTemp: safeConfig?.defaults?.dryingTemp || 50,
+            dryingDuration: safeConfig?.defaults?.dryingDuration || 240,
             dryingHours: 4,
             dryingMinutes: 0,
             localRemainingMinutes: null,
@@ -296,11 +373,11 @@ createApp({
             showFeedModal: false,
             showRetractModal: false,
             feedSlot: 0,
-            feedLength: ACE_DASHBOARD_CONFIG?.defaults?.feedLength || 50,
-            feedSpeed: ACE_DASHBOARD_CONFIG?.defaults?.feedSpeed || 25,
+            feedLength: safeConfig?.defaults?.feedLength || 50,
+            feedSpeed: safeConfig?.defaults?.feedSpeed || 25,
             retractSlot: 0,
-            retractLength: ACE_DASHBOARD_CONFIG?.defaults?.retractLength || 50,
-            retractSpeed: ACE_DASHBOARD_CONFIG?.defaults?.retractSpeed || 25,
+            retractLength: safeConfig?.defaults?.retractLength || 50,
+            retractSpeed: safeConfig?.defaults?.retractSpeed || 25,
             showColorPickerModal: false,
             colorPickerTarget: null,
             modalMaterial: '',
@@ -308,8 +385,8 @@ createApp({
             modalColorHex: '#ffffff',
             modalPresetName: '',
 
-            presetFeedLength: ACE_DASHBOARD_CONFIG?.defaults?.presetFeedLength || 50,
-            presetRetractLength: ACE_DASHBOARD_CONFIG?.defaults?.presetRetractLength || 50,
+            presetFeedLength: safeConfig?.defaults?.presetFeedLength || 50,
+            presetRetractLength: safeConfig?.defaults?.presetRetractLength || 50,
 
             notification: {
                 show: false,
@@ -350,7 +427,7 @@ createApp({
         this.connectWebSocket();
         this.loadAllStatus();
         this.updateDocumentTitle();
-        const refreshInterval = ACE_DASHBOARD_CONFIG?.autoRefreshInterval || 5000;
+        const refreshInterval = safeConfig?.autoRefreshInterval || 5000;
         setInterval(() => {
             if (this.wsConnected) this.loadAllStatus();
         }, refreshInterval);
@@ -518,7 +595,7 @@ createApp({
             this.ws.onclose = () => {
                 this.wsConnected = false;
                 this.showNotification(this.t('notifications.websocketDisconnected'), 'error');
-                const reconnectTimeout = ACE_DASHBOARD_CONFIG?.wsReconnectTimeout || 3000;
+                const reconnectTimeout = safeConfig?.wsReconnectTimeout || 3000;
                 setTimeout(() => this.connectWebSocket(), reconnectTimeout);
             };
         },
@@ -594,7 +671,7 @@ createApp({
                 this.rfidSyncEnabled = data.rfid_sync_enabled;
             }
 
-            if (ACE_DASHBOARD_CONFIG?.debug) {
+            if (safeConfig?.debug) {
                 console.log('Updating main status with data:', data);
             }
 
@@ -654,10 +731,10 @@ createApp({
                                 sku: slot.sku || '',
                                 rfid: slot.rfid !== undefined ? slot.rfid : 0,
                                 custom_name: customName,
-                                customFeedLength: ACE_DASHBOARD_CONFIG?.defaults?.feedLength || 50,
-                                customFeedSpeed: ACE_DASHBOARD_CONFIG?.defaults?.feedSpeed || 25,
-                                customRetractLength: ACE_DASHBOARD_CONFIG?.defaults?.retractLength || 50,
-                                customRetractSpeed: ACE_DASHBOARD_CONFIG?.defaults?.retractSpeed || 25
+                                customFeedLength: safeConfig?.defaults?.feedLength || 50,
+                                customFeedSpeed: safeConfig?.defaults?.feedSpeed || 25,
+                                customRetractLength: safeConfig?.defaults?.retractLength || 50,
+                                customRetractSpeed: safeConfig?.defaults?.retractSpeed || 25
                             };
                         }),
                         feedAssistSlot: typeof item.feed_assist_slot === 'number' ? item.feed_assist_slot : -1,
@@ -696,10 +773,10 @@ createApp({
                             sku: slot.sku || '',
                             rfid: slot.rfid !== undefined ? slot.rfid : 0,
                             custom_name: customName,
-                            customFeedLength: ACE_DASHBOARD_CONFIG?.defaults?.feedLength || 50,
-                            customFeedSpeed: ACE_DASHBOARD_CONFIG?.defaults?.feedSpeed || 25,
-                            customRetractLength: ACE_DASHBOARD_CONFIG?.defaults?.retractLength || 50,
-                            customRetractSpeed: ACE_DASHBOARD_CONFIG?.defaults?.retractSpeed || 25
+                            customFeedLength: safeConfig?.defaults?.feedLength || 50,
+                            customFeedSpeed: safeConfig?.defaults?.feedSpeed || 25,
+                            customRetractLength: safeConfig?.defaults?.retractLength || 50,
+                            customRetractSpeed: safeConfig?.defaults?.retractSpeed || 25
                         };
                     });
                 } else {
@@ -971,8 +1048,8 @@ createApp({
 
         showFeedDialog(slot) {
             this.feedSlot = slot;
-            this.feedLength = ACE_DASHBOARD_CONFIG?.defaults?.feedLength || 50;
-            this.feedSpeed = ACE_DASHBOARD_CONFIG?.defaults?.feedSpeed || 25;
+            this.feedLength = safeConfig?.defaults?.feedLength || 50;
+            this.feedSpeed = safeConfig?.defaults?.feedSpeed || 25;
             this.showFeedModal = true;
         },
 
@@ -995,8 +1072,8 @@ createApp({
 
         showRetractDialog(slot) {
             this.retractSlot = slot;
-            this.retractLength = ACE_DASHBOARD_CONFIG?.defaults?.retractLength || 50;
-            this.retractSpeed = ACE_DASHBOARD_CONFIG?.defaults?.retractSpeed || 25;
+            this.retractLength = safeConfig?.defaults?.retractLength || 50;
+            this.retractSpeed = safeConfig?.defaults?.retractSpeed || 25;
             this.showRetractModal = true;
         },
 

@@ -1,22 +1,27 @@
 # /// script
 # name = "KLIPPACE ACE Pro Sync"
-# version = "1.0.0"
+# version = "1.1.0"
 # description = "One-click filament and color sync from Anycubic ACE Pro via Moonraker"
 # ///
 
 """
 KLIPPACE ACE Pro Sync Plugin for OrcaSlicer.
 
-Synchronizes filaments, colors, temperatures, and RFID tags from Anycubic ACE Pro
-(via Moonraker / KLIPPACE) directly into OrcaSlicer user filament presets and project settings.
+Dynamically retrieves printer network connection parameters (host, port, API key)
+directly from the active OrcaSlicer printer profile (or OrcaSlicer configuration),
+then queries Moonraker to synchronize ACE Pro filaments, colors, temperatures,
+and RFID tags into OrcaSlicer user profiles.
 """
 
 import json
 import logging
 import os
+import platform
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+from pathlib import Path
 
 try:
     import orca
@@ -52,48 +57,212 @@ def get_color_name(hex_code):
     return code
 
 
-def resolve_printer_host():
-    """Resolve the target Moonraker host IP from active OrcaSlicer preset or default."""
+def get_orca_app_dir():
+    """Return the platform-specific OrcaSlicer application configuration directory."""
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        return Path.home() / "Library/Application Support/OrcaSlicer"
+    elif system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "OrcaSlicer"
+        return Path.home() / "AppData/Roaming/OrcaSlicer"
+    else:  # Linux
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config:
+            return Path(xdg_config) / "OrcaSlicer"
+        return Path.home() / ".config/OrcaSlicer"
+
+
+def parse_network_endpoint(raw_host, port=None):
+    """Safely parse host, port, scheme, and base_url using urllib.parse."""
+    if not raw_host:
+        raw_host = DEFAULT_PRINTER_HOST
+
+    clean = str(raw_host).strip()
+    if not clean.startswith("http://") and not clean.startswith("https://"):
+        clean_url = f"http://{clean}"
+        scheme = "http"
+    else:
+        clean_url = clean
+        scheme = "https" if clean.startswith("https://") else "http"
+
+    parsed = urllib.parse.urlparse(clean_url)
+    hostname = parsed.hostname or clean.split("/")[0].split(":")[0]
+    parsed_port = parsed.port or port
+
+    if parsed_port and str(parsed_port).strip() not in ("80", "443"):
+        base_url = f"{scheme}://{hostname}:{parsed_port}"
+    else:
+        base_url = f"{scheme}://{hostname}"
+
+    return hostname, parsed_port, base_url
+
+
+def resolve_printer_network_info(override_host=None):
+    """
+    Dynamically resolve printer network connection details from OrcaSlicer.
+
+    Resolution hierarchy:
+    1. If override_host is explicitly passed, parse and return immediately.
+    2. Inspect active runtime orca.host preset bundle for current_printer_preset()
+       -> 'print_host', 'printhost_port', 'printhost_apikey'.
+    3. Inspect OrcaSlicer.conf for active selected machine and matching user profile JSON.
+    4. Inspect OrcaSlicer.conf 'local_machines' dictionary.
+    5. Fallback to DEFAULT_PRINTER_HOST if not configured.
+    """
+    if override_host:
+        hostname, parsed_port, base_url = parse_network_endpoint(override_host)
+        return {
+            "host": hostname,
+            "port": parsed_port,
+            "apikey": None,
+            "base_url": base_url,
+            "printer_name": "Override Host",
+        }
+
+    host = None
+    port = None
+    apikey = None
+    printer_name = None
+
+    # 1. Query runtime OrcaSlicer API if running inside the slicer
     if orca and hasattr(orca, "host"):
         try:
             bundle = orca.host.preset_bundle()
             current = bundle.current_printer_preset()
             if current:
-                host = getattr(current, "config_value", lambda k: None)("print_host")
-                if host and str(host).strip():
-                    return str(host).strip()
-        except Exception:
-            pass
-    return DEFAULT_PRINTER_HOST
+                printer_name = str(getattr(current, "name", "") or "").strip()
+
+                def _get_preset_val(p, key):
+                    try:
+                        v = p.config_value(key)
+                        if isinstance(v, (list, tuple)):
+                            v = next((x for x in v if x not in (None, "")), "")
+                        return str(v or "").strip()
+                    except Exception:
+                        return ""
+
+                h = _get_preset_val(current, "print_host")
+                if not h:
+                    try:
+                        h = str(bundle.full_config_value("print_host") or "").strip()
+                    except Exception:
+                        pass
+                if h:
+                    host = h
+                p = _get_preset_val(current, "printhost_port")
+                if p:
+                    port = p
+                k = _get_preset_val(current, "printhost_apikey")
+                if k:
+                    apikey = k
+        except Exception as e:
+            logging.debug("orca.host runtime preset lookup: %s", e)
+
+    # 2. Inspect OrcaSlicer.conf and user machine JSON profiles
+    app_dir = get_orca_app_dir()
+    conf_path = app_dir / "OrcaSlicer.conf"
+
+    if conf_path.exists():
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                conf = json.load(f)
+
+            if not printer_name:
+                printer_name = conf.get("presets", {}).get("machine")
+
+            # Look up matching machine profile in user directories
+            if not host and printer_name:
+                user_base = app_dir / "user"
+                if user_base.exists():
+                    for mp in user_base.rglob("*.json"):
+                        try:
+                            if mp.parent.name != "machine":
+                                continue
+                            with open(mp, "r", encoding="utf-8") as mf_f:
+                                m_data = json.load(mf_f)
+                            m_name = m_data.get("name") or mp.stem
+                            if m_name == printer_name:
+                                if m_data.get("print_host"):
+                                    host = str(m_data["print_host"]).strip()
+                                if m_data.get("printhost_apikey"):
+                                    apikey = str(m_data["printhost_apikey"]).strip()
+                                if m_data.get("printhost_port"):
+                                    port = str(m_data["printhost_port"]).strip()
+                                if host:
+                                    break
+                        except (json.JSONDecodeError, IOError):
+                            continue
+
+            # Look up in OrcaSlicer.conf local_machines
+            if not host:
+                local_machines = conf.get("local_machines", {})
+                for ip, dev in local_machines.items():
+                    if printer_name and (dev.get("printer_type") == printer_name or dev.get("dev_name") == printer_name):
+                        host = dev.get("dev_ip") or ip
+                        apikey = apikey or dev.get("access_code")
+                        break
+
+            # Fallback to user_last_selected_machine in OrcaSlicer.conf
+            if not host and conf.get("user_last_selected_machine"):
+                host = str(conf["user_last_selected_machine"]).strip()
+        except Exception as e:
+            logging.debug("OrcaSlicer.conf lookup error: %s", e)
+
+    # 3. Fallback default if not detected anywhere
+    if not host:
+        host = DEFAULT_PRINTER_HOST
+
+    hostname, parsed_port, base_url = parse_network_endpoint(host, port)
+
+    return {
+        "host": hostname,
+        "port": parsed_port,
+        "apikey": apikey,
+        "base_url": base_url,
+        "printer_name": printer_name or "Active Printer",
+    }
 
 
-def fetch_moonraker_ace_data(host=None):
+def fetch_moonraker_ace_data(net_info=None):
     """Fetch ACE Pro and lane_data objects from Moonraker API."""
-    target_host = host or resolve_printer_host()
-    base_url = f"http://{target_host}"
-    results = {"slots": [], "raw_mmu": {}, "raw_ace": {}, "host": target_host}
+    info = net_info or resolve_printer_network_info()
+    base_url = info["base_url"]
+    headers = {"User-Agent": "OrcaSlicer-KlippaceSync"}
+    if info.get("apikey"):
+        headers["X-Api-Key"] = info["apikey"]
+
+    results = {
+        "slots": [],
+        "raw_mmu": {},
+        "raw_ace": {},
+        "host": info["host"],
+        "base_url": base_url,
+        "printer_name": info["printer_name"],
+    }
 
     # 1. Fetch lane_data from Moonraker database
     lane_data = {}
     try:
         url = f"{base_url}/server/database/item?namespace=lane_data"
-        req = urllib.request.Request(url, headers={"User-Agent": "OrcaSlicer-KlippaceSync"})
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             lane_data = data.get("result", {}).get("value", {})
     except Exception as e:
-        logging.warning("Failed to fetch lane_data: %s", e)
+        logging.warning("Failed to fetch lane_data from %s: %s", base_url, e)
 
     # 2. Fetch printer objects (mmu, ace_instance_0)
     printer_objects = {}
     try:
         url = f"{base_url}/printer/objects/query?mmu&mmu_machine&ace_instance_0"
-        req = urllib.request.Request(url, headers={"User-Agent": "OrcaSlicer-KlippaceSync"})
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             printer_objects = data.get("result", {}).get("status", {})
     except Exception as e:
-        logging.warning("Failed to fetch printer objects: %s", e)
+        logging.warning("Failed to fetch printer objects from %s: %s", base_url, e)
 
     results["raw_mmu"] = printer_objects.get("mmu", {})
     results["raw_ace"] = printer_objects.get("ace_instance_0", {})
@@ -123,7 +292,7 @@ def fetch_moonraker_ace_data(host=None):
         if i < len(ace_slots):
             raw_s = ace_slots[i]
             slot_data["status"] = raw_s.get("status", "empty")
-            if raw_s.get("material"):
+            if raw_s.get("material") and raw_s.get("material") not in ("Unknown", "???"):
                 slot_data["material"] = raw_s.get("material")
             if raw_s.get("temp", 0) > 0:
                 slot_data["temp"] = raw_s.get("temp")
@@ -168,8 +337,15 @@ def fetch_moonraker_ace_data(host=None):
         if i < len(mmu_materials) and mmu_materials[i] and mmu_materials[i] != "Unknown":
             slot_data["material"] = mmu_materials[i]
         if i < len(mmu_status) and mmu_status[i] == 1:
-            if slot_data["status"] == "empty" and slot_data["material"]:
-                slot_data["status"] = "ready"
+            slot_data["status"] = "ready"
+
+        # Default fallback for unconfigured non-RFID slots
+        if not slot_data["material"] or slot_data["material"].upper() in ("UNKNOWN", "???", "NONE", "N/A"):
+            slot_data["material"] = "PLA"
+        if slot_data["temp"] <= 0:
+            slot_data["temp"] = 210
+        if slot_data["bed_temp"] <= 0:
+            slot_data["bed_temp"] = 60
 
         slot_data["color_name"] = get_color_name(slot_data["color"])
         results["slots"].append(slot_data)
@@ -180,23 +356,24 @@ def fetch_moonraker_ace_data(host=None):
 def find_orcaslicer_user_filament_dirs():
     """Find all OrcaSlicer user filament preset directories on the system."""
     dirs = []
-    base_app_support = os.path.expanduser("~/Library/Application Support/OrcaSlicer/user")
-    if os.path.exists(base_app_support):
-        for entry in os.listdir(base_app_support):
-            user_path = os.path.join(base_app_support, entry)
-            if os.path.isdir(user_path):
-                fil_dir = os.path.join(user_path, "filament")
-                if os.path.exists(fil_dir):
-                    dirs.append(fil_dir)
+    base_user = get_orca_app_dir() / "user"
+    if base_user.exists():
+        for user_path in base_user.iterdir():
+            if user_path.is_dir():
+                fil_dir = user_path / "filament"
+                if fil_dir.exists():
+                    dirs.append(str(fil_dir))
     return dirs
 
 
 def sync_filaments_to_orcaslicer(host=None):
     """
     Main sync action:
-    Queries Moonraker, builds filament presets for ready slots, and writes to OrcaSlicer user profiles.
+    Dynamically queries Moonraker using network info from OrcaSlicer printer profile,
+    builds universal filament presets for ready slots, and writes to OrcaSlicer user profiles.
     """
-    ace_info = fetch_moonraker_ace_data(host=host)
+    net_info = resolve_printer_network_info(override_host=host)
+    ace_info = fetch_moonraker_ace_data(net_info=net_info)
     slots = ace_info["slots"]
     filament_dirs = find_orcaslicer_user_filament_dirs()
 
@@ -239,12 +416,9 @@ def sync_filaments_to_orcaslicer(host=None):
         }
         inherits_name = inherits_map.get(mat.upper(), "Generic PLA @System")
 
+        # Empty compatible_printers means universal compatibility in OrcaSlicer
         preset_payload = {
-            "compatible_printers": [
-                "Voron 2.4 350 0.4 nozzle",
-                "Voron 2.4 350 - 2025",
-                "Voron 2.4 350",
-            ],
+            "compatible_printers": [],
             "default_filament_colour": [col],
             "filament_settings_id": [preset_name],
             "filament_type": [mat],
@@ -280,7 +454,8 @@ def sync_filaments_to_orcaslicer(host=None):
             "sku": sku,
         })
 
-    msg_lines = [f"Synced {len(synced_items)} slots from ACE Pro ({ace_info['host']}):"]
+    printer_label = f"{net_info['printer_name']} ({net_info['base_url']})"
+    msg_lines = [f"Synced {len(synced_items)} slots from ACE Pro on {printer_label}:"]
     for it in synced_items:
         sku_str = f" [{it['sku']}]" if it["sku"] else ""
         msg_lines.append(f"• T{it['slot']}: {it['material']} ({it['color']}) @ {it['temp']}°C{sku_str}")
@@ -301,11 +476,15 @@ def sync_filaments_to_orcaslicer(host=None):
         "message": summary_text,
         "synced": synced_items,
         "slots": slots,
+        "network": net_info,
     }
 
 
-def render_html_page(slots, host):
+def render_html_page(slots, net_info):
     """Render sleek dark-mode HTML page for OrcaSlicer Pages capability."""
+    printer_name = net_info.get("printer_name", "Active Printer")
+    base_url = net_info.get("base_url", "http://192.168.1.168")
+
     slots_html = ""
     for s in slots:
         idx = s["index"]
@@ -428,7 +607,7 @@ body {{
     <div class="header">
         <div class="title-group">
             <h1>Anycubic ACE Pro Filament Sync</h1>
-            <p>Connected to Moonraker at {host} via KLIPPACE</p>
+            <p>Connected to <strong>{printer_name}</strong> at <strong>{base_url}</strong></p>
         </div>
         <button class="sync-btn" onclick="syncNow()">🔄 Sync Filaments to Slicer</button>
     </div>
@@ -438,7 +617,7 @@ body {{
     </div>
 
     <div class="footer-note">
-        Clicking 'Sync Filaments' generates active OrcaSlicer user presets with exact material, color hex, and nozzle temperatures.
+        Clicking 'Sync Filaments' generates universal OrcaSlicer presets compatible with all printer profiles.
     </div>
 </div>
 
@@ -485,8 +664,9 @@ if orca:
                 return "ACE Pro"
 
             def get_ui(self):
-                data = fetch_moonraker_ace_data()
-                return render_html_page(data["slots"], data["host"])
+                net_info = resolve_printer_network_info()
+                data = fetch_moonraker_ace_data(net_info=net_info)
+                return render_html_page(data["slots"], net_info)
 
             def on_message(self, message):
                 try:

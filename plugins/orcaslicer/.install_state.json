@@ -9,11 +9,14 @@
   ],
   "enabled": true,
   "installed_from": "local",
-  "installed_version": "1.0.0",
+  "installed_version": "1.1.0",
   "permissions": {
     "fs_read": [],
     "fs_readwrite": [],
     "network_http": [
+      "*",
+      "http://*/*",
+      "https://*/*",
       "http://192.168.1.168:7125/*",
       "http://192.168.1.168/*",
       "http://127.0.0.1:7125/*"

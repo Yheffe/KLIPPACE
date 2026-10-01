@@ -29,9 +29,12 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - [⚙️ Printer Profiles & Configuration](#️-printer-profiles--configuration)
   - [Voron 2.4 (CoreXY) Profile](#voron-24-corexy-profile)
   - [Anycubic / Generic Profile](#anycubic--generic-profile)
-- [🔌 Slicer Setup (OrcaSlicer)](#-slicer-setup-orcaslicer)
+- [🔌 Slicer Setup & OrcaSlicer Plugin](#-slicer-setup--orcaslicer-plugin)
+  - [OrcaSlicer ACE Pro Sync Plugin](#orcaslicer-ace-pro-sync-plugin)
+  - [Machine G-Code Setup](#machine-g-code-setup)
+  - [Optimized Flush Volume Post-Processing Script](#optimized-flush-volume-post-processing-script)
 - [🧪 Usage & Commands](#-usage--commands)
-- [♻️ Endless Spool](#️-endless-spool)
+- [♻️ Endless Spool & Contextual Start Purge](#️-endless-spool--contextual-start-purge)
 - [🔌 Connection Supervision](#-connection-supervision)
 - [🖥️ Web Dashboard & KlipperScreen](#️-web-dashboard--klipperscreen)
 - [🔧 Troubleshooting](#-troubleshooting)
@@ -54,9 +57,13 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - **Continuous Zigzag Scrubbing with Y-Axis Jitter** – Advanced 40mm nozzle wipe across the Decontaminator brush (`X96–X136 Y360 Z3.0`) with sinusoidal Y-axis jitter ($\pm 4.0\text{mm}$, alternating between Y358.0 and Y360.0) every 5mm along X for complete, non-linear nozzle tip and flank cleaning.
 - **Dual 24V Part Cooling Architecture** – Fully harnesses upgraded 24V blower fans via `[multi_pin dual_fan]` on `EBB:PD3` and `EBB:PA5` driven at 100% full power (`max_power: 1.0`).
 - **Mechanical Gantry Cutting** – Integrated support for A4T Crossbow / gantry cutter pins (`CUT_TIP` at `X2 Y357`) with obstacle avoidance and post-cut retraction.
-- **Smart Adaptive Bed Line Purge (`LINE_PURGE`)** – Primes the nozzle directly adjacent to the sliced model's first layer at print start; toolchange waste is handled exclusively off-bed at the Blobifier tray.
+- **Blobifier Purge Bucket Detection** – Real-time switch/optical monitoring (`blobifier_bucket` on `PF4`) preventing print failure from purge waste overflow.
+- **Smart Contextual Start Purge** – Remembers the residual filament in the hotend (`ace_last_loaded_tool`). Automatically calculates differential purge volumes at `PRINT_START` (standard 35mm when loading the same tool, heavy 85mm when purging out a different color/material).
+- **Automatic 1:1 Tool-to-Gate Reset** – Automatically resets temporary tool-to-gate remappings back to 1:1 upon print completion or cancellation (`RESET_TOOL_MAPPING`).
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
 - **Moonraker & OrcaSlicer Lane Sync** – Real-time lane data synchronization for filament type, color, and spool parameters.
+- **Universal OrcaSlicer ACE Pro Plugin** – One-click filament, color, temperature, and RFID synchronization into universal presets (`compatible_printers: []`), featuring dynamic printer network resolution across macOS, Linux, and Windows.
+- **Fluidd / Mainsail Auto-Match Tool Mapper** – Streamlined 1-click slot selector and automated toolhead-to-gate assignment directly in the Web UI.
 - **Integrated Chamber Dryer Control** – Regulates and monitors heating in the ACE Pro drying chamber (`[temperature_ace]`).
 
 ---
@@ -162,25 +169,63 @@ For standard bed-slingers and custom printers with servo-actuated purge baskets:
 
 ---
 
-## 🔌 Slicer Setup (OrcaSlicer)
+## 🔌 Slicer Setup & OrcaSlicer Plugin
 
-### 1. Machine Start G-Code
+KLIPPACE provides native integration with **OrcaSlicer** via a dedicated plugin, optimized print macros, and post-processing flush conversion.
+
+### OrcaSlicer ACE Pro Sync Plugin
+
+The KLIPPACE ACE Pro Sync plugin enables one-click synchronization of your ACE Pro's physical spool colors, materials, nozzle/bed temperatures, and RFID tags directly into OrcaSlicer user filament profiles.
+
+#### Key Capabilities:
+- **Dynamic Printer Network Resolution**: Automatically extracts target printer network parameters (`print_host`, `printhost_port`, `printhost_apikey`) directly from the active OrcaSlicer printer profile (or `OrcaSlicer.conf`). Works seamlessly without hardcoded IP addresses.
+- **Universal Filament Presets**: Generates presets with `"compatible_printers": []`, ensuring synced ACE Pro spools are instantly visible and selectable across all printer models, bed sizes, and nozzle diameters.
+- **Cross-Platform Compatibility**: Works across macOS (`~/Library/Application Support/OrcaSlicer`), Windows (`%APPDATA%/OrcaSlicer`), and Linux (`~/.config/OrcaSlicer`).
+- **Interactive Embedded Web Page UI**: An embedded dark-mode "ACE Pro" tab directly inside OrcaSlicer displaying live slot swatches, materials, target temperatures, and spool metadata with a one-click **"Sync Filaments to Slicer"** action.
+- **Script Capability & Standalone CLI**: Trigger sync directly via OrcaSlicer's **File > Plugins / Run** or execute via terminal:
+  ```bash
+  python3 scripts/sync_ace_to_orca.py
+  ```
+- **Smart Non-RFID Mapping**: Automatically maps generic or manual spools cleanly to standard PLA and default temperatures (210°C / 60°C) so all 4 slots are consistently synchronized.
+
+#### Plugin Installation:
+
+1. **Locate your OrcaSlicer plugin directory**:
+   - **macOS**: `~/Library/Application Support/OrcaSlicer/orca_plugins/klippace_ace_sync/`
+   - **Linux**: `~/.config/OrcaSlicer/orca_plugins/klippace_ace_sync/`
+   - **Windows**: `%APPDATA%\OrcaSlicer\orca_plugins\klippace_ace_sync\`
+
+2. **Deploy the plugin files**:
+   ```bash
+   # macOS Example:
+   mkdir -p ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync
+   cp plugins/orcaslicer/klippace_ace_sync.py ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync/
+   cp plugins/orcaslicer/.install_state.json ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync/
+   ```
+
+3. **Restart OrcaSlicer**: The "ACE Pro" tab will appear under Pages, and "Sync ACE Pro Filaments" will be registered under Script capabilities.
+
+---
+
+### Machine G-Code Setup
+
+#### 1. Machine Start G-Code
 In your OrcaSlicer **Printer Settings -> Custom G-code -> Machine start G-code**:
 
 ```gcode
 PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperature_initial_layer] INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type]
 ```
 
-`PRINT_START` will home, heat the bed, execute Quad Gantry Leveling (QGL), calibrate bed mesh, park the nozzle over the Blobifier tray (`X5 Y360 Z2.6`), heat the hotend to initial extrusion temperature, load the designated initial tool (`ACE_ON_PRINT_START`) while forming the initial load feed blob, scrub the nozzle across the Decontaminator brush, optionally start the ACE Pro dryer (`DRYER_START`), and execute an adaptive first-layer line purge (`LINE_PURGE`) next to the sliced object before beginning the first layer.
+`PRINT_START` will home, heat the bed, execute Quad Gantry Leveling (QGL), calibrate bed mesh, park the nozzle over the Blobifier tray (`X5 Y360 Z2.6`), check the last loaded tool against the initial tool to determine whether standard (35mm) or heavy transition (85mm) purge is required, heat the hotend to initial extrusion temperature, load the designated initial tool (`ACE_ON_PRINT_START`) while forming the initial load feed blob, scrub the nozzle across the Decontaminator brush, optionally start the ACE Pro dryer (`DRYER_START`), and execute an adaptive first-layer line purge (`LINE_PURGE`) next to the sliced object before beginning the first layer.
 
-### 2. Filament Change G-Code
+#### 2. Filament Change G-Code
 In OrcaSlicer **Printer Settings -> Multimaterial -> Change filament G-code**:
 
 ```gcode
 T[next_extruder]
 ```
 
-### 3. Layer Change G-Code
+#### 3. Layer Change G-Code
 In OrcaSlicer **Printer Settings -> Custom G-code -> Layer change G-code**:
 
 ```gcode
@@ -189,7 +234,9 @@ SET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}
 M117 Layer {layer_num + 1}/[total_layer_count] : {filament_settings_id[0]}
 ```
 
-### 4. Optimized Flush Volume Post-Processing Script
+---
+
+### Optimized Flush Volume Post-Processing Script
 Under OrcaSlicer **Print Settings -> Others -> Post-processing scripts**:
 
 ```
@@ -207,6 +254,8 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | Command | Description |
 | :--- | :--- |
 | `T<tool>` | Initiate a complete tool change to tool number `<tool>` (0–11). |
+| `RESET_TOOL_MAPPING` | Reset all temporary tool-to-gate remappings back to 1:1. Automatically called on `PRINT_END` and `CANCEL_PRINT`. |
+| `SET_GATE_MAP TOOL=<t> GATE=<g>` | Manually remap a logical slicer tool `<t>` to a physical ACE gate `<g>`. |
 | `ACE_STATUS` / `ACE_GET_STATUS` | Display comprehensive ACE hardware state, temperatures, and slot status. |
 | `ACE_CHANGE_TOOL TOOL=<n>` | Change to tool `<n>`. Set `TOOL=-1` to perform a complete unload back to the ACE. |
 | `PARK_SLOT SLOT=<n>` | Manually rewind slot `<n>` by 400mm back before the 4-in-1 splitter. |
@@ -225,14 +274,18 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | `ACE_FEED T=<tool> LENGTH=<mm>` | Manually feed filament forward from a specific slot. |
 | `ACE_RETRACT T=<tool> LENGTH=<mm>` | Manually retract filament from a specific slot. |
 | `ACE_DEBUG_SENSORS` | Query current real-time state of all configured filament switches. |
+| `ACE_INVENTORY` | Scan and refresh RFID and manual filament inventory across all ACE slots. |
+| `UPDATE_ALL_MCUS` | Compile and flash firmware to all MCUs (Octopus Max EZ & EBB36) with safety checks. |
 
 ---
 
-## ♻️ Endless Spool
+## ♻️ Endless Spool & Contextual Start Purge
+
+### Endless Spool
 
 When a filament spool runs empty during a print, Endless Spool automatically detects runout, unloads the empty spool, searches for a compatible replacement, and loads it to resume printing without human intervention.
 
-### Match Modes
+#### Match Modes
 
 Configure the matching logic via Mainsail/Fluidd or using `ACE_SET_ENDLESS_SPOOL_MODE`:
 - **`exact`** (default) – Requires identical material **and** identical RGB color.
@@ -245,6 +298,15 @@ ACE_DISABLE_ENDLESS_SPOOL
 ACE_SET_ENDLESS_SPOOL_MODE MODE=exact
 ACE_GET_ENDLESS_SPOOL_MODE
 ```
+
+### 🧠 Smart Contextual Start Purge
+
+KLIPPACE tracks the tool and material currently seated in the hotend using the persistent variable `ace_last_loaded_tool`.
+
+During `PRINT_START`:
+- **Same Tool Seated**: If the initial print tool matches the residual tool already in the nozzle, KLIPPACE skips heavy purging and applies a standard refresh purge (`purge_same_tool: 35.0` mm).
+- **Tool / Color Transition**: If the initial tool differs from the last printed tool (e.g. transitioning from Black to White or changing material types), KLIPPACE automatically commands a heavy transition purge (`purge_different_tool: 85.0` mm) to flush out the old slug before forming the load blob.
+- **Slicer Override**: If OrcaSlicer passes an explicit `PURGE_LENGTH` parameter in `PRINT_START`, that volume is honored directly.
 
 ---
 
@@ -267,10 +329,12 @@ Run `ACE_GET_CONNECTION_STATUS` in the console to inspect per-instance link stat
 
 ### Web Dashboard (Mainsail & Fluidd)
 The included `acepro-mmu-dashboard` embeds interactive multi-material controls directly into Mainsail and Fluidd:
-- Real-time slot status, active tool indicators, and temperatures.
-- Spool material and color assignment with Spoolman integration.
-- Manual feed, retract, and park controls.
-- Dryer temperature monitoring and timer controls.
+- **Real-Time Slot Indicators**: Slot status, active tool indicators, and temperatures.
+- **1-Click Slot Selector**: Click any slot to immediately load, unload, or inspect that spool.
+- **Auto-Match Tool Mapper**: Automatically correlates g-code tool numbers with physical ACE gates based on color hex and material type.
+- **Blobifier Bucket Monitoring**: Displays real-time status of the optional bucket sensor (`blobifier_bucket` on `PF4`), warning or pausing before waste bucket overflow causes carriage collisions.
+- **Spool Management**: Spool material and color assignment with Spoolman integration.
+- **Dryer Control**: Chamber temperature monitoring, target adjustment, and timer countdown.
 
 ### Moonraker Update Manager Integration
 

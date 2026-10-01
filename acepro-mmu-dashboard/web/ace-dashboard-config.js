@@ -39,21 +39,36 @@ var ACE_DASHBOARD_CONFIG = (typeof window !== 'undefined' && window.ACE_DASHBOAR
 
 // Helper to build WebSocket URL
 function getWebSocketUrl() {
-    if (ACE_DASHBOARD_CONFIG.wsBase) {
-        return ACE_DASHBOARD_CONFIG.wsBase;
+    const globalCfg = (typeof window !== 'undefined' && window.ACE_DASHBOARD_CONFIG) 
+        ? window.ACE_DASHBOARD_CONFIG 
+        : (typeof ACE_DASHBOARD_CONFIG !== 'undefined' ? ACE_DASHBOARD_CONFIG : null);
+
+    if (globalCfg && globalCfg.wsBase) {
+        return globalCfg.wsBase;
     }
-    
-    const apiBase = ACE_DASHBOARD_CONFIG.apiBase;
+
+    let apiBase = '';
+    if (globalCfg && globalCfg.apiBase) {
+        apiBase = globalCfg.apiBase;
+    } else if (typeof window !== 'undefined' && window.location) {
+        apiBase = window.location.origin;
+    }
+
     if (apiBase.startsWith('https://')) {
         return apiBase.replace('https://', 'wss://') + '/websocket';
     } else if (apiBase.startsWith('http://')) {
         return apiBase.replace('http://', 'ws://') + '/websocket';
-    } else {
+    } else if (typeof window !== 'undefined' && window.location) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         return `${protocol}//${window.location.host}/websocket`;
     }
+
+    return 'ws://localhost/websocket';
+}
+
 if (typeof window !== 'undefined') {
     window.ACE_DASHBOARD_CONFIG = ACE_DASHBOARD_CONFIG;
+    window.getWebSocketUrl = getWebSocketUrl;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

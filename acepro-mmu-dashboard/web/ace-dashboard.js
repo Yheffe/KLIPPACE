@@ -77,6 +77,31 @@ const safeConfig = {
     }
 };
 
+const resolveWsUrl = () => {
+    if (typeof getWebSocketUrl === 'function') {
+        try {
+            return getWebSocketUrl();
+        } catch (e) {
+            console.warn('[ACE Dashboard] Error in getWebSocketUrl():', e);
+        }
+    }
+    if (typeof window !== 'undefined' && typeof window.getWebSocketUrl === 'function') {
+        try {
+            return window.getWebSocketUrl();
+        } catch (e) {
+            console.warn('[ACE Dashboard] Error in window.getWebSocketUrl():', e);
+        }
+    }
+    const cfg = (typeof safeConfig !== 'undefined' ? safeConfig : {});
+    if (cfg.wsBase) return cfg.wsBase;
+    const apiBase = cfg.apiBase || (typeof window !== 'undefined' && window.location ? window.location.origin : '');
+    if (apiBase.startsWith('https://')) return apiBase.replace('https://', 'wss://') + '/websocket';
+    if (apiBase.startsWith('http://')) return apiBase.replace('http://', 'ws://') + '/websocket';
+    const protocol = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+    const host = (typeof window !== 'undefined' && window.location && window.location.host) ? window.location.host : 'localhost';
+    return `${protocol}//${host}/websocket`;
+};
+
 
 // ===== Extensive material list (provided earlier, de‑duplicated) =====
 const BUILT_IN_MATERIALS = [
@@ -236,7 +261,7 @@ createApp({
             // Connection
             wsConnected: false,
             ws: null,
-            apiBase: safeConfig?.apiBase || window.location.origin,
+            apiBase: safeConfig?.apiBase || (typeof window !== 'undefined' && window.location ? window.location.origin : ''),
 
             // Device Status
             deviceStatus: {
@@ -423,13 +448,23 @@ createApp({
     },
 
     mounted() {
-        this.loadPresetsFromPrinter();
-        this.connectWebSocket();
+        try {
+            this.loadPresetsFromPrinter();
+        } catch (e) {
+            console.error('[ACE Dashboard] Error loading presets:', e);
+        }
+
+        try {
+            this.connectWebSocket();
+        } catch (e) {
+            console.error('[ACE Dashboard] Error initializing WebSocket:', e);
+        }
+
         this.loadAllStatus();
         this.updateDocumentTitle();
         const refreshInterval = safeConfig?.autoRefreshInterval || 5000;
         setInterval(() => {
-            if (this.wsConnected) this.loadAllStatus();
+            this.loadAllStatus();
         }, refreshInterval);
     },
 
@@ -572,52 +607,78 @@ createApp({
 
         // ------------------- WebSocket -------------------
         connectWebSocket() {
-            const wsUrl = getWebSocketUrl();
-            this.ws = new WebSocket(wsUrl);
-            this.ws.onopen = () => {
-                this.wsConnected = true;
-                this.showNotification(this.t('notifications.websocketConnected'), 'success');
-                this.subscribeToStatus();
-                this.loadAllStatus();
-            };
-            this.ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleWebSocketMessage(data);
-                } catch (e) {
-                    console.error('Error parsing WebSocket message:', e);
-                }
-            };
-            this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
+            try {
+                const wsUrl = resolveWsUrl();
+                this.ws = new WebSocket(wsUrl);
+                this.ws.onopen = () => {
+                    this.wsConnected = true;
+                    this.showNotification(this.t('notifications.websocketConnected'), 'success');
+                    this.subscribeToStatus();
+                    this.loadAllStatus();
+                };
+                this.ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        this.handleWebSocketMessage(data);
+                    } catch (e) {
+                        console.error('Error parsing WebSocket message:', e);
+                    }
+                };
+                this.ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    this.wsConnected = false;
+                };
+                this.ws.onclose = () => {
+                    this.wsConnected = false;
+                    this.showNotification(this.t('notifications.websocketDisconnected'), 'error');
+                    const reconnectTimeout = safeConfig?.wsReconnectTimeout || 3000;
+                    setTimeout(() => this.connectWebSocket(), reconnectTimeout);
+                };
+            } catch (err) {
+                console.error('[ACE Dashboard] connectWebSocket failed to initialize:', err);
                 this.wsConnected = false;
-            };
-            this.ws.onclose = () => {
-                this.wsConnected = false;
-                this.showNotification(this.t('notifications.websocketDisconnected'), 'error');
-                const reconnectTimeout = safeConfig?.wsReconnectTimeout || 3000;
+                const reconnectTimeout = safeConfig?.wsReconnectTimeout || 5000;
                 setTimeout(() => this.connectWebSocket(), reconnectTimeout);
-            };
+            }
         },
 
         subscribeToStatus() {
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            const objectsToSub = { "ace": null, "ace_state": null };
+            for (let i = 0; i < 4; i++) {
+                objectsToSub[`ace_instance_${i}`] = null;
+            }
             this.ws.send(JSON.stringify({
                 jsonrpc: "2.0",
                 method: "printer.objects.subscribe",
-                params: { objects: { "ace": null } },
+                params: { objects: objectsToSub },
                 id: 5434
             }));
         },
 
         handleWebSocketMessage(data) {
             if (data.method === "notify_status_update") {
-                const aceData = data.params[0]?.ace;
-                if (aceData) {
-                    if (typeof aceData.instance_index === 'number' && aceData.instance_index !== this.selectedInstance) {
-                        return;
+                const statusParams = data.params?.[0];
+                if (!statusParams) return;
+
+                let refreshNeeded = false;
+                if (statusParams.ace) {
+                    this.updateMainStatus(statusParams.ace);
+                    refreshNeeded = true;
+                }
+                const currentInstKey = `ace_instance_${this.selectedInstance}`;
+                if (statusParams[currentInstKey]) {
+                    this.updateMainStatus(statusParams[currentInstKey]);
+                    refreshNeeded = true;
+                }
+                for (let i = 0; i < 4; i++) {
+                    if (statusParams[`ace_instance_${i}`]) {
+                        refreshNeeded = true;
+                        break;
                     }
-                    this.updateMainStatus(aceData);
+                }
+                if (refreshNeeded) {
+                    this.loadAllStatus();
                 }
             }
         },
@@ -1110,8 +1171,14 @@ createApp({
         },
 
         connectionBadgeClass() {
-            if (!this.wsConnected) return 'disconnected';
-            return this.deviceStatus.connection_state || 'unknown';
+            const connectionState = this.deviceStatus?.connection_state;
+            if (connectionState && connectionState !== 'unknown') {
+                return connectionState;
+            }
+            if (this.wsConnected) {
+                return 'connected';
+            }
+            return 'disconnected';
         },
 
         getDryerStatusText(status) {

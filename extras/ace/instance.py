@@ -102,6 +102,11 @@ class AceInstance:
         self.heartbeat_interval = float(ace_config["heartbeat_interval"])
         self.max_dryer_temperature = float(ace_config["max_dryer_temperature"])
 
+        # Custom toolhead cutter & toolchange configuration
+        self.cut_macro = ace_config.get("cut_macro", "CUT_TIP")
+        self.cut_retract_length = float(ace_config.get("cut_retract_length", 0.0))
+        self.toolchange_macro = ace_config.get("toolchange_macro", "")
+
         self.rfid_inventory_sync_enabled = ace_config.get("rfid_inventory_sync_enabled", True)
         self.feed_assist_active_after_ace_connect = ace_config.get(
             "feed_assist_active_after_ace_connect", True
@@ -213,17 +218,23 @@ class AceInstance:
             for slot_idx in range(self.SLOT_COUNT):
                 tool_num = self.tool_offset + slot_idx
 
-                # Create closure to capture current slot_idx
-                def make_tool_handler(idx):
+                # Create closure to capture current slot_idx and tool_num
+                def make_tool_handler(idx, t_num):
                     def handler(gcmd):
                         gcmd.respond_info(
-                            f"ACE: Tool change to T{tool_num} "
+                            f"ACE: Tool change to T{t_num} "
                             f"(slot {idx}, instance {self.instance_num})"
                         )
+                        if self.toolchange_macro:
+                            self.gcode.run_script_from_command(
+                                f"{self.toolchange_macro} TOOL={t_num} SLOT={idx} INSTANCE={self.instance_num}"
+                            )
+                        elif self.manager and hasattr(self.manager, "select_tool"):
+                            self.manager.select_tool(t_num)
                     return handler
 
                 desc = f"ACE tool macro - slot {slot_idx} of instance {self.instance_num}"
-                self.gcode.register_command(f"T{tool_num}", make_tool_handler(slot_idx), desc=desc)
+                self.gcode.register_command(f"T{tool_num}", make_tool_handler(slot_idx, tool_num), desc=desc)
 
             self.gcode.respond_info(
                 f"ACE[{self.instance_num}]: Registered tool macros "
@@ -668,7 +679,7 @@ class AceInstance:
         # Small 1.0s delay to allow ACE firmware to settle after insertion/RFID check
         self.reactor.register_timer(auto_park_timer_cb, self.reactor.monotonic() + 1.0)
 
-    def _retract(self, slot, length, speed, on_retract_started=None, on_wait_for_ready=None):
+    def _retract(self, slot, length, speed, on_retract_started=None, on_wait_for_ready=None, stop_condition=None):
         """
         Retract filament from slot with automatic retry on FORBIDDEN errors.
 
@@ -676,6 +687,9 @@ class AceInstance:
             slot: Local slot index (0-3)
             length: Distance to retract (mm)
             speed: Retract speed (mm/s)
+            on_retract_started: Optional callback after retract command accepted
+            on_wait_for_ready: Optional callback invoked during dwell / wait cycles
+            stop_condition: Optional callable returning True if retraction should stop early
 
         Returns:
             dict: Response from ACE
@@ -724,6 +738,20 @@ class AceInstance:
                         f"{early_stop_state['elapsed']:.2f}s - slot {slot} reports empty"
                     )
                     self._stop_retract(slot)
+
+            def check_early_stop():
+                if early_stop_state["triggered"]:
+                    return
+                check_slot_empty()
+                if not early_stop_state["triggered"] and stop_condition is not None:
+                    if stop_condition():
+                        early_stop_state["triggered"] = True
+                        early_stop_state["elapsed"] = time.time() - retract_start_time
+                        self.gcode.respond_info(
+                            f"ACE[{self.instance_num}]: Retract stopped after "
+                            f"{early_stop_state['elapsed']:.2f}s - stop condition met"
+                        )
+                        self._stop_retract(slot)
 
             def callback(response):
                 response_container["response"] = response
@@ -782,7 +810,7 @@ class AceInstance:
                 while time.time() < dwell_end:
                     if on_wait_for_ready is not None:
                         on_wait_for_ready()
-                    check_slot_empty()
+                    check_early_stop()
                     if early_stop_state["triggered"]:
                         self.wait_ready()
                         return {"code": 0, "msg": "Retract stopped early: slot empty"}
@@ -791,7 +819,7 @@ class AceInstance:
                 def wait_cycle():
                     if on_wait_for_ready is not None:
                         on_wait_for_ready()
-                    check_slot_empty()
+                    check_early_stop()
 
                 self.wait_ready(on_wait_cycle=wait_cycle)
 
@@ -851,7 +879,7 @@ class AceInstance:
                 )
 
         request = self.protocol.build_stop_unwind_filament_request(slot)
-        self.send_request(request, callback)
+        self.send_high_prio_request(request, callback)
 
     def _feed_to_toolhead_with_extruder_assist(self, local_slot, feed_length, feed_speed,
                                                extruder_feeding_length, extruder_feeding_speed):
@@ -1033,7 +1061,7 @@ class AceInstance:
             has_rdm = self.manager.has_rdm_sensor()
 
             if has_rdm and self.manager.get_switch_state(SENSOR_RDM):
-                raise ValueError("Cannot feed, filament stuck in RMS")
+                raise ValueError("Cannot feed, filament stuck in RDM")
 
             if self.manager.get_entry_switch_state() or self.manager.get_nozzle_switch_state():
                 raise ValueError("Cannot feed, filament in nozzle or toolhead")
@@ -1265,75 +1293,103 @@ class AceInstance:
 
         return None
 
-    def rmd_triggered_unload_slot(self, manager, slot, length, overshoot_length):
+    def rdm_triggered_unload_slot(self, manager, slot, length, overshoot_length):
         """Unload slot with RDM sensor monitoring and overshoot compensation."""
-        if manager.has_rdm_sensor():
-            f_index = self._get_current_feed_assist_index()
-            self._disable_feed_assist(slot)
+        if not manager.has_rdm_sensor():
+            return False
 
-            timeout_seconds = (length / self.retract_speed) * self.timeout_multiplier
-            start_time = time.time()
-            sensor_clear_time = None
-            # Start retraction
-            self._retract(slot, length, self.retract_speed)
+        f_index = self._get_current_feed_assist_index()
+        self._disable_feed_assist(slot)
 
-            poll_interval = 0.02
+        start_time = time.time()
+        clear_timestamp = [None]
+        overshoot_time = (overshoot_length / self.retract_speed) * self.timeout_multiplier
 
-            while (time.time() - start_time) < timeout_seconds:
-                if manager.is_filament_path_free():
-                    if sensor_clear_time is None:
-                        sensor_clear_time = time.time() - start_time
-                        overshoot_time = (overshoot_length / self.retract_speed) * self.timeout_multiplier
-
-                        self.gcode.respond_info(
-                            f"ACE[{self.instance_num}]: Sensor cleared "
-                            f"after {sensor_clear_time:.2f}s, "
-                            f"waiting {overshoot_time:.2f}s for overshoot"
-                        )
-
-                        self.dwell(overshoot_time)
-
-                    self._stop_retract(slot)
-
-                    elapsed = time.time() - start_time
+        def check_rdm_cleared():
+            if manager.is_filament_path_free():
+                if clear_timestamp[0] is None:
+                    clear_timestamp[0] = time.time()
+                    elapsed = clear_timestamp[0] - start_time
                     self.gcode.respond_info(
-                        f"ACE[{self.instance_num}]: RMD triggered unload slot {slot} "
-                        f"completed in {elapsed:.2f}s"
+                        f"ACE[{self.instance_num}]: Sensor cleared "
+                        f"after {elapsed:.2f}s, "
+                        f"waiting {overshoot_time:.2f}s for overshoot"
                     )
-                    self._update_feed_assist(f_index)
+                if (time.time() - clear_timestamp[0]) >= overshoot_time:
                     return True
+            return False
 
-                self.dwell(poll_interval)
-
-            self._stop_retract(slot)
+        try:
+            self._retract(slot, length, self.retract_speed, stop_condition=check_rdm_cleared)
+            success = clear_timestamp[0] is not None
+            if success:
+                elapsed = time.time() - start_time
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: RDM triggered unload slot {slot} "
+                    f"completed in {elapsed:.2f}s"
+                )
+            return success
+        finally:
             self._update_feed_assist(f_index)
-        return False
 
-    def _smart_unload_slot(self, slot, length=100, on_retract_started=None):
+    # Alias for backward compatibility
+    rmd_triggered_unload_slot = rdm_triggered_unload_slot
+
+    def _smart_unload_slot(self, slot, length=None, on_retract_started=None):
         """
-        Fixed-length retraction with optional sensor validation.
+        Unload slot with optional cutter macro and sensor validation.
 
-        **SIMPLIFIED MODE:**
-        - Always retracts exactly 'length' mm (ignores overshoot_length)
-        - No sensor polling during retraction
-        - RDM sensor used only for post-retraction validation (if available)
+        Executes the configured cutter macro (e.g. CUT_TIP) before retracting,
+        then retracts the filament. When no RDM sensor is present, the full
+        Bowden distance is retracted to park the filament back in the ACE unit.
 
         Args:
             slot: Slot index to retract from
-            length: Retraction length in mm (exact distance)
+            length: Retraction length in mm (defaults to parkposition_to_toolhead_length if no RDM, else toolchange_load_length)
             on_retract_started: Optional callback after retract starts
 
         Returns:
             bool: True if retraction completed successfully
 
         Raises:
-            ValueError: If path still blocked after retraction (RDM available only)
+            ValueError: If path still blocked after retraction
         """
         has_rdm = self.manager.has_rdm_sensor()
 
+        # Optional cutter integration (e.g. CUT_TIP)
+        if self.cut_retract_length > 0:
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Retracting {self.cut_retract_length}mm before cutting"
+            )
+            self._extruder_move(
+                -self.cut_retract_length,
+                self.extruder_feeding_speed,
+                wait_for_move_end=True
+            )
+
+        if self.cut_macro:
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Executing cutter macro '{self.cut_macro}'..."
+            )
+            try:
+                self.gcode.run_script_from_command(self.cut_macro)
+                toolhead = self.printer.lookup_object('toolhead')
+                toolhead.wait_moves()
+            except Exception as e:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Cutter macro '{self.cut_macro}' returned error: {e}"
+                )
+
+        # Compute retract distance if not explicitly provided
+        if length is None or length <= 0:
+            if has_rdm:
+                length = float(self.toolchange_load_length) if self.toolchange_load_length > 0 else 100.0
+            else:
+                length = float(self.parkposition_to_toolhead_length)
+
         timeout_seconds = (length / self.retract_speed) * self.timeout_multiplier
 
-        mode_str = "with RDM validation" if has_rdm else "toolhead-only mode"
+        mode_str = "with RDM validation" if has_rdm else "cutter & direct-toolhead mode"
         self.gcode.respond_info(
             f"ACE[{self.instance_num}]: Fixed-length unload slot {slot} ({mode_str}):\n"
             f"  Length: {length}mm\n"
@@ -1413,7 +1469,7 @@ class AceInstance:
                     )
                     return True
                 else:
-                    if not self.rmd_triggered_unload_slot(self.manager, slot, length, self.parkposition_to_rdm_length):
+                    if not self.rdm_triggered_unload_slot(self.manager, slot, length, self.parkposition_to_rdm_length):
                         slot_status = self.inventory[slot].get("status", "unknown")
                         raise ValueError(
                             "ACE[%d]: ✗ Retraction failed - path still blocked after %.1fmm\n"
@@ -2125,6 +2181,15 @@ class AceInstance:
         Raises:
             ValueError: If feeding fails or sensors are in wrong state
         """
+        if slot < 0 or slot >= self.SLOT_COUNT:
+            raise ValueError(f"ACE[{self.instance_num}]: Invalid slot index {slot}")
+
+        if target_sensor == SENSOR_RDM and not self.manager.has_rdm_sensor():
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: RDM sensor not configured, targeting toolhead sensor"
+            )
+            target_sensor = SENSOR_TOOLHEAD
+
         target_sensor_name = "RDM" if target_sensor == SENSOR_RDM else "toolhead"
 
         logging.info(
@@ -2139,6 +2204,8 @@ class AceInstance:
             raise ValueError(
                 f"ACE[{self.instance_num}]: Cannot feed, filament already at {target_sensor_name} sensor"
             )
+
+        self._disable_feed_assist(slot)
 
         # Start feeding
         self._feed(slot, feed_length, self.feed_speed)
@@ -2158,25 +2225,26 @@ class AceInstance:
             self.dwell(0.01)
 
         self._stop_feed(slot)
+        self.wait_ready()
 
         # Incremental feeding if sensor not reached
         accumulated_feed_length = feed_length
 
         if not self.manager.get_switch_state(target_sensor):
+            try:
+                while (not self.manager.get_switch_state(target_sensor) and
+                       accumulated_feed_length < self.total_max_feeding_length):
+                    self.gcode.respond_info(
+                        f"ACE[{self.instance_num}]: Incremental feed to {target_sensor_name} "
+                        f"({self.incremental_feeding_length}mm at "
+                        f"{self.incremental_feeding_speed}mm/s)"
+                    )
 
-            while (not self.manager.get_switch_state(target_sensor) and
-                   accumulated_feed_length < self.total_max_feeding_length):
-                self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Incremental feed to {target_sensor_name} "
-                    f"({self.incremental_feeding_length}mm at "
-                    f"{self.incremental_feeding_speed}mm/s)"
-                )
-
-                self._feed(slot, self.incremental_feeding_length, self.incremental_feeding_speed)
-
-                accumulated_feed_length += self.incremental_feeding_length
-
-                self.dwell((self.incremental_feeding_length / self.incremental_feeding_speed) + 0.1)
+                    self._feed(slot, self.incremental_feeding_length, self.incremental_feeding_speed)
+                    accumulated_feed_length += self.incremental_feeding_length
+                    self.dwell((self.incremental_feeding_length / self.incremental_feeding_speed) + 0.1)
+            finally:
+                self._stop_feed(slot)
 
             if not self.manager.get_switch_state(target_sensor):
                 raise ValueError(

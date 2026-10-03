@@ -45,14 +45,24 @@ class AceInstance:
     # Keep the names/temps aligned with SLOT_MATERIALS in the dashboard's
     # acepro-mmu-dashboard/web/klippace-tool-mapper.js — that list is the
     # editor's preset menu and should stay a subset of this table.
+    #
+    # Insertion order is significant: MmuShim publishes this table as
+    # mmu.material_temps and the slot editor renders its dropdown in that
+    # order, so keep entries grouped by family.
     MATERIAL_TEMPS = {
         # --- PLA family ---
+        # PLA Glow / PLA Marble / PLA SE are reported by Anycubic RFID tags but
+        # are not in the editor's default preset list; they are kept here so
+        # those tags resolve to a real temperature instead of DEFAULT_TEMP.
         "PLA": 210,
         "PLA+": 215,
         "PLA-CF": 220,
-        "PLA Matte": 210,
-        "PLA Silk": 215,
+        "PLA Glow": 210,
         "PLA High Speed": 220,
+        "PLA Marble": 205,
+        "PLA Matte": 210,
+        "PLA SE": 210,
+        "PLA Silk": 215,
         # --- PETG family ---
         "PETG": 240,
         "PETG-CF": 250,
@@ -75,12 +85,6 @@ class AceInstance:
         "PPS": 300,
         "PC-ABS": 265,
         "PEEK": 380,
-        # --- Anycubic RFID tag names ---
-        # Not offered in the editor's preset list, but tags can report them,
-        # so keep entries here to avoid falling back to DEFAULT_TEMP.
-        "PLA Glow": 210,
-        "PLA Marble": 205,
-        "PLA SE": 210,
     }
 
     @classmethod

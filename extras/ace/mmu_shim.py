@@ -157,6 +157,7 @@ class MmuShim:
             gate_spool_id = []
             gate_speed = []
             gate_temp = []
+            feed_assist_gates = set()
             units_list = []
 
             instances = getattr(self.manager, "instances", [])
@@ -207,6 +208,17 @@ class MmuShim:
                     gate_spool_id.append(int(spool_id) if spool_id is not None else -1)
                     gate_speed.append(100.0)
                     gate_temp.append(_resolve_gate_temp(slot, mat))
+
+                # Feed assist is tracked per ACE instance as a LOCAL slot index.
+                # Record the equivalent global gate so it can be reported the
+                # way Happy Hare clients expect (espooler_active).
+                assist_local = inst_status.get("feed_assist_slot", -1)
+                try:
+                    assist_local = int(assist_local)
+                except (TypeError, ValueError):
+                    assist_local = -1
+                if assist_local >= 0:
+                    feed_assist_gates.add(inst_idx * 4 + assist_local)
 
             # Active tool & filament location
             active_gate = self.manager.state.get("ace_current_index", -1)
@@ -277,8 +289,17 @@ class MmuShim:
                 "gate_spool_id": gate_spool_id,
                 "gate_speed": gate_speed,
                 "gate_temp": gate_temp,
+                # Mainsail reads gate_temperature (the Happy Hare spelling)
+                # while Fluidd and our own card read gate_temp, so publish both.
+                "gate_temperature": gate_temp,
                 "gate_speed_override": [100.0] * num_gates,
                 "material_temps": _material_table(),
+                # Mainsail indexes espooler per gate; values are 'assist',
+                # 'rewind' or None. It also honours the scalar espooler_active
+                # for the selected gate as a fallback (legacy Happy Hare).
+                "espooler": ["assist" if g in feed_assist_gates else None
+                             for g in range(num_gates)],
+                "espooler_active": "assist" if gate in feed_assist_gates else None,
                 "tool": tool,
                 "gate": gate,
                 "last_tool": getattr(self, "_last_tool", -1),
@@ -312,8 +333,11 @@ class MmuShim:
                 "gate_spool_id": [-1, -1, -1, -1],
                 "gate_speed": [100.0, 100.0, 100.0, 100.0],
                 "gate_temp": [0, 0, 0, 0],
+                "gate_temperature": [0, 0, 0, 0],
                 "gate_speed_override": [100.0, 100.0, 100.0, 100.0],
                 "material_temps": _material_table(),
+                "espooler": [None, None, None, None],
+                "espooler_active": None,
                 "tool": -1,
                 "gate": -1,
                 "tool_to_gate_map": [0, 1, 2, 3],

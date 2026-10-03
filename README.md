@@ -64,7 +64,7 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - **Automatic 1:1 Tool-to-Gate Reset** – Automatically resets temporary tool-to-gate remappings back to 1:1 when a print ends or is cancelled (`MMU_TTG_MAP RESET=1` restores it manually).
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
 - **Manual Slot Data Editor** – Non-RFID spools cannot be identified by the ACE, so any gate on the web card can be clicked to record its material, colour and nozzle temperature. Slots holding filament but no data are flagged with an amber marker. **Clear Data** wipes the metadata while keeping the spool marked as loaded; *Mark Empty* tells Klipper the slot holds nothing. Values persist to disk immediately, so they survive a restart.
-- **Happy Hare Compatibility Shim** – Exposes the standard `mmu` printer object (`gate_status`, `gate_color`, `gate_material`, `gate_temp`, `filament_pos`, `action`, `ttg_map`) and the `MMU_*` command set, so Mainsail and Fluidd render their native multi-material card without knowing ACE Pro exists.
+- **Happy Hare Compatibility Shim** – Exposes the standard `mmu` and `mmu_machine` printer objects (`gate_status`, `gate_color`, `gate_material`, `gate_spool_id`, `filament_pos`, `action`, `ttg_map`, …) plus the `MMU_*` command set, so Fluidd and Mainsail render their native multi-material card without knowing ACE Pro exists. Fields are published under every spelling clients actually read — `gate_temp` (Fluidd) alongside `gate_temperature` (Mainsail), and `espooler`/`espooler_active` for the rewind-assist indicator.
 - **Moonraker & OrcaSlicer Lane Sync** – Real-time lane data synchronization for filament type, color, and spool parameters.
 - **Universal OrcaSlicer ACE Pro Plugin** – One-click filament, color, temperature, and RFID synchronization into universal presets (`compatible_printers: []`), featuring dynamic printer network resolution across macOS, Linux, and Windows.
 - **Fluidd / Mainsail Auto-Match Tool Mapper** – Streamlined 1-click slot selector and automated toolhead-to-gate assignment directly in the Web UI.
@@ -375,7 +375,18 @@ Run `ACE_GET_CONNECTION_STATUS` in the console to inspect per-instance link stat
 ## 🖥️ Web Dashboard & KlipperScreen
 
 ### Web Dashboard (Mainsail & Fluidd)
-The included `acepro-mmu-dashboard` embeds interactive multi-material controls directly into Mainsail and Fluidd:
+
+The included `acepro-mmu-dashboard` embeds interactive multi-material controls directly into Fluidd and Mainsail:
+
+> [!IMPORTANT]
+> **Mainsail v2.15.0 or newer is required.** Happy Hare / MMU support landed in that
+> release, so earlier builds render no MMU card at all for the dashboard to attach
+> to. Fluidd v1.37.x and newer work as-is.
+>
+> The dashboard must be served from the **same origin as Moonraker** (the standard
+> nginx setup, where `/printer/` is proxied to port 7125). The card reads
+> `/printer/objects/query?mmu` with a relative URL, so serving the UI from a
+> different host or port than Moonraker leaves the card unpopulated.
 - **Real-Time Slot Indicators**: Slot status, active tool indicators, and temperatures.
 - **Click-To-Edit Slots**: Click any gate on the card to record the material, colour and nozzle temperature for a spool the ACE cannot identify. Slots holding filament with no data are flagged with an amber marker.
 - **1-Click Slot Selector**: Click any slot to immediately load, unload, or inspect that spool.

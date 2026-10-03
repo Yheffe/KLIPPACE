@@ -222,6 +222,12 @@ main() {
             if ! prompt_yes_no "Directory does not exist. Create symlinks anyway?"; then
                 MAINSAIL_DIR=""
             fi
+        elif [ -d "$MAINSAIL_DIR/assets" ] && ! grep -rlq 'gate_status' "$MAINSAIL_DIR/assets" 2>/dev/null; then
+            # Mainsail gained Happy Hare / MMU support in v2.15.0. On an older
+            # build there is no MMU card, so the dashboard would install but
+            # render nothing — warn rather than fail silently later.
+            print_warning "This Mainsail build has no MMU support (requires v2.15.0+)."
+            print_warning "The card will be linked, but no MMU card will appear."
         fi
     else
         MAINSAIL_DIR=""

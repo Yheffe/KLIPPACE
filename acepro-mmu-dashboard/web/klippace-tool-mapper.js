@@ -135,14 +135,34 @@
     showToast('✨ Filaments auto-matched to ACE Pro slots by material & color!');
   }
 
+  // Toasts are raised from the card (slot editor, dryer) as well as from the
+  // tool mapper. The in-modal element only exists once the tool mapper has been
+  // built, so relying on it alone made every card toast disappear silently.
+  // Fall back to a floating toast on <body> when the modal one is absent.
   function showToast(msg) {
-    const toast = document.getElementById('klippace-toast');
-    if (!toast) return;
-    toast.textContent = msg;
-    toast.classList.add('visible');
-    setTimeout(() => {
-      toast.classList.remove('visible');
-    }, 2800);
+    const timerKey = '_klippaceToastTimer';
+
+    const inModal = document.getElementById('klippace-toast');
+    let target = inModal;
+
+    if (!target) {
+      target = document.getElementById('klippace-toast-float');
+      if (!target) {
+        target = document.createElement('div');
+        target.id = 'klippace-toast-float';
+        target.className = 'klippace-toast-float';
+        target.setAttribute('role', 'status');
+        document.body.appendChild(target);
+      }
+      // Retrigger the entry animation for a repeated message.
+      target.classList.remove('visible');
+      void target.offsetWidth;
+    }
+
+    target.textContent = msg;
+    target.classList.add('visible');
+    clearTimeout(showToast[timerKey]);
+    showToast[timerKey] = setTimeout(() => target.classList.remove('visible'), 2800);
   }
 
   // --- Modal DOM Construction ---
@@ -504,6 +524,177 @@
   }
 
   // =========================================================================
+  // DRYER — heat the ACE chamber to dry filament.
+  // Ported from the standalone acepro-mmu-dashboard so the Fluidd card can
+  // start/stop the dryer rather than only reporting its state.
+  // =========================================================================
+
+  function dryerState() {
+    const unit = (cachedMmu && cachedMmu.unit && cachedMmu.unit[0]) || {};
+    const drying = (unit.dryer_status === 'drying');
+    const target = unit.dryer_target_temp || 0;
+    const remain = unit.dryer_remain_time || 0;
+    return { drying, target, remain, on: drying || target > 0 };
+  }
+
+  function describeDryer() {
+    const { drying, target, remain, on } = dryerState();
+    if (!on) return 'Off';
+    if (!drying) return `Standby · target ${target}°C`;
+    const mins = remain > 0 ? ` · ${remain} min left` : '';
+    return `Drying at ${target}°C${mins}`;
+  }
+
+  function renderDryerModal() {
+    const status = document.getElementById('klippace-dryer-status');
+    if (!status) return;
+    const { drying, target, on } = dryerState();
+    const text = describeDryer();
+    if (status.textContent !== text) status.textContent = text;
+    const state = drying ? 'drying' : (on ? 'on' : 'off');
+    if (status.dataset.state !== state) status.dataset.state = state;
+
+    const startBtn = document.getElementById('klippace-dryer-start');
+    const stopBtn = document.getElementById('klippace-dryer-stop');
+    if (startBtn) startBtn.disabled = drying;
+    if (stopBtn) stopBtn.disabled = !on;
+
+    // Seed the inputs from live state the first time the modal is opened, so a
+    // running dryer shows its own target/duration rather than the defaults.
+    const tempInput = document.getElementById('klippace-dryer-temp');
+    if (tempInput && !tempInput.dataset.touched && target > 0) {
+      tempInput.value = target;
+    }
+  }
+
+  function createDryerModal() {
+    let overlay = document.getElementById('klippace-dryer-overlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'klippace-dryer-overlay';
+    overlay.className = 'klippace-overlay';
+    overlay.innerHTML = `
+      <div class="klippace-modal klippace-modal--narrow" role="dialog" aria-modal="true">
+        <div class="klippace-header">
+          <div class="klippace-header-title-group">
+            <div class="klippace-icon-badge">
+              <svg viewBox="0 0 24 24" width="22" height="22">
+                <path fill="currentColor" d="M17.66 11.2c-.23-.3-.51-.56-.77-.82-.67-.6-1.43-1.03-2.07-1.66C13.33 7.26 13 4.85 13.95 3c-.95.23-1.78.75-2.49 1.32-2.59 2.08-3.61 5.75-2.39 8.9.04.1.08.2.08.33 0 .22-.15.42-.35.5-.23.1-.47.04-.66-.12a.58.58 0 0 1-.14-.17c-1.13-1.43-1.31-3.48-.55-5.12C5.78 10 4.87 12.3 5 14.47c.06.5.12 1 .29 1.5.14.45.35.87.6 1.27.35.55.79 1.04 1.3 1.45 2.15 1.72 5.32 1.7 7.45-.03 1.6-1.3 2.54-3.32 2.46-5.4 0-.26-.02-.52-.05-.78-.06-.5-.18-1-.36-1.48z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="klippace-title">ACE Pro Dryer</div>
+              <div class="klippace-subtitle">Heat the chamber to dry filament</div>
+            </div>
+          </div>
+          <div class="klippace-header-actions">
+            <button id="klippace-dryer-close" class="klippace-btn-icon" type="button" title="Close">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="klippace-editor-body">
+          <div class="klippace-dryer-status" id="klippace-dryer-status" data-state="off">Off</div>
+
+          <label class="klippace-field">
+            <span class="klippace-field-label">Target temp (°C)</span>
+            <input id="klippace-dryer-temp" class="klippace-input" type="number" min="30" max="70" step="5" value="50">
+          </label>
+
+          <label class="klippace-field">
+            <span class="klippace-field-label">Duration (minutes)</span>
+            <input id="klippace-dryer-duration" class="klippace-input" type="number" min="1" max="1440" step="10" value="240">
+          </label>
+        </div>
+
+        <div class="klippace-footer">
+          <div class="klippace-footer-left">
+            <button id="klippace-dryer-stop" class="klippace-btn klippace-btn-ghost" type="button">Stop Dryer</button>
+          </div>
+          <div class="klippace-footer-right">
+            <button id="klippace-dryer-cancel" class="klippace-btn klippace-btn-ghost" type="button">Cancel</button>
+            <button id="klippace-dryer-start" class="klippace-btn klippace-btn-primary" type="button">Start Drying</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    const el = (id) => document.getElementById(id);
+
+    el('klippace-dryer-close').addEventListener('click', closeDryerModal);
+    el('klippace-dryer-cancel').addEventListener('click', closeDryerModal);
+    el('klippace-dryer-temp').addEventListener('input', (e) => {
+      e.target.dataset.touched = '1';
+    });
+    el('klippace-dryer-start').addEventListener('click', startDryer);
+    el('klippace-dryer-stop').addEventListener('click', stopDryer);
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDryerModal(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) closeDryerModal();
+    });
+
+    return overlay;
+  }
+
+  async function openDryerModal() {
+    const overlay = createDryerModal();
+    // Refresh first so the status line and inputs reflect the real dryer.
+    await getCachedMmu().catch(() => null);
+    renderDryerModal();
+    overlay.classList.add('active');
+  }
+
+  function closeDryerModal() {
+    const overlay = document.getElementById('klippace-dryer-overlay');
+    if (overlay) overlay.classList.remove('active');
+  }
+
+  async function startDryer() {
+    const el = (id) => document.getElementById(id);
+    const temp = parseInt(el('klippace-dryer-temp').value, 10);
+    const duration = parseInt(el('klippace-dryer-duration').value, 10);
+
+    if (!Number.isFinite(temp) || temp < 30 || temp > 70) {
+      showToast('Temperature must be between 30 and 70°C.');
+      return;
+    }
+    if (!Number.isFinite(duration) || duration < 1) {
+      showToast('Duration must be at least 1 minute.');
+      return;
+    }
+
+    const btn = el('klippace-dryer-start');
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+    try {
+      await sendGcode(`ACE_START_DRYING TEMP=${temp} DURATION=${duration}`);
+      closeDryerModal();
+      showToast(`Dryer started: ${temp}°C for ${duration} min.`);
+      setTimeout(() => { cachedMmu = null; mmuFetchedAt = 0; decorateAll(); }, 800);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Start Drying'; }
+    }
+  }
+
+  async function stopDryer() {
+    const btn = document.getElementById('klippace-dryer-stop');
+    if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+    try {
+      await sendGcode('ACE_STOP_DRYING');
+      closeDryerModal();
+      showToast('Dryer stopped.');
+      setTimeout(() => { cachedMmu = null; mmuFetchedAt = 0; decorateAll(); }, 800);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Stop Dryer'; }
+    }
+  }
+
+  // =========================================================================
   // SLOT EDITOR — manually set material/colour/temp for a slot.
   // Needed for non-RFID spools, which the ACE cannot identify automatically.
   // =========================================================================
@@ -658,6 +849,25 @@
             <span class="klippace-field-label">Saved preset</span>
             <select id="klippace-editor-preset" class="klippace-input"></select>
           </label>
+
+          <!-- Filament actions act immediately; they are not part of Save -->
+          <div class="klippace-field klippace-field--actions">
+            <span class="klippace-field-label">Filament</span>
+
+            <div class="klippace-action-row">
+              <button id="klippace-editor-feed-assist" class="klippace-btn klippace-btn-ghost klippace-btn-sm" type="button"
+                      title="Hold this slot's filament under tension while printing">Feed Assist</button>
+              <span class="klippace-action-hint" id="klippace-editor-assist-state">…</span>
+            </div>
+
+            <div class="klippace-action-row">
+              <input id="klippace-editor-length" class="klippace-input klippace-input--num" type="number"
+                     min="1" max="500" step="5" value="40" aria-label="Filament length in mm">
+              <span class="klippace-action-unit">mm</span>
+              <button id="klippace-editor-feed" class="klippace-btn klippace-btn-ghost klippace-btn-sm" type="button">Feed</button>
+              <button id="klippace-editor-retract" class="klippace-btn klippace-btn-ghost klippace-btn-sm" type="button">Retract</button>
+            </div>
+          </div>
         </div>
 
         <div class="klippace-footer">
@@ -697,6 +907,13 @@
       if (t) { slotEditorState.temp = t; el('klippace-editor-temp').value = t; }
       refreshSlotEditorPreview();
     });
+
+    // Filament actions — these act immediately and are deliberately outside the
+    // Save/Clear flow, which only writes slot metadata.
+    el('klippace-editor-feed-assist').addEventListener('click', toggleSlotFeedAssist);
+    el('klippace-editor-feed').addEventListener('click', () => moveSlotFilament(1));
+    el('klippace-editor-retract').addEventListener('click', () => moveSlotFilament(-1));
+
     el('klippace-editor-temp').addEventListener('input', (e) => {
       slotEditorState.temp = parseInt(e.target.value, 10) || 0;
       refreshSlotEditorPreview();
@@ -800,11 +1017,88 @@
 
     refreshSlotEditorPreview();
     overlay.classList.add('active');
+
+    // Feed-assist state lives on the ACE instance object, not the mmu shim, so
+    // read it lazily rather than gating the modal on a second round trip.
+    slotEditorState.feedAssist = false;
+    renderFeedAssistState();
+    refreshFeedAssistState();
   }
 
   function closeSlotEditor() {
     const overlay = document.getElementById('klippace-slot-editor-overlay');
     if (overlay) overlay.classList.remove('active');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-slot filament actions (feed assist, feed, retract)
+  //
+  // These animate hardware, so they run on click rather than on Save — Save only
+  // writes slot metadata. The gate index is translated to an ACE instance +
+  // local slot via the shim's unit metadata, so a multi-unit setup addresses the
+  // right object instead of assuming ace_instance_0.
+  // ---------------------------------------------------------------------------
+
+  function instanceForGate(gate) {
+    const units = (cachedMmu && Array.isArray(cachedMmu.unit)) ? cachedMmu.unit : [];
+    for (let i = 0; i < units.length; i++) {
+      const first = Number.isFinite(units[i].first_gate) ? units[i].first_gate : i * 4;
+      const count = Number.isFinite(units[i].num_gates) ? units[i].num_gates : 4;
+      if (gate >= first && gate < first + count) {
+        return { name: `ace_instance_${i}`, local: gate - first };
+      }
+    }
+    return { name: 'ace_instance_0', local: gate };
+  }
+
+  function renderFeedAssistState() {
+    const hint = document.getElementById('klippace-editor-assist-state');
+    const btn = document.getElementById('klippace-editor-feed-assist');
+    if (!hint || !btn) return;
+    const on = !!slotEditorState.feedAssist;
+    const text = on ? 'On' : 'Off';
+    if (hint.textContent !== text) hint.textContent = text;
+    hint.dataset.state = on ? 'on' : 'off';
+    btn.textContent = on ? 'Disable' : 'Enable';
+  }
+
+  async function refreshFeedAssistState() {
+    const { name, local } = instanceForGate(slotEditorState.gateIndex);
+    let on = false;
+    try {
+      const res = await fetch(`/printer/objects/query?${name}`);
+      const data = await res.json();
+      const obj = (data.result && data.result.status && data.result.status[name]) || {};
+      on = (obj.feed_assist_slot === local);
+    } catch (e) {
+      on = false;
+    }
+    slotEditorState.feedAssist = on;
+    renderFeedAssistState();
+  }
+
+  async function toggleSlotFeedAssist() {
+    const idx = slotEditorState.gateIndex;
+    const on = !slotEditorState.feedAssist;
+    const verb = on ? 'ACE_ENABLE_FEED_ASSIST' : 'ACE_DISABLE_FEED_ASSIST';
+    await sendGcode(`${verb} T=${idx}`);
+    slotEditorState.feedAssist = on;
+    renderFeedAssistState();
+    showToast(`Feed assist ${on ? 'enabled' : 'disabled'} on T${idx}.`);
+  }
+
+  async function moveSlotFilament(direction) {
+    const idx = slotEditorState.gateIndex;
+    const input = document.getElementById('klippace-editor-length');
+    const length = parseInt(input ? input.value : '', 10);
+    if (!Number.isFinite(length) || length <= 0) {
+      showToast('Enter a length greater than 0 mm.');
+      return;
+    }
+    const cmd = direction > 0 ? 'ACE_FEED' : 'ACE_RETRACT';
+    const verb = direction > 0 ? 'Feeding' : 'Retracting';
+    await sendGcode(`${cmd} T=${idx} LENGTH=${length}`);
+    showToast(`${verb} ${length}mm on T${idx}.`);
   }
 
   // Discard the stored material/colour/temp but keep the slot marked as holding
@@ -1093,11 +1387,21 @@
 
     if (temp) {
       const unit = mmu.unit?.[0] || {};
+      // The native text carries "32°C · Dryer Off" as one string; the two are
+      // now separate elements so the dryer half can be its own control.
       const t = (unit.temp != null) ? `${unit.temp}°C` : '';
+      if (temp.textContent !== t) temp.textContent = t;
+    }
+
+    const dryerBtn = ribbon.querySelector('.klippace-dryer-btn');
+    if (dryerBtn) {
+      const unit = mmu.unit?.[0] || {};
       const drying = (unit.dryer_status === 'drying');
-      const dryer = drying ? 'Drying' : (unit.dryer_target_temp > 0 ? 'Dryer On' : 'Dryer Off');
-      const next = [t, dryer].filter(Boolean).join(' · ') || 'Nozzle: Ready';
-      if (temp.textContent !== next) temp.textContent = next;
+      const on = drying || (unit.dryer_target_temp || 0) > 0;
+      const label = drying ? 'Drying' : (on ? 'Dryer On' : 'Dryer Off');
+      const state = drying ? 'drying' : (on ? 'on' : 'off');
+      if (dryerBtn.textContent !== label) dryerBtn.textContent = label;
+      if (dryerBtn.dataset.state !== state) dryerBtn.dataset.state = state;
     }
   }
 
@@ -1383,9 +1687,19 @@
             </div>
             <div class="bambu-status-right">
               <span class="bambu-temp-badge">${seedTemp}</span>
+              <button type="button" class="klippace-dryer-btn" title="ACE Pro chamber dryer">Dryer</button>
             </div>
           `;
           filCol.insertBefore(ribbon, filCol.firstChild);
+
+          // Own the dryer control before the ribbon's own handler sees it.
+          const dryerBtn = ribbon.querySelector('.klippace-dryer-btn');
+          if (dryerBtn) {
+            dryerBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openDryerModal();
+            });
+          }
         }
 
         ribbon.style.cursor = 'pointer';

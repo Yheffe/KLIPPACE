@@ -1704,3 +1704,138 @@ button.wrap-text-btn[data-klippace-action] .v-icon {
   font-size: 15px !important;
   margin-right: 6px !important;
 }
+
+/* =========================================================
+   KLIPPACE — dryer control + slot filament actions
+   ========================================================= */
+
+/* Dryer control in the status ribbon.
+   Bare class selectors only: this element lives inside the card, whose class
+   attribute Vue rewrites, so scoping under .mmu-card would drop the rule. */
+.klippace-dryer-btn {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: #A1A1AA;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.klippace-dryer-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #FFFFFF;
+}
+
+.klippace-dryer-btn[data-state="on"] {
+  border-color: rgba(255, 179, 0, 0.6);
+  color: #FFB300;
+}
+
+.klippace-dryer-btn[data-state="drying"] {
+  border-color: rgba(255, 120, 0, 0.75);
+  background: rgba(255, 120, 0, 0.14);
+  color: #FF9800;
+}
+
+/* Dryer modal */
+.klippace-dryer-status {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #E4E4E7;
+  text-align: center;
+}
+
+.klippace-dryer-status[data-state="on"] {
+  border-color: rgba(255, 179, 0, 0.5);
+  color: #FFB300;
+}
+
+.klippace-dryer-status[data-state="drying"] {
+  border-color: rgba(255, 120, 0, 0.6);
+  background: rgba(255, 120, 0, 0.1);
+  color: #FF9800;
+}
+
+/* Slot editor — filament actions section.
+   Visually separated because these act immediately rather than on Save. */
+.klippace-field--actions {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 14px;
+  margin-top: 2px;
+}
+
+.klippace-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.klippace-action-row + .klippace-action-row {
+  margin-top: 8px;
+}
+
+.klippace-action-unit {
+  font-size: 0.8rem;
+  color: #A1A1AA;
+}
+
+.klippace-action-hint {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #71717A;
+}
+
+.klippace-action-hint[data-state="on"] {
+  color: #4ADE80;
+}
+
+.klippace-btn-sm {
+  padding: 6px 12px !important;
+  font-size: 0.72rem !important;
+}
+
+.klippace-input--num {
+  width: 80px;
+  flex: 0 0 auto;
+}
+
+/* Floating toast — used when the tool mapper (which owns #klippace-toast) has
+   not been built, so card-level actions still get feedback. */
+.klippace-toast-float {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translate(-50%, 8px);
+  z-index: 100000;
+  max-width: min(90vw, 520px);
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34D399;
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.klippace-toast-float.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}

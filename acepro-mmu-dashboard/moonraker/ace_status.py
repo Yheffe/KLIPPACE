@@ -66,6 +66,9 @@ class AceStatus:
         self.server.register_endpoint(
             "/server/ace/update_mcus", ["POST"], self.handle_update_mcus
         )
+        # NOTE: runs arbitrary shell as the Moonraker user. See the
+        # SECURITY warning on handle_test_detect before exposing Moonraker
+        # beyond a trusted network.
         self.server.register_endpoint(
             "/server/ace/test_detect", ["POST"], self.handle_test_detect
         )
@@ -305,6 +308,29 @@ class AceStatus:
         asyncio.create_task(self._run_mcu_update())
 
     async def handle_test_detect(self, web_request: WebRequest) -> Dict[str, Any]:
+        """Run a diagnostic shell command and return its output.
+
+        .. warning::
+
+            SECURITY — REMOTE CODE EXECUTION.
+
+            The ``cmd`` parameter is passed straight to a shell on the host as
+            the user running Moonraker (typically ``pi``). There is no
+            allow-list and no authentication beyond whatever Moonraker itself
+            enforces, which by default is only the ``trusted_clients`` CIDR
+            list in ``moonraker.conf``.
+
+            Anyone who can reach Moonraker's HTTP port can therefore run any
+            command on the printer. This is a development/diagnostic endpoint
+            that grew into the project's file-deploy mechanism (base64 chunks
+            piped through ``base64 -d``), and it must not be reachable from an
+            untrusted network.
+
+            Before exposing Moonraker beyond a trusted LAN, either restrict it
+            to a VPN/SSH tunnel, remove ``/server/ace/test_detect`` from the
+            registrations in ``__init__``, or replace this with a allow-listed
+            set of read-only diagnostics.
+        """
         import asyncio
         cmd = web_request.get_str("cmd", None)
         if not cmd:

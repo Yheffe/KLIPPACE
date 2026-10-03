@@ -1,32 +1,60 @@
-# ACE Dashboard (Mainsail/Fluidd compatible)
+# ACE Pro MMU Dashboard
 
-Static files for the ACE dashboard. Symlink them into the directory your UI serves:
+Web assets and a Moonraker component for the Anycubic ACE Pro. This is the
+**KLIPPACE fork**, not the upstream project — see [Provenance](#provenance) for
+why that matters before you install anything from here.
 
-- `ace.html`
-- `ace-dashboard.css`
-- `ace-dashboard.js`
-- `ace-dashboard-config.js`
-- `favicon.svg`
-- (optional) `ace_dashboard.nginx.conf` sample
+## Contents
 
+Two independent pieces live in this directory and they are not interchangeable:
 
-How to use:
+| Path | What it is | Installed by |
+| :--- | :--- | :--- |
+| `moonraker/ace_status.py` | Moonraker component: the `/server/ace/*` REST API, plus automated MCU build/flash | `installer.sh` (symlinked into `moonraker/moonraker/components/`) |
+| `web/ace*.{html,js,css}` | Standalone "ACE Dashboard" page, served at `http://<host>/ace.html` | `acepro-mmu-dashboard/install.sh` |
+| `web/klippace-tool-mapper.{js,css}` | Card injected into Fluidd/Mainsail, with the slot editor and tool mapper | `installer.sh` (symlinked into the Fluidd/Mainsail web root) |
 
-sudo apt-get update
+### `moonraker/ace_status.py` is not optional
 
-sudo apt-get install -y git
+It is the API layer, not a UI. It provides `/server/ace/status`, `/slots`,
+`/command`, `/update_mcus`, the `update_all_mcus` remote method that Klipper's
+`UPDATE_ALL_MCU` macro calls, and automated MCU compile + flash when a Klipper
+update completes.
 
-cd ~
+> [!WARNING]
+> **`/server/ace/test_detect` is remote code execution.** Its `cmd` parameter is
+> passed to a shell as the Moonraker user with no allow-list, protected only by
+> Moonraker's own `trusted_clients` setting (a private-network CIDR list by
+> default). It is used as this project's file-deployment mechanism and must not
+> be reachable from an untrusted network. Full note in the docstring on
+> `handle_test_detect`.
 
-git clone -b main https://github.com/ducati1198/acepro-mmu-dashboard
+### Why the standalone page still exists
 
-cd ~/acepro-mmu-dashboard
+`ace.html` + `ace-dashboard.js` predates the injected card. The card covers slot
+status, colours, metadata editing and load/unload, but the standalone page also
+has **dryer start/stop, feed assist and manual feed/retract**, so it is not yet
+redundant. Those controls are being ported into the card; once they all live
+there this page can retire.
 
+## Installing the standalone page
+
+```bash
+cd acepro-mmu-dashboard
 chmod +x install.sh
-
 ./install.sh
+```
 
-Answer the interactive prompts to choose which components to install and where.
+Answer the prompts to choose which components to install and where, then open
+`http://<host>/ace.html`. Adjust `ace-dashboard-config.js` if you need a fixed
+API host.
 
-Open `http://<host>/ace.html` after linking. Adjust `ace-dashboard-config.js` if you need a fixed API host.
+## Provenance
+
+Vendored from [`ducati1198/acepro-mmu-dashboard`](https://github.com/ducati1198/acepro-mmu-dashboard)
+and extended since: the MCU build/flash automation, `cmd` support in
+`test_detect`, and the whole `klippace-tool-mapper` card are local additions.
+
+**Do not follow upstream's `git clone` instructions** — you would get upstream
+without those additions. Install from this repository instead.
 

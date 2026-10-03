@@ -38,7 +38,8 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - [🔌 Connection Supervision](#-connection-supervision)
 - [🖥️ Web Dashboard & KlipperScreen](#️-web-dashboard--klipperscreen)
 - [🛠️ Development & Testing](#️-development--testing)
-- [🔧 Troubleshooting](#-troubleshooting)
+- [� Security Notes](#-security-notes)
+- [�🔧 Troubleshooting](#-troubleshooting)
 - [🙏 Credits & License](#-credits--license)
 
 ---
@@ -465,7 +466,46 @@ python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
 
 ---
 
-## 🔧 Troubleshooting
+## � Security Notes
+
+### `/server/ace/test_detect` runs arbitrary shell commands
+
+The Moonraker component (`acepro-mmu-dashboard/moonraker/ace_status.py`) registers
+a `POST /server/ace/test_detect` endpoint whose `cmd` parameter is passed to a
+shell as the user running Moonraker — typically `pi`. There is **no allow-list**.
+
+Its only protection is Moonraker's own `trusted_clients` setting, which defaults
+to private-network CIDRs:
+
+```ini
+[authorization]
+trusted_clients:
+    192.168.0.0/16
+    10.0.0.0/8
+    127.0.0.0/8
+    ...
+```
+
+**Anyone who can reach Moonraker's HTTP port on your LAN can run any command on
+the printer.** The endpoint originated as a USB/DFU diagnostic helper and became
+the project's file-deployment mechanism, so it is convenient but unusually
+powerful for what it looks like.
+
+If your printer is reachable from anything but a trusted LAN, do one of:
+
+- keep port 7125 behind a VPN or SSH tunnel rather than exposing it,
+- remove the `/server/ace/test_detect` registration in `ace_status.py`, or
+- replace it with a fixed set of read-only diagnostics.
+
+### MCU auto-flash on Klipper update
+
+The component also flashes firmware to every MCU automatically when a Klipper
+update completes (`_handle_update_response`). That is intentional, but it means
+an unattended update will reflash hardware without confirmation.
+
+---
+
+## �🔧 Troubleshooting
 
 ### Toolhead Entry Sensor Doesn't Detect Filament
 - Verify sensor state with:

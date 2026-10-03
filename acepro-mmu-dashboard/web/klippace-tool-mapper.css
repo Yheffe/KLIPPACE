@@ -685,6 +685,43 @@ svg.svg-colors {
   box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
 }
 
+/* Tools Mapper trigger for Mainsail, which lives inside the MMU card's own
+   panel toolbar (its app bar is a different component and the app-bar variant
+   above is hidden there by custom.css). Kept as its own class so the two
+   never inherit each other's suppression. */
+.klippace-tools-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
+  border: 1px solid rgba(255, 87, 34, 0.5) !important;
+  color: #FF7043 !important;
+  font-weight: 600 !important;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  border-radius: 4px !important;
+  padding: 2px 8px !important;
+  margin-left: 8px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: all 0.2s ease !important;
+}
+
+.klippace-tools-btn:hover {
+  background: linear-gradient(135deg, #FF5722 0%, #E64A19 100%) !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
+}
+
+/* Caption injected into Mainsail's icon-only action buttons, which otherwise
+   render in our action dock with no text at all. Font, weight and casing are
+   inherited from the button rules above, so only spacing is set here. */
+.klippace-btn-label {
+  margin-left: 6px !important;
+  white-space: nowrap !important;
+}
+
 .klippace-quick-btn {
   background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
   border: 1px solid rgba(255, 87, 34, 0.45) !important;
@@ -1645,8 +1682,11 @@ svg.svg-colors {
   display: none !important;
 }
 
-/* ---- Secondary actions: Check Gate, Recover ---- */
-button.base-btn[data-klippace-action]:not(.wrap-text-btn) {
+/* ---- Secondary actions: Check Gate, Recover ----
+   Keyed off .klippace-btn-sm / .klippace-btn-lg, which the decorator sets on
+   both UIs. These used to key off Fluidd's `base-btn` / `wrap-text-btn`, which
+   Mainsail does not use, so the dock rendered with no sizing at all there. */
+button.klippace-btn-sm[data-klippace-action] {
   height: 32px !important;
   min-height: 32px !important;
   width: 100% !important;
@@ -1659,18 +1699,23 @@ button.base-btn[data-klippace-action]:not(.wrap-text-btn) {
   letter-spacing: 0.06em !important;
   text-transform: uppercase !important;
   box-shadow: none !important;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+  /* transition:none, not a timed transition. A RUNNING CSS transition
+     outranks author !important declarations, so transitioning background/
+     border-color/color let Vuetify's own values win and the button rendered
+     as a solid grey chip instead of our outlined style. Same reason the
+     .klippace-swatch rule sets transitions to none. */
+  transition: none !important;
 }
 
-button.base-btn[data-klippace-action]:not(.wrap-text-btn):hover:not(:disabled) {
+button.klippace-btn-sm[data-klippace-action]:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.28) !important;
   color: #FFFFFF !important;
 }
 
-button.base-btn[data-klippace-action]:not(.wrap-text-btn):disabled,
-button.base-btn[data-klippace-action]:not(.wrap-text-btn).v-btn--disabled,
-.theme--dark.v-btn.base-btn.v-btn--has-bg:not(.wrap-text-btn).v-btn--disabled {
+button.klippace-btn-sm[data-klippace-action]:disabled,
+button.klippace-btn-sm[data-klippace-action].v-btn--disabled,
+.theme--dark.v-btn.klippace-btn-sm.v-btn--has-bg.v-btn--disabled {
   color: rgba(255, 255, 255, 0.28) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: transparent !important;
@@ -1678,13 +1723,13 @@ button.base-btn[data-klippace-action]:not(.wrap-text-btn).v-btn--disabled,
   opacity: 1 !important;
 }
 
-button.base-btn[data-klippace-action] .v-icon {
+button.klippace-btn-sm[data-klippace-action] .v-icon {
   font-size: 13px !important;
-  margin-right: 5px !important;
+  margin-right: 0 !important;
 }
 
 /* ---- Primaries: Unload / Load ---- */
-button.wrap-text-btn[data-klippace-action] {
+button.klippace-btn-lg[data-klippace-action] {
   height: 44px !important;
   min-height: 44px !important;
   width: 100% !important;
@@ -1694,45 +1739,55 @@ button.wrap-text-btn[data-klippace-action] {
   letter-spacing: 0.07em !important;
   text-transform: uppercase !important;
   box-shadow: none !important;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+  transition: none !important;   /* see the note on .klippace-btn-sm */
 }
 
-/* Unload: outlined primary */
-button[data-klippace-action="unload"] {
+button.klippace-btn-lg[data-klippace-action] .v-icon {
+  font-size: 15px !important;
+  margin-right: 0 !important;
+}
+
+/* Unload: outlined primary.
+   Specificity matters here: Mainsail emits Vuetify's colour classes scoped as
+   `.v-application .secondary` (0,2,0), where Fluidd's are unscoped (0,1,0).
+   A plain `button[data-klippace-action="unload"]` is only (0,1,1), so on
+   Mainsail the theme's grey background/border beat it and the button rendered
+   as a solid grey chip. The .klippace-btn-lg + .v-application variant below
+   is (0,3,1) and wins on both. */
+.v-application button.klippace-btn-lg[data-klippace-action="unload"],
+button.klippace-btn-lg[data-klippace-action="unload"] {
   background: transparent !important;
   border: 1px solid var(--v-primary-base, #ff2300) !important;
   color: var(--v-primary-base, #ff2300) !important;
 }
 
-button[data-klippace-action="unload"]:hover:not(:disabled) {
+.v-application button.klippace-btn-lg[data-klippace-action="unload"]:hover:not(:disabled),
+button.klippace-btn-lg[data-klippace-action="unload"]:hover:not(:disabled) {
   background: rgba(255, 35, 0, 0.14) !important;
 }
 
 /* Load: filled primary */
-button[data-klippace-action="load"] {
+.v-application button.klippace-btn-lg[data-klippace-action="load"],
+button.klippace-btn-lg[data-klippace-action="load"] {
   background: var(--v-primary-base, #ff2300) !important;
   border: 1px solid var(--v-primary-base, #ff2300) !important;
   color: #FFFFFF !important;
 }
 
-button[data-klippace-action="load"]:hover:not(:disabled) {
+.v-application button.klippace-btn-lg[data-klippace-action="load"]:hover:not(:disabled),
+button.klippace-btn-lg[data-klippace-action="load"]:hover:not(:disabled) {
   background: #ff4a2e !important;
   border-color: #ff4a2e !important;
 }
 
-button.wrap-text-btn[data-klippace-action]:disabled,
-button.wrap-text-btn[data-klippace-action].v-btn--disabled,
-.theme--dark.v-btn.wrap-text-btn.v-btn--has-bg.v-btn--disabled {
+button.klippace-btn-lg[data-klippace-action]:disabled,
+button.klippace-btn-lg[data-klippace-action].v-btn--disabled,
+.theme--dark.v-btn.klippace-btn-lg.v-btn--has-bg.v-btn--disabled {
   background: transparent !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: rgba(255, 255, 255, 0.28) !important;
   box-shadow: none !important;
   opacity: 1 !important;
-}
-
-button.wrap-text-btn[data-klippace-action] .v-icon {
-  font-size: 15px !important;
-  margin-right: 6px !important;
 }
 
 /* =========================================================

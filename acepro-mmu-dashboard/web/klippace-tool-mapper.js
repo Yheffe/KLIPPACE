@@ -1519,15 +1519,25 @@
     updateStatusRibbon(card, mmu);
   }
 
+  // The card's header element differs by UI: Fluidd renders a `.v-card__title`,
+  // Mainsail a `.panel-toolbar` whose `.v-toolbar__content` holds a
+  // `.v-toolbar__title`. Everything header-related goes through this helper.
+  function cardHeaderEl(card) {
+    return card.querySelector('.v-card__title') ||
+           card.querySelector('.panel-toolbar .v-toolbar__content') ||
+           card.querySelector('.v-toolbar__title') ||
+           null;
+  }
+
   function decorateHeader(card) {
-    const title = card.querySelector('.v-card__title');
+    const title = cardHeaderEl(card);
     if (!title) return;
 
     // Style the "Mmu" title span via INLINE style. CSS rules targeting the MMU
     // title cannot be scoped reliably (the JS-added .bambu-ams-card class is
     // transiently patched away by Vue, and :has()-scoped rules were dropped by
     // the CSS parser). Inline styles on the persistent span are dependable.
-    const titleSpan = title.querySelector('.font-weight-light');
+    const titleSpan = title.querySelector('.font-weight-light, .subheading');
     if (titleSpan) {
       if (titleSpan.style.textTransform !== 'uppercase') {
         titleSpan.style.textTransform = 'uppercase';
@@ -1537,7 +1547,7 @@
 
     // Move the ACE badge next to the title text (idempotent)
     const badge = title.querySelector('.bambu-ams-title-badge');
-    const titleCol = title.querySelector('.text-no-wrap');
+    const titleCol = title.querySelector('.text-no-wrap') || title.querySelector('.v-toolbar__title');
     if (badge && titleCol && badge.parentElement !== titleCol) {
       titleCol.appendChild(badge);
     }
@@ -1545,15 +1555,40 @@
       badge.style.marginLeft = '10px';
     }
 
-    // Hide the status/refresh round icon button; keep only the collapse chevron
-    title.querySelectorAll('button.v-btn--round, button.v-btn--icon').forEach((btn) => {
-      const path = btn.querySelector('svg path');
-      const d = path ? (path.getAttribute('d') || '') : '';
-      // Collapse chevron (expand_more) contains "L12,10.83"; hide everything else
-      if (!d.includes('L12,10.83')) {
-        if (btn.style.display !== 'none') btn.style.display = 'none';
-      }
-    });
+    // Tools Mapper trigger. On Fluidd this lives in the page app bar
+    // (klippace-topbar-btn). Mainsail's app bar is a different component and
+    // that button is hidden there by Moonraker's config/.theme/custom.css, so
+    // give Mainsail a trigger in the card's own toolbar instead. Gating on
+    // .v-toolbar__items keeps this Mainsail-only, so Fluidd cannot end up with
+    // two triggers.
+    const items = title.querySelector('.v-toolbar__items');
+    if (items && !items.querySelector('.klippace-tools-btn')) {
+      const toolsBtn = document.createElement('button');
+      toolsBtn.type = 'button';
+      toolsBtn.className = 'klippace-tools-btn';
+      toolsBtn.innerHTML = '<span>\u26a1</span> Tools';
+      toolsBtn.title = 'Open ACE Pro Tool Mapper';
+      toolsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openToolMapper();
+      });
+      items.insertBefore(toolsBtn, items.firstChild);
+    }
+
+    // Hide the status/refresh round icon button; keep only the collapse chevron.
+    // Mainsail-specific: its toolbar hosts the panel menu (kebab) and settings
+    // (gear) buttons, which are real features and must stay usable, so this is
+    // restricted to Fluidd's .v-card__title.
+    if (card.querySelector('.v-card__title')) {
+      title.querySelectorAll('button.v-btn--round, button.v-btn--icon').forEach((btn) => {
+        const path = btn.querySelector('svg path');
+        const d = path ? (path.getAttribute('d') || '') : '';
+        // Collapse chevron (expand_more) contains "L12,10.83"; hide everything else
+        if (!d.includes('L12,10.83')) {
+          if (btn.style.display !== 'none') btn.style.display = 'none';
+        }
+      });
+    }
   }
 
   // --- Bambu Lab AMS Style Injection & Decoration ---
@@ -1576,6 +1611,20 @@
     load: 'M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9',
   };
 
+  // Button captions. Fluidd prints its own localised label inside the button;
+  // Mainsail renders the action buttons icon-only and puts the label in a
+  // tooltip, which leaves our action dock unlabelled. These are used only to
+  // fill a button that has no text of its own.
+  const MMU_ACTION_LABELS = {
+    preload: 'PRELOAD',
+    eject: 'EJECT',
+    'check-gate': 'CHECK GATE',
+    recover: 'RECOVER',
+    unlock: 'UNLOCK',
+    unload: 'UNLOAD',
+    load: 'LOAD',
+  };
+
   // Actions our command shim does not implement, so the card should not offer
   // them: MMU_PRELOAD and MMU_UNLOCK only print a message, and MMU_EJECT runs
   // the identical UNLOAD path. CSS hides these rows.
@@ -1591,8 +1640,31 @@
     return null;
   }
 
+  // Locate the card's MMU action buttons without assuming Fluidd's markup.
+  // Fluidd tags them `button.base-btn` / `button.wrap-text-btn`; Mainsail gives
+  // them no distinguishing class and hides the label (icon + tooltip only), so
+  // the shared, locale-independent handle is the icon path that
+  // classifyActionButton() already matches on.
+  //
+  // Deliberately NOT restricted to a row class: Fluidd puts Check Gate/Recover
+  // in `.row--dense` but Unload/Load in a plain `.row`, so keying on the row
+  // silently dropped the two most important buttons. classifyActionButton()
+  // returns null for anything that is not an MMU action (header menus etc.),
+  // so scanning every button in the card is safe.
+  function mmuActionButtons(card) {
+    const scoped = card.querySelectorAll('mmu-controls button.v-btn, [ref="mmuControls"] button.v-btn');
+    if (scoped.length) return [...scoped];
+    return [...card.querySelectorAll('button.v-btn')];
+  }
+
+  // True when a column holds the MMU controls, in either UI.
+  function columnHasMmuControls(col) {
+    if (col.querySelector('mmu-controls, [ref="mmuControls"]')) return true;
+    return mmuActionButtons(col).some((b) => classifyActionButton(b) !== null);
+  }
+
   function decorateActionButtons(card) {
-    card.querySelectorAll('button.base-btn').forEach((button) => {
+    mmuActionButtons(card).forEach((button) => {
       const action = classifyActionButton(button);
       if (!action) return;
 
@@ -1605,6 +1677,25 @@
         ? 'true' : 'false';
       if (button.dataset.klippaceDisabled !== disabled) {
         button.dataset.klippaceDisabled = disabled;
+      }
+
+      // Size group. Fluidd marks the large Load/Unload pair with its own
+      // `wrap-text-btn` class; Mainsail has no equivalent, so tag the two groups
+      // ourselves and let the stylesheet key off these instead of on a
+      // UI-specific class. `toggle(cls, force)` is a no-op when the state is
+      // already correct, so this stays mutation-free on repeat passes.
+      const big = (action === 'load' || action === 'unload');
+      button.classList.toggle('klippace-btn-lg', big);
+      button.classList.toggle('klippace-btn-sm', !big);
+
+      // Add a caption when the UI left the button icon-only (Mainsail). Fluidd
+      // supplies its own localised text, so this is a no-op there.
+      const content = button.querySelector('.v-btn__content');
+      if (content && !content.textContent.trim() && !content.querySelector('.klippace-btn-label')) {
+        const label = document.createElement('span');
+        label.className = 'klippace-btn-label';
+        label.textContent = MMU_ACTION_LABELS[action] || action.toUpperCase();
+        content.appendChild(label);
       }
     });
   }
@@ -1703,12 +1794,20 @@
           Array.from(parentRow.children).forEach((col) => {
             if (col === filCol) return;
             if (!col.matches('.v-col, .col, [class*="col-"]')) return;
-            if (col.querySelector('mmu-controls') || col.closest('mmu-controls')) return;
+            // Never hide the column that holds the MMU controls. This guard
+            // used to test for Fluidd's <mmu-controls> element, which Mainsail
+            // does not have — so on Mainsail the entire action-button column
+            // was hidden and the card lost every control (Preload/Eject/
+            // Unlock/Load/Unload) along with the gate summary and TTG map.
+            if (columnHasMmuControls(col)) {
+              if (col.style.display === 'none') col.style.display = '';
+              return;
+            }
             col.style.display = 'none';
           });
-          // Undo any stale hiding from earlier versions
-          card.querySelectorAll('mmu-controls .col, mmu-controls .v-col, mmu-controls [class*="col-"]').forEach((c) => {
-            c.style.display = '';
+          // Repair columns hidden by an earlier version of this code.
+          card.querySelectorAll('.v-col, .col, [class*="col-"]').forEach((c) => {
+            if (c.style.display === 'none' && columnHasMmuControls(c)) c.style.display = '';
           });
         }
 
@@ -1794,12 +1893,12 @@
     }
 
     // 6. Decorate Title with ACE Badge + clean header
-    const titleEl = card.querySelector('.v-card__title');
+    const titleEl = cardHeaderEl(card);
     if (titleEl && !titleEl.querySelector('.bambu-ams-title-badge')) {
       const badge = document.createElement('span');
       badge.className = 'bambu-ams-title-badge';
       badge.textContent = 'ACE';
-      titleEl.appendChild(badge);
+      (titleEl.querySelector('.v-toolbar__title') || titleEl).appendChild(badge);
     }
     decorateHeader(card);
 
@@ -1830,6 +1929,19 @@
     const ttgMapEl = card.querySelector('mmu-ttg-map');
     if (ttgMapEl) {
       ttgMapEl.style.display = 'none';
+    }
+
+    // 8b. Mainsail equivalents. Its `.disabled-panel` list item repeats the very
+    // gate data our tiles show (and reads as raw "@-1 | Unknown ..." text), and
+    // the trailing caption labels the unused TTG schematic. Both left a large
+    // empty gap between the ribbon and the action buttons.
+    if (card.querySelector('.panel-toolbar')) {
+      const disabledPanel = card.querySelector('.v-list-item.disabled-panel');
+      if (disabledPanel) disabledPanel.style.display = 'none';
+      const ttgCaption = card.querySelector('.v-card__text .text--disabled.text-center');
+      if (ttgCaption) ttgCaption.style.display = 'none';
+      const ttgWrap = card.querySelector('.v-card__text .d-flex.flex-column.align-center');
+      if (ttgWrap && ttgWrap.querySelector('svg')) ttgWrap.style.display = 'none';
     }
 
     // 9. Ensure Controls Container and its Column are 100% Width & Visible

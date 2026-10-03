@@ -1762,7 +1762,17 @@
         [...u.querySelectorAll('[class*="footer"]')].find((el) => !el.querySelector(GATE_SELECTOR)) ||
         [...u.querySelectorAll('.position-relative')].find((el) => !el.querySelector(GATE_SELECTOR)) ||
         null;
-      if (footer) footer.classList.add('bambu-ams-footer');
+      if (footer) {
+        footer.classList.add('bambu-ams-footer');
+        // Tag the label element so CSS can style just it. Mainsail's footer
+        // also holds a logo icon, a tooltip wrapper and a sensor div; styling
+        // every descendant turned those into stray pill boxes.
+        const label = footer.querySelector('.klippace-unit-label') ||
+          [...footer.querySelectorAll('div, span')].find(
+            (el) => el.textContent.trim() && ![...el.children].some((c) => c.textContent.trim())
+          );
+        if (label) label.classList.add('klippace-unit-label');
+      }
       // Repair a footer class left on a gate container by an earlier version.
       u.querySelectorAll('.bambu-ams-footer').forEach((el) => {
         if (el.querySelector(GATE_SELECTOR)) el.classList.remove('bambu-ams-footer');

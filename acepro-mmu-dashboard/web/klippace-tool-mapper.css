@@ -693,6 +693,12 @@ svg.svg-colors {
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;
+  /* Vuetify's .v-toolbar__items stretches its children to the full 48px bar
+     height, which made this read as a large filled block. Keep it chip-sized
+     like the app-bar variant in Fluidd. */
+  align-self: center !important;
+  flex: 0 0 auto !important;
+  height: 26px !important;
   background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
   border: 1px solid rgba(255, 87, 34, 0.5) !important;
   color: #FF7043 !important;
@@ -1001,17 +1007,26 @@ svg.svg-colors {
   text-align: center !important;
   margin-top: 3px !important;
   padding-top: 0 !important;
+  /* Mainsail sets an inline max-width: 256px on the unit footer, which left
+     dead space beside the label. The inner wrapper is also flex-grow-1, so
+     centring needs it to shrink-to-fit first. */
+  max-width: 100% !important;
+  justify-content: center !important;
+}
+
+.v-application .bambu-ams-card .bambu-ams-footer > div,
+.bambu-ams-card .bambu-ams-footer > div {
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
 }
 
 /* Footer label styled as a small pill.
-   `span:not(.v-icon)` matters on Mainsail, where the footer also contains a
-   leading sensor icon (SPAN.v-icon) that would otherwise be pill-ified into a
-   stray box. Fluidd's footer holds only a DIV, so this changes nothing there. */
-.v-application .bambu-ams-card .bambu-ams-footer span:not(.v-icon),
-.v-application .bambu-ams-card .bambu-ams-footer div,
-.bambu-ams-card .bambu-ams-footer span:not(.v-icon),
-[layout-path="dashboard.mmu-card"] .bambu-ams-footer span:not(.v-icon),
-.mmu-card .mmu-unit-footer span:not(.v-icon) {
+   The label element is tagged by the decorator as .klippace-unit-label instead
+   of being matched with `span` / `div`. Mainsail's footer also contains a
+   tooltip wrapper and a sensor div, and styling every descendant turned those
+   into stray pill boxes. Same technique as .klippace-btn-label.
+   Fluidd's footer is empty, so this simply never matches there. */
+.klippace-unit-label {
   display: inline-flex !important;
   align-items: center !important;
   background: rgba(255, 255, 255, 0.06) !important;
@@ -1023,6 +1038,14 @@ svg.svg-colors {
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
   color: #D4D4D8 !important;
+}
+
+/* Mainsail's footer leads with a 48px Happy Hare logo whose inline styles set
+   both font-size and a 48px box, adding ~24px of dead height. Fluidd's footer
+   carries no icon at all, so drop it for parity. */
+.v-application .bambu-ams-card .bambu-ams-footer .v-icon,
+.bambu-ams-card .bambu-ams-footer .v-icon {
+  display: none !important;
 }
 
 /* Standalone Bypass Spool Bracket */

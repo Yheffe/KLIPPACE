@@ -551,3 +551,452 @@
     min-width: 0;
   }
 }
+
+/* ==========================================================================
+   KLIPPACE - Bambu Lab AMS Aesthetics for Fluidd MMU Card
+   Scope: Strictly isolated to [layout-path="dashboard.mmu-card"] / .mmu-card
+   ========================================================================== */
+
+/* Design Tokens */
+[layout-path="dashboard.mmu-card"],
+.mmu-card {
+  --bambu-green: #00AE42;
+  --bambu-green-bright: #00C250;
+  --bambu-green-glow: rgba(0, 174, 66, 0.38);
+  --bambu-green-bg: rgba(0, 174, 66, 0.12);
+  --bambu-orange: #FF7043;
+  --bambu-orange-glow: rgba(255, 87, 34, 0.25);
+  --bambu-dark-surface: #17191E;
+  --bambu-card-bg: linear-gradient(180deg, #1A1C22 0%, #121316 100%);
+  --bambu-acrylic-bg: linear-gradient(180deg, rgba(34, 38, 47, 0.92) 0%, rgba(18, 20, 26, 0.98) 100%);
+  --bambu-border: rgba(255, 255, 255, 0.08);
+  --bambu-border-highlight: rgba(255, 255, 255, 0.16);
+  --bambu-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --bambu-speed: 0.22s;
+}
+
+/* MMU Card Root */
+[layout-path="dashboard.mmu-card"],
+.mmu-card {
+  border: 1px solid var(--bambu-border) !important;
+  border-radius: 16px !important;
+  background: var(--bambu-card-bg) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Card Header */
+[layout-path="dashboard.mmu-card"] .v-card__title,
+.mmu-card .v-card__title {
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  color: #F4F4F5 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+[layout-path="dashboard.mmu-card"] .bambu-ams-title-badge,
+.mmu-card .bambu-ams-title-badge {
+  background: rgba(0, 194, 80, 0.16) !important;
+  color: #00C250 !important;
+  border: 1px solid rgba(0, 194, 80, 0.35) !important;
+  font-size: 0.68rem !important;
+  font-weight: 800 !important;
+  padding: 1px 7px !important;
+  border-radius: 6px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  display: inline-block !important;
+  line-height: 1.4 !important;
+}
+
+/* MMU AMS Enclosure (Smoked Acrylic Chamber) */
+[layout-path="dashboard.mmu-card"] .mmu-unit,
+.mmu-card .mmu-unit {
+  position: relative !important;
+  background: var(--bambu-acrylic-bg) !important;
+  border: 1px solid var(--bambu-border-highlight) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 14px 36px -6px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.2) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+  padding: 16px 10px 10px 10px !important;
+  overflow: hidden !important;
+}
+
+/* AMS Enclosure Glossy Dome Reflection */
+[layout-path="dashboard.mmu-card"] .mmu-unit::before,
+.mmu-card .mmu-unit::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 42% !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0) 100%) !important;
+  border-radius: 18px 18px 0 0 !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* Individual Spool Cassette Bay / Well */
+[layout-path="dashboard.mmu-card"] .gate,
+.mmu-card .gate {
+  background: rgba(9, 11, 15, 0.52) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 14px !important;
+  padding: 10px 4px 8px 4px !important;
+  margin: 0 3px !important;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+  transition: transform var(--bambu-speed) var(--bambu-ease),
+              background var(--bambu-speed) var(--bambu-ease),
+              border-color var(--bambu-speed) var(--bambu-ease),
+              box-shadow var(--bambu-speed) var(--bambu-ease) !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+[layout-path="dashboard.mmu-card"] .gate:hover,
+.mmu-card .gate:hover {
+  background: rgba(18, 21, 29, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35), 0 8px 18px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Active / Loaded Spool Bay Glow (Bambu Green #00AE42) */
+[layout-path="dashboard.mmu-card"] .gate:has(.highlight-spool),
+[layout-path="dashboard.mmu-card"] .gate.highlight-spool,
+.mmu-card .gate:has(.highlight-spool),
+.mmu-card .gate.highlight-spool {
+  border-color: var(--bambu-green) !important;
+  background: linear-gradient(180deg, var(--bambu-green-bg) 0%, rgba(9, 11, 15, 0.65) 100%) !important;
+  box-shadow: inset 0 0 14px rgba(0, 174, 66, 0.28), 0 0 18px var(--bambu-green-glow) !important;
+}
+
+/* Spool Visuals: Depth & Hover Lift */
+[layout-path="dashboard.mmu-card"] .clip-spool,
+.mmu-card .clip-spool {
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.7)) !important;
+  transition: transform var(--bambu-speed) var(--bambu-ease) !important;
+}
+
+[layout-path="dashboard.mmu-card"] .gate:hover .clip-spool,
+.mmu-card .gate:hover .clip-spool {
+  transform: scale(1.03) !important;
+}
+
+/* Gate Status Row & Badges */
+[layout-path="dashboard.mmu-card"] .gate-status-row,
+.mmu-card .gate-status-row {
+  background: transparent !important;
+  margin-top: 6px !important;
+  display: flex !important;
+  justify-content: center !important;
+}
+
+[layout-path="dashboard.mmu-card"] svg[ref="mmuGateStatusSvg"],
+[layout-path="dashboard.mmu-card"] .mmu-gate-status svg,
+.mmu-card svg[ref="mmuGateStatusSvg"],
+.mmu-card .mmu-gate-status svg {
+  max-height: 28px !important;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) !important;
+}
+
+[layout-path="dashboard.mmu-card"] svg[ref="mmuGateStatusSvg"] rect,
+[layout-path="dashboard.mmu-card"] .mmu-gate-status svg rect,
+.mmu-card svg[ref="mmuGateStatusSvg"] rect,
+.mmu-card .mmu-gate-status svg rect {
+  rx: 10px !important;
+  ry: 10px !important;
+}
+
+/* AMS Unit Tag / Footer Badge (e.g. #1 ACE Pro 0) */
+[layout-path="dashboard.mmu-card"] mmu-unit-footer,
+[layout-path="dashboard.mmu-card"] .mmu-unit-footer,
+.mmu-card mmu-unit-footer,
+.mmu-card .mmu-unit-footer {
+  text-align: center !important;
+  margin-top: 8px !important;
+  padding-top: 4px !important;
+}
+
+[layout-path="dashboard.mmu-card"] mmu-unit-footer span,
+[layout-path="dashboard.mmu-card"] mmu-unit-footer div,
+[layout-path="dashboard.mmu-card"] .mmu-unit-footer span,
+.mmu-card mmu-unit-footer span,
+.mmu-card mmu-unit-footer div,
+.mmu-card .mmu-unit-footer span {
+  display: inline-flex !important;
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 20px !important;
+  padding: 3px 14px !important;
+  font-size: 0.76rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: #D4D4D8 !important;
+}
+
+/* Standalone Bypass Slot (External Spool Holder) */
+[layout-path="dashboard.mmu-card"] .mmu-unit-clear,
+.mmu-card .mmu-unit-clear {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.16) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  padding: 12px 6px !important;
+}
+
+[layout-path="dashboard.mmu-card"] .mmu-unit-clear::before,
+.mmu-card .mmu-unit-clear::before {
+  display: none !important;
+}
+
+/* --- Filament Status & Flow Panel --- */
+[layout-path="dashboard.mmu-card"] .bambu-ams-toolhead-panel,
+.mmu-card .bambu-ams-toolhead-panel,
+[layout-path="dashboard.mmu-card"] .col:has(mmu-filament-status),
+.mmu-card .col:has(mmu-filament-status) {
+  background: linear-gradient(180deg, #181A22 0%, #0E1015 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+}
+
+[layout-path="dashboard.mmu-card"] .bambu-ams-toolhead-panel .text--disabled.smaller-font,
+.mmu-card .bambu-ams-toolhead-panel .text--disabled.smaller-font,
+[layout-path="dashboard.mmu-card"] .col:has(mmu-filament-status) .text--disabled.smaller-font,
+.mmu-card .col:has(mmu-filament-status) .text--disabled.smaller-font {
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: #FFFFFF !important;
+  margin-bottom: 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+[layout-path="dashboard.mmu-card"] .bambu-ams-toolhead-panel .text--disabled.smaller-font::before,
+.mmu-card .bambu-ams-toolhead-panel .text--disabled.smaller-font::before,
+[layout-path="dashboard.mmu-card"] .col:has(mmu-filament-status) .text--disabled.smaller-font::before,
+.mmu-card .col:has(mmu-filament-status) .text--disabled.smaller-font::before {
+  content: "" !important;
+  display: inline-block !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #00C250 !important;
+  box-shadow: 0 0 8px #00C250 !important;
+}
+
+/* Toolhead status SVG */
+[layout-path="dashboard.mmu-card"] svg[ref="filStatusSvg"],
+[layout-path="dashboard.mmu-card"] mmu-filament-status svg,
+.mmu-card svg[ref="filStatusSvg"],
+.mmu-card mmu-filament-status svg {
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.5)) !important;
+}
+
+/* --- Spool Metadata Card (mmu-gate-summary) --- */
+.v-application .bambu-ams-card .bambu-ams-summary-card,
+.mmu-card .bambu-ams-summary-card,
+[layout-path="dashboard.mmu-card"] mmu-gate-summary,
+.mmu-card mmu-gate-summary {
+  display: block !important;
+  background: #181A22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-left: 4px solid #00C250 !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+  margin-bottom: 14px !important;
+}
+
+.v-application .bambu-ams-card .bambu-ams-summary-card .text-overline,
+.mmu-card .bambu-ams-summary-card .text-overline,
+[layout-path="dashboard.mmu-card"] mmu-gate-summary .text-overline,
+.mmu-card mmu-gate-summary .text-overline {
+  color: var(--bambu-green-bright) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  font-size: 0.75rem !important;
+  margin-bottom: 4px !important;
+}
+
+.v-application .bambu-ams-card .bambu-ams-summary-card .text-h6,
+.mmu-card .bambu-ams-summary-card .text-h6,
+[layout-path="dashboard.mmu-card"] mmu-gate-summary .text-h6,
+.mmu-card mmu-gate-summary .text-h6 {
+  color: #FFFFFF !important;
+  font-weight: 700 !important;
+  font-size: 1.2rem !important;
+  letter-spacing: -0.01em !important;
+  margin-bottom: 4px !important;
+}
+
+.v-application .bambu-ams-card .bambu-ams-summary-card .subtitle-container,
+.mmu-card .bambu-ams-summary-card .subtitle-container,
+[layout-path="dashboard.mmu-card"] mmu-gate-summary .subtitle-container,
+.mmu-card mmu-gate-summary .subtitle-container {
+  color: #A1A1AA !important;
+  font-size: 0.85rem !important;
+}
+
+/* --- Controls & Action Buttons (mmu-controls) --- */
+/* Secondary Utility Buttons (Preload, Eject, Check Gate, Recover, Unlock) */
+.v-application .bambu-ams-card .bambu-btn-secondary,
+.theme--dark.v-btn.bambu-btn-secondary,
+[layout-path="dashboard.mmu-card"] mmu-controls .v-btn:not(.wrap-text-btn),
+.mmu-card mmu-controls .v-btn:not(.wrap-text-btn) {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 8px !important;
+  color: #E4E4E7 !important;
+  font-weight: 600 !important;
+  font-size: 0.82rem !important;
+  letter-spacing: 0.04em !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.v-application .bambu-ams-card .bambu-btn-secondary:hover:not(:disabled),
+.theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled),
+[layout-path="dashboard.mmu-card"] mmu-controls .v-btn:not(.wrap-text-btn):hover:not(:disabled),
+.mmu-card mmu-controls .v-btn:not(.wrap-text-btn):hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  color: #FFFFFF !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* UNLOAD Button */
+.v-application .bambu-ams-card .bambu-btn-unload,
+.theme--dark.v-btn.bambu-btn-unload,
+[layout-path="dashboard.mmu-card"] mmu-controls .row:last-child > .col:first-child .v-btn.wrap-text-btn,
+.mmu-card mmu-controls .row:last-child > .col:first-child .v-btn.wrap-text-btn {
+  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(216, 67, 21, 0.32) 100%) !important;
+  color: #FF7043 !important;
+  border: 1.5px solid rgba(255, 87, 34, 0.55) !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  font-size: 0.95rem !important;
+  letter-spacing: 0.05em !important;
+  box-shadow: 0 4px 14px rgba(255, 87, 34, 0.25) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.v-application .bambu-ams-card .bambu-btn-unload:hover:not(:disabled),
+.theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled),
+[layout-path="dashboard.mmu-card"] mmu-controls .row:last-child > .col:first-child .v-btn.wrap-text-btn:hover:not(:disabled),
+.mmu-card mmu-controls .row:last-child > .col:first-child .v-btn.wrap-text-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #FF5722 0%, #D84315 100%) !important;
+  color: #FFFFFF !important;
+  border-color: #FF7043 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 20px rgba(255, 87, 34, 0.45) !important;
+}
+
+/* UNLOAD Button when disabled/standby */
+.v-application .bambu-ams-card .bambu-btn-unload.v-btn--disabled,
+.v-application .bambu-ams-card .bambu-btn-unload:disabled,
+.theme--dark.v-btn.bambu-btn-unload.v-btn--disabled {
+  background: rgba(255, 112, 67, 0.12) !important;
+  color: rgba(255, 112, 67, 0.55) !important;
+  border: 1px solid rgba(255, 112, 67, 0.28) !important;
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* LOAD Button (Iconic Bambu Green) */
+.v-application .bambu-ams-card .bambu-btn-load,
+.theme--dark.v-btn.bambu-btn-load,
+[layout-path="dashboard.mmu-card"] mmu-controls .row:last-child > .col:last-child .v-btn.wrap-text-btn,
+.mmu-card mmu-controls .row:last-child > .col:last-child .v-btn.wrap-text-btn {
+  background: linear-gradient(135deg, #00C250 0%, #00963C 100%) !important;
+  color: #FFFFFF !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  font-size: 0.95rem !important;
+  letter-spacing: 0.05em !important;
+  box-shadow: 0 4px 16px rgba(0, 194, 80, 0.45) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.v-application .bambu-ams-card .bambu-btn-load:hover:not(:disabled),
+.theme--dark.v-btn.bambu-btn-load:hover:not(:disabled),
+[layout-path="dashboard.mmu-card"] mmu-controls .row:last-child > .col:last-child .v-btn.wrap-text-btn:hover:not(:disabled),
+.mmu-card mmu-controls .row:last-child > .col:last-child .v-btn.wrap-text-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00E65E 0%, #00AE42 100%) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 22px rgba(0, 194, 80, 0.6) !important;
+  filter: brightness(1.06) !important;
+}
+
+/* LOAD Button when in standby / disabled: Sleek dark green indicator */
+.v-application .bambu-ams-card .bambu-btn-load.v-btn--disabled,
+.v-application .bambu-ams-card .bambu-btn-load:disabled,
+.theme--dark.v-btn.bambu-btn-load.v-btn--disabled {
+  background: rgba(0, 174, 66, 0.22) !important;
+  color: rgba(0, 230, 94, 0.72) !important;
+  border: 1.2px solid rgba(0, 174, 66, 0.45) !important;
+  opacity: 0.65 !important;
+  cursor: not-allowed !important;
+  box-shadow: 0 0 10px rgba(0, 174, 66, 0.2) !important;
+  transform: none !important;
+}
+
+/* Generic disabled button */
+.v-application .bambu-ams-card .bambu-btn-secondary:disabled,
+.theme--dark.v-btn.bambu-btn-secondary:disabled,
+[layout-path="dashboard.mmu-card"] mmu-controls .v-btn:disabled,
+.mmu-card mmu-controls .v-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* --- Tool Mapping Schematic (mmu-ttg-map) --- */
+.v-application .bambu-ams-card .bambu-ams-ttg-panel,
+.mmu-card .bambu-ams-ttg-panel,
+[layout-path="dashboard.mmu-card"] mmu-ttg-map,
+.mmu-card mmu-ttg-map {
+  display: block !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  padding: 10px !important;
+  margin-top: 10px !important;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45) !important;
+  transition: border-color var(--bambu-speed) ease !important;
+}
+
+.v-application .bambu-ams-card .bambu-ams-ttg-panel:hover,
+.mmu-card .bambu-ams-ttg-panel:hover,
+[layout-path="dashboard.mmu-card"] mmu-ttg-map:hover,
+.mmu-card mmu-ttg-map:hover {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+[layout-path="dashboard.mmu-card"] .col:has(mmu-ttg-map) > .text--disabled,
+.mmu-card .col:has(mmu-ttg-map) > .text--disabled {
+  text-transform: uppercase !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.08em !important;
+  color: #A1A1AA !important;
+  font-weight: 600 !important;
+  margin-top: 6px !important;
+}

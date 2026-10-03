@@ -507,64 +507,553 @@
       }
     }
 
-    // 2. Dashboard MMU Card Injection
-    const mmuCards = document.querySelectorAll('.mmu-card, [layout-path="dashboard.mmu-card"]');
+    // 2. Dashboard MMU Card Injection & Bambu Lab AMS Styling
+    const mmuCards = findMmuCards();
     mmuCards.forEach((card) => {
-      if (card.querySelector('.klippace-quick-btn')) return;
-      const headerActions = card.querySelector('.v-card__title, .card-heading, header');
-      if (headerActions) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'klippace-quick-btn';
-        btn.innerHTML = `<span>⚡</span> Tool Mapper`;
-        btn.title = 'Open 1-Click ACE Pro Tool Mapper';
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openToolMapper();
-        });
-        headerActions.insertBefore(btn, headerActions.firstChild);
-      }
+      // Apply Bambu AMS style decoration
+      decorateBambuMmuCard(card);
     });
   }
 
-  // --- Watcher Setup ---
-  function setupFluiddIntegration() {
-    const appEl = document.getElementById('app');
-    if (!appEl || !appEl.__vue__ || !appEl.__vue__.$store) {
-      setTimeout(setupFluiddIntegration, 300);
-      return;
+  // Helper to locate Fluidd MMU card across different Fluidd/Vuetify DOM variants
+  function findMmuCards() {
+    const list = [];
+    const directMatches = document.querySelectorAll('.bambu-ams-card, .mmu-card, [layout-path="dashboard.mmu-card"]');
+    directMatches.forEach((el) => {
+      if (!list.includes(el)) list.push(el);
+    });
+
+    const allCards = document.querySelectorAll('.v-card');
+    allCards.forEach((c) => {
+      if (list.includes(c)) return;
+      if (c.closest('#klippace-tool-mapper-overlay')) return;
+      if (c.querySelector('.mmu-unit, .gate, .mmu-controls, .mmu-gate-summary, svg.clip-spool, [ref="mmuControls"]')) {
+        list.push(c);
+        return;
+      }
+      const titleEl = c.querySelector('.v-card__title, .card-heading, header');
+      if (titleEl && /mmu|happy hare/i.test(titleEl.textContent)) {
+        list.push(c);
+      }
+    });
+    return list;
+  }
+
+  // --- Bambu Lab AMS Style Injection & Decoration ---
+  function decorateBambuMmuCard(card) {
+    if (!card || card.closest('#klippace-tool-mapper-overlay')) return;
+
+    // 1. Ensure style element is injected at the bottom of head
+    let style = document.getElementById('klippace-bambu-ams-style');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'klippace-bambu-ams-style';
+      document.head.appendChild(style);
     }
 
+    style.textContent = `
+      /* =========================================================
+         Bambu Lab AMS Styling for Fluidd MMU Card
+         ========================================================= */
+
+      /* Card Container */
+      .v-application .bambu-ams-card,
+      .v-card.bambu-ams-card,
+      .mmu-card {
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 18px !important;
+        background: linear-gradient(180deg, #1C1E26 0%, #121318 100%) !important;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+        position: relative !important;
+      }
+
+      /* Card Header */
+      .v-application .bambu-ams-card .v-card__title,
+      .bambu-ams-card .v-card__title,
+      .v-application .bambu-ams-card .card-heading {
+        font-weight: 700 !important;
+        letter-spacing: -0.01em !important;
+        color: #FFFFFF !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        padding-bottom: 12px !important;
+        margin-bottom: 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-title-badge,
+      .bambu-ams-card .bambu-ams-title-badge {
+        background: rgba(0, 194, 80, 0.16) !important;
+        color: #00C250 !important;
+        border: 1px solid rgba(0, 194, 80, 0.35) !important;
+        font-size: 0.68rem !important;
+        font-weight: 800 !important;
+        padding: 1px 7px !important;
+        border-radius: 6px !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        display: inline-block !important;
+        line-height: 1.4 !important;
+      }
+
+      /* AMS Enclosure: Authentic Smoked Acrylic Dome */
+      .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear),
+      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear) {
+        position: relative !important;
+        background: linear-gradient(180deg, #2D323E 0%, #171920 100%) !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.75), inset 0 2px 4px rgba(255, 255, 255, 0.3) !important;
+        backdrop-filter: blur(16px) !important;
+        -webkit-backdrop-filter: blur(16px) !important;
+        padding: 16px 10px 12px 10px !important;
+        margin-bottom: 16px !important;
+        overflow: hidden !important;
+      }
+
+      /* Smoked Glass Dome Gloss Reflection */
+      .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear)::before,
+      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear)::before {
+        content: "" !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        height: 48% !important;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.03) 60%, transparent 100%) !important;
+        border-radius: 20px 20px 0 0 !important;
+        pointer-events: none !important;
+        z-index: 1 !important;
+      }
+
+      /* Recessed Cassette Bays */
+      .v-application .bambu-ams-card .bambu-ams-bay,
+      .bambu-ams-card .gate {
+        background: #0E1015 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        padding: 10px 4px 8px 4px !important;
+        margin: 0 3px !important;
+        box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.7) !important;
+        transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                    background 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                    border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                    box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        position: relative !important;
+        z-index: 2 !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-bay:hover,
+      .bambu-ams-card .gate:hover {
+        background: #181B24 !important;
+        border-color: rgba(255, 255, 255, 0.25) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.5) !important;
+      }
+
+      /* Active / Loaded Bay Neon Green Glow */
+      .v-application .bambu-ams-card .bambu-ams-bay.bambu-bay-active,
+      .v-application .bambu-ams-card .bambu-ams-bay:has(.highlight-spool),
+      .bambu-ams-card .gate.highlight-spool {
+        border-color: #00C250 !important;
+        background: linear-gradient(180deg, rgba(0, 194, 80, 0.16) 0%, #0E1015 100%) !important;
+        box-shadow: inset 0 0 16px rgba(0, 194, 80, 0.35), 0 0 18px rgba(0, 194, 80, 0.45) !important;
+      }
+
+      /* Spool 3D Depth */
+      .v-application .bambu-ams-card .clip-spool,
+      .bambu-ams-card .clip-spool {
+        filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.75)) !important;
+        transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-bay:hover .clip-spool {
+        transform: scale(1.04) !important;
+      }
+
+      /* Slot Badges & Pills */
+      .v-application .bambu-ams-card .gate-status-row {
+        background: transparent !important;
+        margin-top: 6px !important;
+        display: flex !important;
+        justify-content: center !important;
+      }
+
+      .v-application .bambu-ams-card svg[ref="mmuGateStatusSvg"],
+      .v-application .bambu-ams-card .mmu-gate-status svg {
+        max-height: 28px !important;
+        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)) !important;
+      }
+
+      /* AMS Unit Tag / Footer Badge */
+      .v-application .bambu-ams-card .bambu-ams-footer {
+        text-align: center !important;
+        margin-top: 10px !important;
+        padding-top: 6px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-footer span,
+      .v-application .bambu-ams-card .bambu-ams-footer div {
+        display: inline-flex !important;
+        align-items: center !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        border-radius: 20px !important;
+        padding: 4px 16px !important;
+        font-size: 0.78rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        color: #E4E4E7 !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+      }
+
+      /* Standalone Bypass Spool Bracket */
+      .v-application .bambu-ams-card .mmu-unit-clear,
+      .bambu-ams-card .mmu-unit-clear {
+        background: rgba(255, 255, 255, 0.025) !important;
+        border: 1.5px dashed rgba(255, 255, 255, 0.2) !important;
+        border-radius: 18px !important;
+        box-shadow: none !important;
+        padding: 12px 8px !important;
+      }
+
+      /* Filament Status & Flow Panel (Left Column) */
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel {
+        background: linear-gradient(180deg, #181A22 0%, #0E1015 100%) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border-radius: 14px !important;
+        padding: 14px !important;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font {
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.06em !important;
+        text-transform: uppercase !important;
+        color: #FFFFFF !important;
+        margin-bottom: 10px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font::before {
+        content: "" !important;
+        display: inline-block !important;
+        width: 8px !important;
+        height: 8px !important;
+        border-radius: 50% !important;
+        background: #00C250 !important;
+        box-shadow: 0 0 8px #00C250 !important;
+      }
+
+      /* Spool Metadata Card */
+      .v-application .bambu-ams-card .bambu-ams-summary-card,
+      .bambu-ams-card .v-card.bambu-ams-summary-card {
+        display: block !important;
+        background: #181A22 !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-left: 4px solid #00C250 !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+        margin-bottom: 14px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-summary-card .text-overline {
+        color: #00C250 !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.08em !important;
+        font-size: 0.75rem !important;
+        margin-bottom: 4px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-summary-card .text-h6 {
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        font-size: 1.2rem !important;
+        letter-spacing: -0.01em !important;
+        margin-bottom: 4px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-summary-card .subtitle-container {
+        color: #A1A1AA !important;
+        font-size: 0.85rem !important;
+      }
+
+      /* Maintenance Utility Buttons */
+      .v-application .bambu-ams-card .bambu-btn-secondary,
+      .theme--dark.v-btn.bambu-btn-secondary {
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 8px !important;
+        color: #E4E4E7 !important;
+        font-weight: 600 !important;
+        font-size: 0.82rem !important;
+        letter-spacing: 0.04em !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-btn-secondary:hover:not(:disabled),
+      .theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.12) !important;
+        border-color: rgba(255, 255, 255, 0.25) !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+      }
+
+      /* UNLOAD Button: High-Tech Warm Pill */
+      .v-application .bambu-ams-card .bambu-btn-unload,
+      .theme--dark.v-btn.bambu-btn-unload,
+      .bambu-btn-unload {
+        background: linear-gradient(135deg, rgba(255, 87, 34, 0.25) 0%, rgba(216, 67, 21, 0.38) 100%) !important;
+        background-color: rgba(255, 87, 34, 0.25) !important;
+        color: #FF7043 !important;
+        border: 1.5px solid rgba(255, 87, 34, 0.55) !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.05em !important;
+        box-shadow: 0 4px 14px rgba(255, 87, 34, 0.25) !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-btn-unload:hover:not(:disabled),
+      .theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled) {
+        background: linear-gradient(135deg, #FF5722 0%, #D84315 100%) !important;
+        background-color: #FF5722 !important;
+        color: #FFFFFF !important;
+        border-color: #FF7043 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(255, 87, 34, 0.45) !important;
+      }
+
+      /* UNLOAD Button when disabled/standby */
+      .v-application .bambu-ams-card .bambu-btn-unload.v-btn--disabled,
+      .v-application .bambu-ams-card .bambu-btn-unload:disabled,
+      .theme--dark.v-btn.bambu-btn-unload.v-btn--disabled,
+      .theme--dark.v-btn.bambu-btn-unload.v-btn--disabled.v-btn--has-bg,
+      .bambu-btn-unload.v-btn--disabled {
+        background: rgba(255, 112, 67, 0.14) !important;
+        background-color: rgba(255, 112, 67, 0.14) !important;
+        color: rgba(255, 112, 67, 0.65) !important;
+        border: 1px solid rgba(255, 112, 67, 0.32) !important;
+        opacity: 0.65 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+        transform: none !important;
+      }
+
+      /* LOAD Button: Iconic Bambu Green */
+      .v-application .bambu-ams-card .bambu-btn-load,
+      .theme--dark.v-btn.bambu-btn-load,
+      .bambu-btn-load {
+        background: linear-gradient(135deg, #00C250 0%, #00963C 100%) !important;
+        background-color: #00C250 !important;
+        color: #FFFFFF !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.05em !important;
+        box-shadow: 0 4px 16px rgba(0, 194, 80, 0.45) !important;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-btn-load:hover:not(:disabled),
+      .theme--dark.v-btn.bambu-btn-load:hover:not(:disabled) {
+        background: linear-gradient(135deg, #00E65E 0%, #00AE42 100%) !important;
+        background-color: #00E65E !important;
+        color: #FFFFFF !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 22px rgba(0, 194, 80, 0.6) !important;
+        filter: brightness(1.06) !important;
+      }
+
+      /* LOAD Button when in standby / disabled: Sleek dark green indicator */
+      .v-application .bambu-ams-card .bambu-btn-load.v-btn--disabled,
+      .v-application .bambu-ams-card .bambu-btn-load:disabled,
+      .theme--dark.v-btn.bambu-btn-load.v-btn--disabled,
+      .theme--dark.v-btn.bambu-btn-load.v-btn--disabled.v-btn--has-bg,
+      .bambu-btn-load.v-btn--disabled {
+        background: rgba(0, 174, 66, 0.22) !important;
+        background-color: rgba(0, 174, 66, 0.22) !important;
+        color: rgba(0, 230, 94, 0.85) !important;
+        border: 1.2px solid rgba(0, 174, 66, 0.45) !important;
+        opacity: 0.75 !important;
+        cursor: not-allowed !important;
+        box-shadow: 0 0 10px rgba(0, 174, 66, 0.2) !important;
+        transform: none !important;
+      }
+
+      /* Generic disabled button */
+      .v-application .bambu-ams-card .bambu-btn-secondary:disabled,
+      .theme--dark.v-btn.bambu-btn-secondary:disabled {
+        opacity: 0.4 !important;
+        cursor: not-allowed !important;
+        box-shadow: none !important;
+        transform: none !important;
+      }
+
+      /* Tool Mapping Schematic Panel */
+      .v-application .bambu-ams-card .bambu-ams-ttg-panel svg,
+      .v-application .bambu-ams-card svg[ref="ttgMap"],
+      .v-application .bambu-ams-card svg.cursor-pointer[viewBox*="100 100"] {
+        display: block !important;
+        background: rgba(0, 0, 0, 0.35) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 12px !important;
+        padding: 8px !important;
+        margin-top: 8px !important;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45) !important;
+        transition: border-color 0.22s ease !important;
+      }
+    `;
+
+    // 2. Decorate card root
+    card.classList.add('bambu-ams-card', 'mmu-card');
+
+    // 3. Decorate AMS chamber units
+    const units = card.querySelectorAll('.mmu-unit');
+    units.forEach((u) => {
+      u.classList.add('bambu-ams-unit');
+      // Bay slots
+      const gates = u.querySelectorAll('.gate');
+      gates.forEach((g) => {
+        g.classList.add('bambu-ams-bay');
+        if (g.querySelector('.highlight-spool') || g.classList.contains('highlight-spool')) {
+          g.classList.add('bambu-bay-active');
+        } else {
+          g.classList.remove('bambu-bay-active');
+        }
+      });
+      // Footer
+      const footer = u.querySelector('.position-relative, [class*="footer"], mmu-unit-footer');
+      if (footer) footer.classList.add('bambu-ams-footer');
+    });
+
+    // 4. Decorate Filament Status & Toolhead Flow
+    const filStatusSvg = card.querySelector('svg.svg-colors, [ref="filStatusSvg"]');
+    if (filStatusSvg) {
+      const filCol = filStatusSvg.closest('.col');
+      if (filCol) filCol.classList.add('bambu-ams-toolhead-panel');
+    }
+
+    // 5. Decorate Spool Metadata Summary
+    const overline = card.querySelector('.text-overline');
+    if (overline && overline.parentElement) {
+      overline.parentElement.classList.add('bambu-ams-summary-card');
+    }
+    const summaryCards = card.querySelectorAll('.v-card');
+    summaryCards.forEach((c) => {
+      if (c !== card && c.querySelector('.text-overline, .text-h6')) {
+        c.classList.add('bambu-ams-summary-card');
+      }
+    });
+
+    // 6. Decorate Title with AMS Badge
+    const titleEl = card.querySelector('.v-card__title');
+    if (titleEl && !titleEl.querySelector('.bambu-ams-title-badge')) {
+      const badge = document.createElement('span');
+      badge.className = 'bambu-ams-title-badge';
+      badge.textContent = 'AMS';
+      titleEl.appendChild(badge);
+    }
+
+    // 7. Decorate Control Buttons
+    const btns = card.querySelectorAll('.v-btn');
+    btns.forEach((btn) => {
+      const txt = (btn.textContent || '').trim().toLowerCase();
+      if (txt.includes('preload')) {
+        btn.classList.add('bambu-btn-secondary');
+        btn.classList.remove('bambu-btn-load', 'bambu-btn-unload');
+      } else if (txt.includes('unload')) {
+        btn.classList.add('bambu-btn-unload');
+        btn.classList.remove('bambu-btn-load', 'bambu-btn-secondary');
+      } else if (txt.includes('load')) {
+        btn.classList.add('bambu-btn-load');
+        btn.classList.remove('bambu-btn-unload', 'bambu-btn-secondary');
+      } else if (txt.length > 0) {
+        btn.classList.add('bambu-btn-secondary');
+        btn.classList.remove('bambu-btn-load', 'bambu-btn-unload');
+      }
+    });
+
+    // 7. Decorate Tool Mapping Schematic
+    const ttgSvg = card.querySelector('svg.cursor-pointer, svg[ref="ttgMap"]');
+    if (ttgSvg) {
+      const ttgCol = ttgSvg.closest('.col');
+      if (ttgCol) ttgCol.classList.add('bambu-ams-ttg-panel');
+    }
+  }
+
+  // Expose global opener for console or external macros immediately
+  window.openKlippaceToolMapper = openToolMapper;
+
+  // Initialize UI injection & Bambu AMS decoration immediately (do NOT wait for Vuex)
+  function initDecorator() {
+    console.log('[KLIPPACE] Initializing Bambu AMS decorator engine...');
+    injectButtons();
+
+    // Re-apply immediately when Vue mutates the DOM
+    let debounceTimer = null;
+    const observer = new MutationObserver(() => {
+      if (debounceTimer) return;
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        injectButtons();
+      }, 100);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Periodic heartbeat fallback
+    setInterval(injectButtons, 1200);
+  }
+
+  // Optional: Connect to Vuex store for auto-opening modal on mmu.dialog
+  function tryConnectVuexStore(attempts = 0) {
+    if (attempts > 50) return; // Stop after ~25s to not spin forever
+    const appEl = document.getElementById('app');
+    if (!appEl || !appEl.__vue__ || !appEl.__vue__.$store) {
+      setTimeout(() => tryConnectVuexStore(attempts + 1), 500);
+      return;
+    }
     const app = appEl.__vue__;
     console.log('[KLIPPACE] Connected to Fluidd root app and Vuex store!');
-
-    // Watch Fluidd's mmu.dialog state
-    app.$store.watch(
-      (state) => state.mmu?.dialog,
-      (newVal) => {
-        if (newVal && newVal.show) {
-          console.log('[KLIPPACE] Fluidd requested MMU dialog, opening KLIPPACE Tool Mapper:', newVal);
-          openToolMapper(newVal.filename || null);
-        } else if (newVal && !newVal.show) {
-          const overlay = document.getElementById('klippace-tool-mapper-overlay');
-          if (overlay && overlay.classList.contains('active')) {
-            overlay.classList.remove('active');
+    try {
+      app.$store.watch(
+        (state) => state.mmu?.dialog,
+        (newVal) => {
+          if (newVal && newVal.show) {
+            console.log('[KLIPPACE] Fluidd requested MMU dialog, opening KLIPPACE Tool Mapper:', newVal);
+            openToolMapper(newVal.filename || null);
+          } else if (newVal && !newVal.show) {
+            const overlay = document.getElementById('klippace-tool-mapper-overlay');
+            if (overlay && overlay.classList.contains('active')) {
+              overlay.classList.remove('active');
+            }
           }
-        }
-      },
-      { deep: true }
-    );
+        },
+        { deep: true }
+      );
+    } catch (err) {
+      console.warn('[KLIPPACE] Error attaching to Vuex store watch:', err);
+    }
+  }
 
-    // Periodically check for UI elements to inject buttons
-    setInterval(injectButtons, 1500);
-
-    // Expose global opener for console or external macros
-    window.openKlippaceToolMapper = openToolMapper;
+  function start() {
+    initDecorator();
+    tryConnectVuexStore();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', setupFluiddIntegration);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    setupFluiddIntegration();
+    start();
   }
 })();

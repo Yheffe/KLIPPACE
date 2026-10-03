@@ -32,6 +32,7 @@ fi
 
 FLAG_ASSUME_YES=0
 FLAG_COPY_VORON_CFG=0
+FLAG_INSTALL_LED=0
 PRINTER_PROFILE_OVERRIDE=""
 
 # ============================================================================
@@ -399,6 +400,10 @@ main() {
                 PRINTER_PROFILE_OVERRIDE="1"
                 shift
                 ;;
+            --led)
+                FLAG_INSTALL_LED=1
+                shift
+                ;;
             --klipper-dir)
                 klipper_dir_override="$2"
                 shift 2
@@ -417,6 +422,7 @@ main() {
                 echo "Options:"
                 echo "  --profile <1|2|3|voron|kobra|generic>  Select printer profile"
                 echo "  --voron, --copy-voron-cfg, -v          Select Voron 2.4 profile and copy Voron machine configs"
+                echo "  --led                                  Install LED lighting control (needs neopixel hardware)"
                 echo "  --klipper-dir <dir>                    Path to Klipper installation directory"
                 echo "  --config-dir <dir>                     Path to Klipper config directory (e.g. ~/printer_data/config)"
                 echo "  -y, --yes                              Non-interactive mode (assume yes to prompts)"
@@ -682,13 +688,16 @@ EOF
             echo "  - ebb36_gen2.cfg        (Toolhead CAN/USB board: extruder, fans, probe)"
             echo "  - sensorless_homing.cfg (X and Y sensorless homing macros)"
             echo "  - timelapse.cfg         (Moonraker timelapse macro support)"
-            echo "  - blobifier.cfg         (Blobifier purge & servo ejection macro)"
-            echo "  - blobifier_hw.cfg      (Blobifier Octopus Max EZ PE9 servo pin)"
             echo "  - printer.cfg           (Complete reference Voron 2.4 350mm configuration)"
             echo ""
 
-            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Copy complete Voron machine configs (including Blobifier, EBB36, Homing)?"; then
-                for vmfile in ebb36_gen2.cfg sensorless_homing.cfg timelapse.cfg blobifier.cfg blobifier_hw.cfg; do
+            if [ "$FLAG_COPY_VORON_CFG" -eq 1 ] || prompt_yes_no "Copy complete Voron machine configs (including EBB36, Homing)?"; then
+                # blobifier.cfg and blobifier_hw.cfg are deliberately NOT copied
+                # here. Step 1 above already installs the canonical versions from
+                # config/voron24/, and VORON/ held older copies whose bucket
+                # sensor is commented out. Copying them here ran second and
+                # silently overwrote the good files.
+                for vmfile in ebb36_gen2.cfg sensorless_homing.cfg timelapse.cfg; do
                     vmsrc="$VORON_MACHINE_DIR/$vmfile"
                     vmtgt="$CONFIG_DIR/$vmfile"
                     if [ -f "$vmsrc" ]; then
@@ -737,6 +746,54 @@ EOF
         else
             ensure_include_in_printer_cfg "$PRINTER_CFG" "blobifier.cfg"
             ensure_include_in_printer_cfg "$PRINTER_CFG" "ace_voron24.cfg"
+        fi
+
+        # 3. LED lighting control (optional; hardware dependent)
+        #
+        # led_control.cfg drives [neopixel Chamber_Lighting] and
+        # [neopixel hotend_rgb], and its _INIT_LEDS delayed_gcode calls
+        # LIGHTS_ON one second after startup with no guard. Installing it on a
+        # machine that lacks those neopixels is therefore a hard failure, not a
+        # harmless extra: SET_LED cannot find the LED and Klipper will not finish
+        # starting. So it is opt-in, and -y alone will NOT install it.
+        LED_SRC="$VORON_CONFIG_DIR/led_control.cfg"
+        LED_TGT="$CONFIG_DIR/led_control.cfg"
+        led_wanted=0
+
+        if [ "$FLAG_INSTALL_LED" -eq 1 ]; then
+            led_wanted=1
+        elif [ ${#VORON_COPIED_FILES[@]} -gt 0 ] && printf '%s\n' "${VORON_COPIED_FILES[@]}" | grep -qx "printer.cfg"; then
+            # The reference printer.cfg carries [include led_control.cfg], so
+            # omitting the file would stop Klipper from loading at all.
+            #
+            # The length guard is required, not defensive: this script runs
+            # under `set -u` and macOS ships bash 3.2, which reports an empty
+            # array expansion as "unbound variable" and would abort the install.
+            print_info "Reference printer.cfg includes led_control.cfg -- installing it to match"
+            led_wanted=1
+        elif [ "$FLAG_ASSUME_YES" -ne 1 ]; then
+            echo ""
+            print_info "LED lighting requires [neopixel Chamber_Lighting] and [neopixel hotend_rgb]."
+            print_info "Skip this unless those sections exist in your printer.cfg."
+            if prompt_yes_no "Install LED lighting control (led_control.cfg)?"; then
+                led_wanted=1
+            fi
+        else
+            print_info "Skipped LED lighting (pass --led to install it)"
+        fi
+
+        if [ "$led_wanted" -eq 1 ]; then
+            if [ -f "$LED_SRC" ]; then
+                if [ -f "$LED_TGT" ]; then
+                    backup_file "$LED_TGT"
+                fi
+                cp "$LED_SRC" "$LED_TGT"
+                print_success "Copied: led_control.cfg → $LED_TGT"
+                VORON_COPIED_FILES+=("led_control.cfg")
+                ensure_include_in_printer_cfg "$PRINTER_CFG" "led_control.cfg"
+            else
+                print_error "LED config missing: $LED_SRC"
+            fi
         fi
         
         print_success "Voron 2.4 configuration suite installed successfully!"

@@ -31,30 +31,207 @@ except ImportError:
 DEFAULT_PRINTER_HOST = "192.168.1.168"
 DEFAULT_PRINTER_PORT = 7125
 
-COLOR_NAMES = {
-    "#FF7F32": "Orange",
-    "#FF3A2F": "Red",
-    "#000000": "Black",
-    "#FFFFFF": "White",
-    "#0000FF": "Blue",
-    "#00FF00": "Green",
-    "#FFFF00": "Yellow",
-    "#808080": "Gray",
-    "#A52A2A": "Brown",
-    "#800080": "Purple",
-    "#FFC0CB": "Pink",
-    "#00FFFF": "Cyan",
+COLOR_THRESHOLD_WHITE = 35
+COLOR_THRESHOLD_BLACK = 30
+COLOR_THRESHOLD_PALETTE = 80
+
+EXACT_COLOR_MAP = {
+    "#EFF0F1": ("#FFFFFF", "White"),  # Anycubic Basic White RFID (AHPLBW-106)
+    "#FF7F32": ("#FF7F32", "Orange"), # Anycubic Vibrant Orange (AHPLVO-106)
+    "#FF3A2F": ("#FF3A2F", "Red"),    # Anycubic RFID Red (AHPLBK-101)
+    "#000000": ("#000000", "Black"),
+    "#FFFFFF": ("#FFFFFF", "White"),
+    "#0000FF": ("#0000FF", "Blue"),
+    "#00FF00": ("#00FF00", "Green"),
+    "#FFFF00": ("#FFFF00", "Yellow"),
+    "#808080": ("#808080", "Gray"),
+    "#A52A2A": ("#A52A2A", "Brown"),
+    "#800080": ("#800080", "Purple"),
+    "#FFC0CB": ("#FFC0CB", "Pink"),
+    "#00FFFF": ("#00FFFF", "Cyan"),
+}
+
+SKU_HINTS = {
+    "BW": ("#FFFFFF", "White"),
+    "WHT": ("#FFFFFF", "White"),
+    "BK": ("#000000", "Black"),
+    "BLK": ("#000000", "Black"),
+    "VO": ("#FF7F32", "Orange"),
+    "ORG": ("#FF7F32", "Orange"),
+    "RD": ("#FF3A2F", "Red"),
+    "RED": ("#FF3A2F", "Red"),
+    "BL": ("#0000FF", "Blue"),
+    "BLU": ("#0000FF", "Blue"),
+    "GN": ("#00FF00", "Green"),
+    "GRN": ("#00FF00", "Green"),
+    "YL": ("#FFFF00", "Yellow"),
+    "YEL": ("#FFFF00", "Yellow"),
+    "GY": ("#808080", "Gray"),
+    "GRY": ("#808080", "Gray"),
+}
+
+STANDARD_PALETTE = {
+    "White": (255, 255, 255),
+    "Black": (0, 0, 0),
+    "Red": (255, 0, 0),
+    "Orange": (255, 127, 50),
+    "Yellow": (255, 255, 0),
+    "Green": (0, 200, 0),
+    "Blue": (0, 100, 255),
+    "Cyan": (0, 255, 255),
+    "Purple": (128, 0, 128),
+    "Pink": (255, 192, 203),
+    "Gray": (128, 128, 128),
+    "Brown": (165, 42, 42),
 }
 
 
-def get_color_name(hex_code):
-    """Return friendly name for common filament hex colors."""
+def resolve_filament_color(hex_code, sku="", vendor=""):
+    """
+    Normalize hex code and resolve a clean, friendly color name.
+    Handles off-white RFID tags (e.g. Anycubic #EFF0F1), SKU substring codes,
+    and nearest-neighbor Euclidean distance matching in RGB color space.
+    Returns tuple: (normalized_hex, color_name).
+    """
     if not hex_code:
-        return ""
-    code = hex_code.upper()
-    if code in COLOR_NAMES:
-        return COLOR_NAMES[code]
-    return code
+        return "#FFFFFF", "White"
+
+    hex_clean = str(hex_code).strip().upper()
+    if not hex_clean.startswith("#"):
+        hex_clean = f"#{hex_clean}"
+
+    # Expand shorthand 3-character hex (e.g. #FFF -> #FFFFFF)
+    if len(hex_clean) == 4:
+        hex_clean = "#" + "".join([c * 2 for c in hex_clean[1:]])
+    elif len(hex_clean) != 7:
+        return hex_clean, hex_clean
+
+    # 1. Exact match lookup
+    if hex_clean in EXACT_COLOR_MAP:
+        return EXACT_COLOR_MAP[hex_clean]
+
+    # 2. Check SKU hints if available
+    sku_upper = (sku or "").upper()
+    for code, (norm_hex, name) in SKU_HINTS.items():
+        if code in sku_upper:
+            return norm_hex, name
+
+    # 3. Distance matching in RGB
+    try:
+        r = int(hex_clean[1:3], 16)
+        g = int(hex_clean[3:5], 16)
+        b = int(hex_clean[5:7], 16)
+
+        # Near white (e.g. #EFF0F1 dist sq = 677 <= 1225) -> snap to pure White #FFFFFF
+        dist_sq_white = (255 - r) ** 2 + (255 - g) ** 2 + (255 - b) ** 2
+        if dist_sq_white <= COLOR_THRESHOLD_WHITE ** 2:
+            return "#FFFFFF", "White"
+
+        # Near black (dist sq <= 900) -> snap to pure Black #000000
+        dist_sq_black = r ** 2 + g ** 2 + b ** 2
+        if dist_sq_black <= COLOR_THRESHOLD_BLACK ** 2:
+            return "#000000", "Black"
+
+        best_name = None
+        best_dist_sq = float("inf")
+        for name, prgb in STANDARD_PALETTE.items():
+            dist_sq = (r - prgb[0]) ** 2 + (g - prgb[1]) ** 2 + (b - prgb[2]) ** 2
+            if dist_sq < best_dist_sq:
+                best_dist_sq = dist_sq
+                best_name = name
+
+        if best_dist_sq <= COLOR_THRESHOLD_PALETTE ** 2:
+            return hex_clean, best_name
+    except (ValueError, IndexError):
+        logging.warning("Invalid hex format: %s", hex_code)
+
+    return hex_clean, hex_clean
+
+
+def get_color_name(hex_code, sku="", vendor=""):
+    """Return friendly name for common filament hex colors."""
+    _, name = resolve_filament_color(hex_code, sku=sku, vendor=vendor)
+    return name
+
+
+def clean_stale_slot_presets(filament_dirs, slot_idx, current_preset_name):
+    """
+    Clean up any legacy or stale presets for this specific slot index.
+    e.g. if current is 'ACE T2 - PLA White', deletes 'ACE T2 - PLA Black.json',
+    'ACE T2 - PLA #EFF0F1.json', and corresponding .info files.
+    """
+    slot_prefix = f"ACE T{slot_idx} - "
+    target_json = f"{current_preset_name}.json"
+    target_info = f"{current_preset_name}.info"
+    cleaned = []
+    for fdir in filament_dirs:
+        fpath = Path(fdir)
+        if not fpath.exists():
+            continue
+        for item in fpath.glob(f"{slot_prefix}*"):
+            if item.name not in (target_json, target_info) and item.suffix in (".json", ".info"):
+                try:
+                    item.unlink()
+                    cleaned.append(str(item))
+                    logging.info("Cleaned stale preset: %s", item)
+                except OSError as e:
+                    logging.warning("Failed to remove stale preset %s: %s", item, e)
+    return cleaned
+
+
+def update_orcaslicer_conf(synced_items, printer_name=None):
+    """
+    Safely update OrcaSlicer.conf to map synced slot presets and colors
+    to the active machine profile in orca_presets.
+    """
+    app_dir = get_orca_app_dir()
+    conf_path = app_dir / "OrcaSlicer.conf"
+    if not conf_path.exists():
+        return False
+
+    try:
+        with open(conf_path, "r", encoding="utf-8") as f:
+            conf = json.load(f)
+
+        items_by_slot = {it["slot"]: it for it in synced_items}
+        orca_presets = conf.get("orca_presets", [])
+        updated = False
+
+        for p in orca_presets:
+            if not isinstance(p, dict):
+                continue
+            p_machine = p.get("machine", "")
+            is_match = False
+            if printer_name and p_machine == printer_name:
+                is_match = True
+            elif any(str(p.get(k, "")).startswith("ACE T") for k in ("filament", "filament_01", "filament_02", "filament_03")):
+                is_match = True
+
+            if is_match:
+                colors = []
+                for i in range(4):
+                    key = "filament" if i == 0 else f"filament_{i:02d}"
+                    if i in items_by_slot:
+                        p[key] = items_by_slot[i]["name"]
+                        colors.append(items_by_slot[i]["color"])
+                    else:
+                        colors.append(p.get(key, "#000000"))
+
+                color_str = ",".join(colors)
+                p["filament_colors"] = color_str
+                p["filament_multi_colors"] = color_str
+                updated = True
+
+        if updated:
+            tmp_path = conf_path.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(conf, f, indent=4)
+            tmp_path.replace(conf_path)
+            logging.info("Successfully updated OrcaSlicer.conf machine presets.")
+            return True
+    except Exception as e:
+        logging.error("Failed to update OrcaSlicer.conf: %s", e)
+    return False
 
 
 def get_orca_app_dir():
@@ -347,7 +524,14 @@ def fetch_moonraker_ace_data(net_info=None):
         if slot_data["bed_temp"] <= 0:
             slot_data["bed_temp"] = 60
 
-        slot_data["color_name"] = get_color_name(slot_data["color"])
+        # Resolve normalized color and friendly color name
+        norm_col, col_name = resolve_filament_color(
+            slot_data["color"],
+            sku=slot_data.get("sku", ""),
+            vendor=slot_data.get("vendor", ""),
+        )
+        slot_data["color"] = norm_col
+        slot_data["color_name"] = col_name
         results["slots"].append(slot_data)
 
     return results
@@ -370,7 +554,8 @@ def sync_filaments_to_orcaslicer(host=None):
     """
     Main sync action:
     Dynamically queries Moonraker using network info from OrcaSlicer printer profile,
-    builds universal filament presets for ready slots, and writes to OrcaSlicer user profiles.
+    builds universal filament presets for ready slots, cleans stale presets,
+    updates OrcaSlicer configuration, and writes to OrcaSlicer user profiles.
     """
     net_info = resolve_printer_network_info(override_host=host)
     ace_info = fetch_moonraker_ace_data(net_info=net_info)
@@ -395,7 +580,7 @@ def sync_filaments_to_orcaslicer(host=None):
             mat = "PLA"
 
         col = s.get("color") or "#000000"
-        col_name = s.get("color_name") or get_color_name(col) or col
+        col_name = s.get("color_name") or get_color_name(col, sku=s.get("sku", "")) or col
         temp = s.get("temp", 0)
         if not temp or temp <= 0:
             temp = 210
@@ -436,6 +621,9 @@ def sync_filaments_to_orcaslicer(host=None):
             "version": "2.4.0.0",
         }
 
+        # Clean stale presets for this slot index before writing new one
+        clean_stale_slot_presets(filament_dirs, slot_idx, preset_name)
+
         # Write to all discovered user directories
         for fdir in filament_dirs:
             out_path = os.path.join(fdir, f"{preset_name}.json")
@@ -453,6 +641,9 @@ def sync_filaments_to_orcaslicer(host=None):
             "temp": temp,
             "sku": sku,
         })
+
+    # Update OrcaSlicer.conf active presets
+    update_orcaslicer_conf(synced_items, printer_name=net_info.get("printer_name"))
 
     printer_label = f"{net_info['printer_name']} ({net_info['base_url']})"
     msg_lines = [f"Synced {len(synced_items)} slots from ACE Pro on {printer_label}:"]

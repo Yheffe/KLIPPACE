@@ -826,6 +826,18 @@ svg.svg-colors {
 [layout-path="dashboard.mmu-card"] .v-card__text,
 .mmu-card .v-card__text {
   padding: 10px 14px !important;
+  /* Mainsail's card body IS a .v-card__text and has no .container inside it, so
+     its row wrapper children had no row gap and the unit row sat flush against
+     the ribbon row (measured gap 0). Applying the flex column + gap here fixes
+     that.
+     NOTE: Fluidd renders its card body as `.overflow-hidden > .container` and
+     has no .v-card__text element at all, so this rule is effectively
+     Mainsail-only. The `.v-card__text > .container` and
+     `.v-card__text > .container > .row:nth-child(2)` rules further down this
+     file match neither UI and are vestigial. */
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
 }
 
 .v-application .bambu-ams-card .v-card__text > .container,

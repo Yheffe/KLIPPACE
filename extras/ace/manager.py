@@ -1486,6 +1486,13 @@ class AceManager:
             varname = f"ace_inventory_{instance_num}"
             if flush:
                 self.state.set_and_save(varname, instance.inventory)
+                # In the default "deferred" persistence mode set_and_save() only
+                # marks the variable dirty, so the value would not reach disk
+                # until the next flush (print end / disconnect).  This path is
+                # user-initiated (ACE_SET_SLOT / ACE_SAVE_INVENTORY), so force
+                # the write now — manually entered non-RFID slot data must
+                # survive a restart.
+                self.state.flush()
             else:
                 self.state.set(varname, instance.inventory)
             self._sync_moonraker_lane_data(

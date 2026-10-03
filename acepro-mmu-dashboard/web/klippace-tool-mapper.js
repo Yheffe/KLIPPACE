@@ -1555,27 +1555,41 @@
       badge.style.marginLeft = '10px';
     }
 
-    // Tools Mapper trigger. On Fluidd this lives in the page app bar
-    // (klippace-topbar-btn). Mainsail's app bar is a different component and
-    // that button is hidden there by Moonraker's config/.theme/custom.css, so
-    // give Mainsail a trigger in the card's own toolbar instead. Gating on
-    // .v-toolbar__items keeps this Mainsail-only, so Fluidd cannot end up with
-    // two triggers.
-    const items = title.querySelector('.v-toolbar__items');
-    if (items && !items.querySelector('.klippace-tools-btn')) {
+    // Tools Mapper trigger, inside the card's own header, in BOTH UIs:
+    //   Mainsail -> .panel-toolbar > .v-toolbar__items
+    //   Fluidd   -> .v-card__title > .row > .col-auto (the button group)
+    // Fluidd additionally has a page-app-bar trigger (klippace-topbar-btn) and
+    // Mainsail's app bar is hidden by Moonraker's config/.theme/custom.css, so
+    // the card trigger is the one that works everywhere.
+    let toolsHost = title.querySelector('.v-toolbar__items');
+    if (!toolsHost) {
+      const cols = [...title.querySelectorAll('.col-auto, [class*="col-auto"]')];
+      // Prefer the column holding Fluidd's own MMU "Tools" affordance; fall back
+      // to the first column that has a button (never the title text column).
+      toolsHost =
+        cols.find((c) => c.querySelector('button') && /tools/i.test(c.textContent)) ||
+        cols.find((c) => c.querySelector('button')) ||
+        null;
+    }
+    if (toolsHost && !toolsHost.querySelector('.klippace-tools-btn')) {
       const toolsBtn = document.createElement('button');
       toolsBtn.type = 'button';
       toolsBtn.className = 'klippace-tools-btn';
-      // Icon-only, matching Mainsail's own toolbar buttons. A text label clipped
-      // the panel title on narrow viewports.
+      // Icon-only. A text label stole so much of Mainsail's toolbar that the
+      // panel title was clipped, and an icon matches the neighbouring round
+      // controls in Fluidd's header.
       toolsBtn.innerHTML = '<span aria-hidden="true">\u26a1</span>';
       toolsBtn.title = 'Open ACE Pro Tool Mapper';
       toolsBtn.setAttribute('aria-label', 'Open ACE Pro Tool Mapper');
       toolsBtn.addEventListener('click', (e) => {
+        // Both UIs put other handlers on the header: Fluidd's card collapses
+        // when the title is clicked, and Mainsail's toolbar hosts menus. Stop
+        // the event in both phases so neither fires.
+        e.preventDefault();
         e.stopPropagation();
         openToolMapper();
       });
-      items.insertBefore(toolsBtn, items.firstChild);
+      toolsHost.insertBefore(toolsBtn, toolsHost.firstChild);
     }
 
     // Hide the status/refresh round icon button; keep only the collapse chevron.

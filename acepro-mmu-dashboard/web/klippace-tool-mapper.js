@@ -456,6 +456,293 @@
     }
   }
 
+  // =========================================================================
+  // SLOT EDITOR — manually set material/colour/temp for a slot.
+  // Needed for non-RFID spools, which the ACE cannot identify automatically.
+  // =========================================================================
+
+  const SLOT_MATERIALS = [
+    'PLA', 'PLA+', 'PLA-CF', 'PLA Matte', 'PLA Silk', 'PLA High Speed',
+    'PETG', 'PETG-CF', 'ABS', 'ASA', 'TPU', 'TPE', 'PVA', 'HIPS',
+    'PC', 'PA', 'PA-CF', 'Nylon', 'POM', 'PP', 'PPS', 'PC-ABS', 'PEEK'
+  ];
+
+  // Suggested nozzle temps per material (used to prefill the editor)
+  const MATERIAL_TEMPS = {
+    'PLA': 210, 'PLA+': 215, 'PLA-CF': 220, 'PLA Matte': 210, 'PLA Silk': 215,
+    'PLA High Speed': 220, 'PETG': 240, 'PETG-CF': 250, 'ABS': 250, 'ASA': 260,
+    'TPU': 230, 'TPE': 230, 'PVA': 200, 'HIPS': 240, 'PC': 270, 'PA': 260,
+    'PA-CF': 280, 'Nylon': 260, 'POM': 220, 'PP': 240, 'PPS': 300,
+    'PC-ABS': 265, 'PEEK': 380
+  };
+
+  const SLOT_PALETTE = [
+    '#ffffff', '#000000', '#808080', '#c0c0c0',
+    '#ff0000', '#ff7f32', '#ffc800', '#ffff00',
+    '#00ff00', '#008000', '#00ffff', '#0000ff',
+    '#8000ff', '#ff00ff', '#8b4513', '#ffc0cb'
+  ];
+
+  // Presets loaded from localStorage (set by the standalone dashboard)
+  function getStoredPresets() {
+    try {
+      const raw = localStorage.getItem('klippace_presets');
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  }
+
+  let slotEditorState = { gateIndex: 0, material: 'PLA', temp: 210, color: '#ffffff', name: '' };
+
+  function createSlotEditorModal() {
+    let overlay = document.getElementById('klippace-slot-editor-overlay');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'klippace-slot-editor-overlay';
+    overlay.className = 'klippace-overlay';
+
+    const matOptions = SLOT_MATERIALS.map(m => `<option value="${m}">${m}</option>`).join('');
+    const swatches = SLOT_PALETTE.map(c =>
+      `<button type="button" class="klippace-palette-chip" data-color="${c}" style="background:${c};" title="${c}"></button>`
+    ).join('');
+
+    overlay.innerHTML = `
+      <div class="klippace-modal klippace-modal--narrow" role="dialog" aria-modal="true">
+        <div class="klippace-header">
+          <div class="klippace-header-title-group">
+            <div class="klippace-icon-badge">
+              <svg viewBox="0 0 24 24" width="22" height="22">
+                <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="klippace-title">Edit Slot <span class="klippace-chip" id="klippace-editor-chip">T3</span></div>
+              <div class="klippace-subtitle">Set filament data for a spool the ACE cannot read</div>
+            </div>
+          </div>
+          <div class="klippace-header-actions">
+            <button id="klippace-editor-close" class="klippace-btn-icon" type="button" title="Close">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="klippace-editor-body">
+          <div class="klippace-editor-preview">
+            <div class="klippace-editor-swatch" id="klippace-editor-swatch"></div>
+            <div class="klippace-editor-preview-text">
+              <div class="klippace-editor-preview-mat" id="klippace-editor-preview-mat">PLA</div>
+              <div class="klippace-editor-preview-temp" id="klippace-editor-preview-temp">210°C</div>
+            </div>
+          </div>
+
+          <label class="klippace-field">
+            <span class="klippace-field-label">Material</span>
+            <select id="klippace-editor-material" class="klippace-input">${matOptions}</select>
+          </label>
+
+          <label class="klippace-field">
+            <span class="klippace-field-label">Nozzle temp (°C)</span>
+            <input id="klippace-editor-temp" class="klippace-input" type="number" min="150" max="350" step="5">
+          </label>
+
+          <div class="klippace-field">
+            <span class="klippace-field-label">Colour</span>
+            <div class="klippace-color-row">
+              <input id="klippace-editor-color" class="klippace-color-input" type="color">
+              <div class="klippace-palette">${swatches}</div>
+            </div>
+          </div>
+
+          <label class="klippace-field">
+            <span class="klippace-field-label">Preset name <span class="klippace-optional">(optional)</span></span>
+            <input id="klippace-editor-name" class="klippace-input" type="text" placeholder="e.g. Prusament Galaxy Black">
+          </label>
+
+          <label class="klippace-field klippace-field--preset" id="klippace-editor-preset-wrap" style="display:none;">
+            <span class="klippace-field-label">Saved preset</span>
+            <select id="klippace-editor-preset" class="klippace-input"></select>
+          </label>
+        </div>
+
+        <div class="klippace-footer">
+          <div class="klippace-footer-left">
+            <button id="klippace-editor-empty" class="klippace-btn klippace-btn-ghost" type="button">Mark Empty</button>
+          </div>
+          <div class="klippace-footer-right">
+            <button id="klippace-editor-cancel" class="klippace-btn klippace-btn-ghost" type="button">Cancel</button>
+            <button id="klippace-editor-save" class="klippace-btn klippace-btn-primary" type="button">Save Slot</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const el = (id) => document.getElementById(id);
+
+    el('klippace-editor-close').addEventListener('click', closeSlotEditor);
+    el('klippace-editor-cancel').addEventListener('click', closeSlotEditor);
+    el('klippace-editor-save').addEventListener('click', () => saveSlotEditor(false));
+    el('klippace-editor-empty').addEventListener('click', () => {
+      if (confirm('Mark this slot as empty? Material data will be cleared.')) saveSlotEditor(true);
+    });
+
+    el('klippace-editor-material').addEventListener('change', (e) => {
+      slotEditorState.material = e.target.value;
+      const t = MATERIAL_TEMPS[e.target.value];
+      if (t) { slotEditorState.temp = t; el('klippace-editor-temp').value = t; }
+      refreshSlotEditorPreview();
+    });
+    el('klippace-editor-temp').addEventListener('input', (e) => {
+      slotEditorState.temp = parseInt(e.target.value, 10) || 0;
+      refreshSlotEditorPreview();
+    });
+    el('klippace-editor-color').addEventListener('input', (e) => {
+      slotEditorState.color = e.target.value;
+      refreshSlotEditorPreview();
+    });
+    el('klippace-editor-name').addEventListener('input', (e) => {
+      slotEditorState.name = e.target.value;
+    });
+    el('klippace-editor-preset').addEventListener('change', (e) => {
+      const preset = getStoredPresets().find(p => p.name === e.target.value);
+      if (!preset) return;
+      slotEditorState.material = preset.material || slotEditorState.material;
+      slotEditorState.temp = preset.temp || slotEditorState.temp;
+      if (preset.color) slotEditorState.color = preset.color;
+      el('klippace-editor-material').value = slotEditorState.material;
+      el('klippace-editor-temp').value = slotEditorState.temp;
+      el('klippace-editor-color').value = slotEditorState.color;
+      el('klippace-editor-name').value = preset.name;
+      slotEditorState.name = preset.name;
+      refreshSlotEditorPreview();
+    });
+
+    overlay.querySelectorAll('.klippace-palette-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        slotEditorState.color = chip.dataset.color;
+        el('klippace-editor-color').value = chip.dataset.color;
+        refreshSlotEditorPreview();
+      });
+    });
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSlotEditor(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) closeSlotEditor();
+    });
+
+    return overlay;
+  }
+
+  function refreshSlotEditorPreview() {
+    const swatch = document.getElementById('klippace-editor-swatch');
+    const matEl = document.getElementById('klippace-editor-preview-mat');
+    const tempEl = document.getElementById('klippace-editor-preview-temp');
+    if (swatch) swatch.style.backgroundColor = slotEditorState.color;
+    if (matEl) matEl.textContent = slotEditorState.material || '—';
+    if (tempEl) tempEl.textContent = (slotEditorState.temp > 0) ? `${slotEditorState.temp}°C` : '—';
+  }
+
+  function openSlotEditor(gateIndex) {
+    const overlay = createSlotEditorModal();
+    const el = (id) => document.getElementById(id);
+    const mmu = cachedMmu || {};
+
+    const gateColor = mmu.gate_color?.[gateIndex];
+    const gateMat = (mmu.gate_material?.[gateIndex] || '').trim();
+    const toolTemp = mmu.slicer_tool_map?.tools?.[gateIndex]?.temp;
+    const isUnknown = (!gateMat || gateMat.toLowerCase() === 'unknown')
+      || (gateColor || '').replace('#', '').toLowerCase() === '000000';
+
+    slotEditorState = {
+      gateIndex,
+      material: (!gateMat || gateMat.toLowerCase() === 'unknown') ? 'PLA' : gateMat,
+      temp: toolTemp || MATERIAL_TEMPS[gateMat] || 210,
+      color: (!gateColor || (isUnknown && gateColor === '#000000')) ? '#ffffff' : gateColor,
+      name: ''
+    };
+
+    el('klippace-editor-chip').textContent = `T${gateIndex}`;
+    el('klippace-editor-material').value = slotEditorState.material;
+    el('klippace-editor-temp').value = slotEditorState.temp;
+    el('klippace-editor-color').value = slotEditorState.color;
+    el('klippace-editor-name').value = '';
+
+    // Populate preset dropdown if presets exist
+    const presets = getStoredPresets();
+    const presetWrap = el('klippace-editor-preset-wrap');
+    const presetSel = el('klippace-editor-preset');
+    if (presets.length) {
+      presetSel.innerHTML = '<option value="">— pick —</option>' +
+        presets.map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+      presetWrap.style.display = '';
+    } else {
+      presetWrap.style.display = 'none';
+    }
+
+    refreshSlotEditorPreview();
+    overlay.classList.add('active');
+  }
+
+  function closeSlotEditor() {
+    const overlay = document.getElementById('klippace-slot-editor-overlay');
+    if (overlay) overlay.classList.remove('active');
+  }
+
+  async function saveSlotEditor(markEmpty) {
+    const saveBtn = document.getElementById('klippace-editor-save');
+    const idx = slotEditorState.gateIndex;
+
+    if (markEmpty) {
+      await sendGcode(`ACE_SET_SLOT T=${idx} EMPTY=1\nACE_SAVE_INVENTORY`);
+      closeSlotEditor();
+      showToast(`Slot T${idx} marked empty.`);
+      setTimeout(decorateAll, 600);
+      return;
+    }
+
+    const temp = parseInt(slotEditorState.temp, 10) || 0;
+    if (!slotEditorState.material || temp <= 0) {
+      showToast('Material and temperature are required.');
+      return;
+    }
+
+    const rgb = hexToRgb(slotEditorState.color);
+    const safeMat = String(slotEditorState.material).replace(/"/g, '\\"');
+    const safeName = String(slotEditorState.name || '').replace(/"/g, '\\"');
+
+    let script = `ACE_SET_SLOT T=${idx} COLOR="${rgb[0]},${rgb[1]},${rgb[2]}" ` +
+                 `MATERIAL="${safeMat}" TEMP=${temp}`;
+    if (safeName) script += ` FILAMENT_SETTINGS_ID="${safeName}"`;
+
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+    try {
+      await sendGcode(script);
+      await sendGcode('ACE_SAVE_INVENTORY');
+      closeSlotEditor();
+      showToast(`T${idx} saved: ${slotEditorState.material} ${temp}°C`);
+      // Optimistically update the card, then refresh from the backend
+      const swatch = document.querySelectorAll('.mmu-unit:not(.mmu-unit-clear) .gate')[idx]?.querySelector('.klippace-swatch');
+      if (swatch) {
+        swatch.dataset.nocolor = 'false';
+        swatch.dataset.klippaceColor = slotEditorState.color;
+        swatch.style.backgroundColor = slotEditorState.color;
+      }
+      setTimeout(() => { cachedMmu = null; mmuFetchedAt = 0; decorateAll(); }, 700);
+    } finally {
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Slot'; }
+    }
+  }
+
+  // Re-run decoration across every MMU card
+  function decorateAll() {
+    findMmuCards().forEach((c) => decorateBambuMmuCard(c));
+  }
+
   // --- Commit Mapping ---
   async function commitMapping() {
     const commitBtn = document.getElementById('klippace-btn-commit');
@@ -563,8 +850,31 @@
   function buildGateTiles(card) {
     const unit = card.querySelector('.mmu-unit:not(.mmu-unit-clear)');
     if (!unit) return;
+
+    // Intercept gate clicks in the CAPTURE phase on the card so the native
+    // per-gate menu (Vuetify) never receives the event. A bubble-phase handler
+    // on the gate itself is too late — Vuetify's listener runs first and opens
+    // its own "Gate N" menu.
+    if (!card.dataset.klippaceGateClick) {
+      card.dataset.klippaceGateClick = '1';
+      card.addEventListener('click', (e) => {
+        const gate = e.target && e.target.closest ? e.target.closest('.gate') : null;
+        if (!gate || !card.contains(gate)) return;
+        const gates = Array.from(card.querySelectorAll('.mmu-unit:not(.mmu-unit-clear) .gate'));
+        const idx = gates.indexOf(gate);
+        if (idx < 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        openSlotEditor(idx);
+      }, true);
+    }
+
     unit.querySelectorAll('.gate').forEach((gate, i) => {
-      if (gate.querySelector('.klippace-swatch')) return; // idempotent
+      gate.style.cursor = 'pointer';
+      gate.title = `Edit slot T${i} (click to set material/colour)`;
+
+      if (gate.querySelector('.klippace-swatch')) return; // DOM already built
+
       const swatch = document.createElement('div');
       swatch.className = 'klippace-swatch';
       gate.insertBefore(swatch, gate.firstChild);
@@ -677,6 +987,7 @@
         }
       }
       const material = gate.querySelector('.klippace-gate-material');
+      let needsData = false;
       if (material) {
         const mat = (mmu.gate_material?.[i] || '').trim();
         // Show a label for every slot — "Unknown" when there's no material data,
@@ -691,10 +1002,19 @@
 
       // Spool-present indicator: 1 = present, 0 = empty, -1/None = unknown.
       const slotDot = gate.querySelector('.klippace-slot-dot');
+      let present = 'unknown';
       if (slotDot) {
         const raw = Array.isArray(mmu.gate_status) ? mmu.gate_status[i] : null;
-        const present = (raw === 1) ? 'present' : (raw === 0 ? 'empty' : 'unknown');
+        present = (raw === 1) ? 'present' : (raw === 0 ? 'empty' : 'unknown');
         if (slotDot.dataset.present !== present) slotDot.dataset.present = present;
+      }
+
+      // Flag a slot that has filament but no material data — it needs manual
+      // entry via the slot editor. Highlighted so it is not overlooked.
+      const mat = (mmu.gate_material?.[i] || '').trim();
+      needsData = (present === 'present') && (!mat || mat.toLowerCase() === 'unknown');
+      if (gate.classList.contains('klippace-needs-data') !== needsData) {
+        gate.classList.toggle('klippace-needs-data', needsData);
       }
 
       const shouldActive = (i === activeGate);
@@ -782,12 +1102,12 @@
       .gate-status-row-light-theme { display: none !important; }
 
       /* Slot badge: gate number + spool-present indicator */
-      .klippace-slot { display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important; margin-top: 4px !important; min-height: 18px !important; }
-      .klippace-slot-num { font-size: 0.95rem !important; font-weight: 700 !important; line-height: 1 !important; color: #e2e5ea !important; }
-      .klippace-slot-dot { width: 9px !important; height: 9px !important; border-radius: 50% !important; flex: 0 0 auto !important; background: #555 !important; transition: none !important; }
-      .klippace-slot-dot[data-present="present"] { background: #4caf50 !important; box-shadow: 0 0 6px rgba(76, 175, 80, 0.7) !important; }
-      .klippace-slot-dot[data-present="empty"] { background: #555 !important; box-shadow: none !important; }
-      .klippace-slot-dot[data-present="unknown"] { background: #ffb300 !important; box-shadow: none !important; }
+      .gate .klippace-slot { display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important; margin-top: 4px !important; min-height: 18px !important; }
+      .gate .klippace-slot-num { font-size: 0.95rem !important; font-weight: 700 !important; line-height: 1 !important; color: #e2e5ea !important; }
+      .gate .klippace-slot-dot { width: 9px !important; height: 9px !important; border-radius: 50% !important; flex: 0 0 auto !important; background: #555 !important; transition: none !important; }
+      .gate .klippace-slot-dot[data-present="present"] { background: #4caf50 !important; box-shadow: 0 0 6px rgba(76, 175, 80, 0.7) !important; }
+      .gate .klippace-slot-dot[data-present="empty"] { background: #555 !important; box-shadow: none !important; }
+      .gate .klippace-slot-dot[data-present="unknown"] { background: #ffb300 !important; box-shadow: none !important; }
       .gate { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; flex: 1 1 0 !important; min-width: 0 !important; max-width: 25% !important; gap: 8px !important; min-height: 86px !important; background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 4px !important; padding: 4px 2px 2px 2px !important; margin: 0 2px !important; transition: none !important; }
       .mmu-unit { background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 4px !important; padding: 6px 4px 4px 4px !important; overflow: hidden !important; box-shadow: none !important; }
       .mmu-unit .v-divider, .mmu-unit hr, .unit-container .v-divider, .unit-container hr, .spool-row .v-divider, .spool-row hr { display: none !important; }
@@ -1522,13 +1842,14 @@
         transition: none !important;
       }
 
-      /* Color swatch — bare selector survives Vue re-render; background must
-         NOT be !important or it overrides the inline MMU colour. */
+      /* Color swatch — scoped under .gate so it survives Vue re-render without
+         leaking into the tool-mapper modal's own .klippace-swatch. Background
+         must NOT be !important or it overrides the inline MMU colour. */
       .v-application .bambu-ams-card .klippace-swatch,
       .bambu-ams-card .klippace-swatch,
       [layout-path="dashboard.mmu-card"] .klippace-swatch,
       .mmu-card .klippace-swatch,
-      .klippace-swatch {
+      .gate .klippace-swatch {
         width: 40px !important;
         height: 40px !important;
         border-radius: 50% !important;
@@ -1545,7 +1866,7 @@
       .bambu-ams-card .klippace-swatch[data-nocolor="true"],
       [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"],
       .mmu-card .klippace-swatch[data-nocolor="true"],
-      .klippace-swatch[data-nocolor="true"] {
+      .gate .klippace-swatch[data-nocolor="true"] {
         background-color: rgba(255, 255, 255, 0.06) !important;
         border: 3px dashed rgba(255, 255, 255, 0.4) !important;
         box-shadow: none !important;
@@ -1555,7 +1876,7 @@
       .bambu-ams-card .klippace-swatch[data-nocolor="true"]::after,
       [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"]::after,
       .mmu-card .klippace-swatch[data-nocolor="true"]::after,
-      .klippace-swatch[data-nocolor="true"]::after {
+      .gate .klippace-swatch[data-nocolor="true"]::after {
         content: "" !important;
         position: absolute !important;
         left: 50% !important;
@@ -1662,6 +1983,47 @@
       .text-no-wrap .bambu-ams-title-badge,
       .bambu-ams-card .v-card__title .text-no-wrap .bambu-ams-title-badge {
         margin-left: 10px !important;
+      }
+
+      /* ---- Slot Needs Data highlight (spool present, no material info) ----
+         Scoped variants are required to out-specify the .bambu-ams-bay rule. */
+      .v-application .bambu-ams-card .gate.klippace-needs-data,
+      .bambu-ams-card .gate.klippace-needs-data,
+      [layout-path="dashboard.mmu-card"] .gate.klippace-needs-data,
+      .mmu-card .gate.klippace-needs-data,
+      .gate.klippace-needs-data {
+        position: relative !important;
+        border: 1px solid rgba(255, 179, 0, 0.75) !important;
+        background: linear-gradient(180deg, rgba(255, 179, 0, 0.10) 0%, rgba(255, 179, 0, 0.03) 100%) !important;
+      }
+      .v-application .bambu-ams-card .gate.klippace-needs-data::after,
+      .bambu-ams-card .gate.klippace-needs-data::after,
+      [layout-path="dashboard.mmu-card"] .gate.klippace-needs-data::after,
+      .mmu-card .gate.klippace-needs-data::after,
+      .gate.klippace-needs-data::after {
+        content: "!" !important;
+        position: absolute !important;
+        top: 3px !important;
+        right: 5px !important;
+        width: 13px !important;
+        height: 13px !important;
+        border-radius: 50% !important;
+        background: #ffb300 !important;
+        color: #1a1a1a !important;
+        font-size: 10px !important;
+        font-weight: 900 !important;
+        line-height: 13px !important;
+        text-align: center !important;
+        box-shadow: 0 0 8px rgba(255, 179, 0, 0.6) !important;
+        pointer-events: none !important;
+      }
+      .v-application .bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+      .bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+      [layout-path="dashboard.mmu-card"] .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+      .mmu-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+      .gate.klippace-needs-data .klippace-slot-dot[data-present="present"] {
+        background: #ffb300 !important;
+        box-shadow: 0 0 6px rgba(255, 179, 0, 0.7) !important;
       }
       `;
       document.head.appendChild(style);

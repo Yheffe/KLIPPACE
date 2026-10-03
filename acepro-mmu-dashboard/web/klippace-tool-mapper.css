@@ -49,8 +49,10 @@ svg.svg-colors {
   display: none !important;   /* replaced by .klippace-slot badge */
 }
 
-/* Slot badge: gate number + spool-present indicator */
-.klippace-slot {
+/* Slot badge: gate number + spool-present indicator.
+   Scoped under .gate so these never leak into the tool-mapper modal, which
+   reuses .klippace-slot-num / .klippace-swatch for its own layout. */
+.gate .klippace-slot {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -59,14 +61,14 @@ svg.svg-colors {
   min-height: 18px !important;
 }
 
-.klippace-slot-num {
+.gate .klippace-slot-num {
   font-size: 0.95rem !important;
   font-weight: 700 !important;
   line-height: 1 !important;
   color: #e2e5ea !important;
 }
 
-.klippace-slot-dot {
+.gate .klippace-slot-dot {
   width: 9px !important;
   height: 9px !important;
   border-radius: 50% !important;
@@ -76,19 +78,19 @@ svg.svg-colors {
 }
 
 /* Spool present */
-.klippace-slot-dot[data-present="present"] {
+.gate .klippace-slot-dot[data-present="present"] {
   background: #4caf50 !important;
   box-shadow: 0 0 6px rgba(76, 175, 80, 0.7) !important;
 }
 
 /* Spool absent */
-.klippace-slot-dot[data-present="empty"] {
+.gate .klippace-slot-dot[data-present="empty"] {
   background: #555 !important;
   box-shadow: none !important;
 }
 
 /* Unknown */
-.klippace-slot-dot[data-present="unknown"] {
+.gate .klippace-slot-dot[data-present="unknown"] {
   background: #ffb300 !important;
   box-shadow: none !important;
 }
@@ -1426,7 +1428,7 @@ svg.svg-colors {
 .bambu-ams-card .klippace-swatch,
 [layout-path="dashboard.mmu-card"] .klippace-swatch,
 .mmu-card .klippace-swatch,
-.klippace-swatch {
+.gate .klippace-swatch {
   width: 40px !important;
   height: 40px !important;
   border-radius: 50% !important;
@@ -1445,7 +1447,7 @@ svg.svg-colors {
 .bambu-ams-card .klippace-swatch[data-nocolor="true"],
 [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"],
 .mmu-card .klippace-swatch[data-nocolor="true"],
-.klippace-swatch[data-nocolor="true"] {
+.gate .klippace-swatch[data-nocolor="true"] {
   background-color: rgba(255, 255, 255, 0.06) !important;
   border: 3px dashed rgba(255, 255, 255, 0.4) !important;
   box-shadow: none !important;
@@ -1456,7 +1458,7 @@ svg.svg-colors {
 .bambu-ams-card .klippace-swatch[data-nocolor="true"]::after,
 [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"]::after,
 .mmu-card .klippace-swatch[data-nocolor="true"]::after,
-.klippace-swatch[data-nocolor="true"]::after {
+.gate .klippace-swatch[data-nocolor="true"]::after {
   content: "" !important;
   position: absolute !important;
   left: 50% !important;
@@ -1566,5 +1568,177 @@ svg.svg-colors {
  .text-no-wrap .bambu-ams-title-badge,
 .bambu-ams-card .v-card__title .text-no-wrap .bambu-ams-title-badge {
   margin-left: 10px !important;
+}
+
+/* =========================================================
+   KLIPPACE — Slot Needs Data highlight
+   (spool present but no material info; click to edit)
+   Placed last so it wins over the active-gate highlight.
+   ========================================================= */
+.v-application .bambu-ams-card .gate.klippace-needs-data,
+.bambu-ams-card .gate.klippace-needs-data,
+[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data,
+.mmu-card .gate.klippace-needs-data,
+.gate.klippace-needs-data {
+  position: relative !important;
+  border: 1px solid rgba(255, 179, 0, 0.75) !important;
+  background: linear-gradient(180deg, rgba(255, 179, 0, 0.10) 0%, rgba(255, 179, 0, 0.03) 100%) !important;
+}
+
+.v-application .bambu-ams-card .gate.klippace-needs-data::after,
+.bambu-ams-card .gate.klippace-needs-data::after,
+[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data::after,
+.mmu-card .gate.klippace-needs-data::after,
+.gate.klippace-needs-data::after {
+  content: "!" !important;
+  position: absolute !important;
+  top: 3px !important;
+  right: 5px !important;
+  width: 13px !important;
+  height: 13px !important;
+  border-radius: 50% !important;
+  background: #ffb300 !important;
+  color: #1a1a1a !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+  line-height: 13px !important;
+  text-align: center !important;
+  box-shadow: 0 0 8px rgba(255, 179, 0, 0.6) !important;
+  pointer-events: none !important;
+}
+
+.v-application .bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+.bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+.mmu-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
+.gate.klippace-needs-data .klippace-slot-dot[data-present="present"] {
+  background: #ffb300 !important;
+  box-shadow: 0 0 6px rgba(255, 179, 0, 0.7) !important;
+}
+
+/* =========================================================
+   KLIPPACE — Slot Editor modal
+   ========================================================= */
+.klippace-modal--narrow {
+  width: 560px;
+}
+
+.klippace-editor-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.klippace-editor-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.klippace-editor-swatch {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+  background: #ffffff;
+}
+
+.klippace-editor-preview-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.klippace-editor-preview-mat {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.klippace-editor-preview-temp {
+  font-size: 0.85rem;
+  color: #A1A1AA;
+}
+
+.klippace-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.klippace-field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #A1A1AA;
+  letter-spacing: 0.02em;
+}
+
+.klippace-optional {
+  font-weight: 400;
+  color: #71717A;
+}
+
+.klippace-input {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #F4F4F5;
+  font-size: 0.92rem;
+  padding: 10px 12px;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+}
+
+.klippace-input:focus {
+  border-color: #2196F3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.2);
+}
+
+.klippace-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.klippace-color-input {
+  width: 52px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.klippace-palette {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  flex: 1;
+}
+
+.klippace-palette-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.klippace-palette-chip:hover {
+  transform: scale(1.12);
+  border-color: #FFFFFF;
 }
 

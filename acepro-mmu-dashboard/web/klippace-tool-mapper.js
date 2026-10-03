@@ -616,7 +616,8 @@
 
         <div class="klippace-footer">
           <div class="klippace-footer-left">
-            <button id="klippace-editor-empty" class="klippace-btn klippace-btn-ghost" type="button">Mark Empty</button>
+            <button id="klippace-editor-clear" class="klippace-btn klippace-btn-ghost" type="button" title="Wipe the material data but keep the spool slot in use">Clear Data</button>
+            <button id="klippace-editor-empty" class="klippace-btn klippace-btn-ghost" type="button" title="Tell Klipper this slot no longer holds a spool">Mark Empty</button>
           </div>
           <div class="klippace-footer-right">
             <button id="klippace-editor-cancel" class="klippace-btn klippace-btn-ghost" type="button">Cancel</button>
@@ -633,8 +634,15 @@
     el('klippace-editor-close').addEventListener('click', closeSlotEditor);
     el('klippace-editor-cancel').addEventListener('click', closeSlotEditor);
     el('klippace-editor-save').addEventListener('click', () => saveSlotEditor(false));
+    el('klippace-editor-clear').addEventListener('click', () => {
+      if (confirm('Clear this slot\u2019s filament data?\n\nThe spool stays marked as loaded, but the material and colour are forgotten so you can re-enter them.')) {
+        clearSlotEditor();
+      }
+    });
     el('klippace-editor-empty').addEventListener('click', () => {
-      if (confirm('Mark this slot as empty? Material data will be cleared.')) saveSlotEditor(true);
+      if (confirm('Mark this slot as empty?\n\nThis tells Klipper the slot no longer holds a spool.')) {
+        saveSlotEditor(true);
+      }
     });
 
     el('klippace-editor-material').addEventListener('change', (e) => {
@@ -741,6 +749,18 @@
     if (overlay) overlay.classList.remove('active');
   }
 
+  // Discard the stored material/colour/temp but keep the slot marked as holding
+  // a spool. Distinct from "Mark Empty", which tells Klipper there is no spool.
+  async function clearSlotEditor() {
+    const idx = slotEditorState.gateIndex;
+    await sendGcode(`ACE_SET_SLOT T=${idx} CLEAR=1\nACE_SAVE_INVENTORY`);
+    closeSlotEditor();
+    showToast(`Slot T${idx} data cleared — spool still marked loaded.`);
+    cachedMmu = null;
+    mmuFetchedAt = 0;
+    setTimeout(decorateAll, 600);
+  }
+
   async function saveSlotEditor(markEmpty) {
     const saveBtn = document.getElementById('klippace-editor-save');
     const idx = slotEditorState.gateIndex;
@@ -752,7 +772,6 @@
       setTimeout(decorateAll, 600);
       return;
     }
-
     const temp = parseInt(slotEditorState.temp, 10) || 0;
     if (!slotEditorState.material || temp <= 0) {
       showToast('Material and temperature are required.');

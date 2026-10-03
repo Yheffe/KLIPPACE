@@ -775,6 +775,27 @@ def cmd_ACE_SET_SLOT(gcmd):
             gcmd.respond_info(f"Slot {idx} set to empty")
             return
 
+        # CLEAR=1 wipes the filament metadata but keeps the slot marked as
+        # holding a spool.  Use this to discard incorrect/garbled data (e.g. a
+        # non-RFID spool that was mislabelled) without telling Klipper the slot
+        # is physically empty.  Values match AceInstance's no-metadata
+        # defaults so the UI flags the slot as needing data.
+        if gcmd.get_int("CLEAR", 0):
+            ace.inventory[idx] = {
+                "status": "ready",
+                "color": [0, 0, 0],
+                "material": "Unknown",
+                "temp": 0,
+                "rfid": False,
+                "custom_name": "",
+            }
+            manager = ace_get_manager(ace.instance_num)
+            manager._sync_inventory_to_persistent(ace.instance_num)
+            gcmd.respond_info(
+                f"Slot {idx} metadata cleared (spool still present)"
+            )
+            return
+
         color_str = gcmd.get("COLOR", None)
         material = gcmd.get("MATERIAL", "")
         temp = gcmd.get_int("TEMP", 0)
@@ -2320,7 +2341,7 @@ ACE_COMMANDS = [
     ("ACE_SMART_LOAD", cmd_ACE_SMART_LOAD, "Load all non-empty slots to verification sensor."),
     ("_ACE_HANDLE_PRINT_END", cmd_ACE_HANDLE_PRINT_END, "Execute print end sequence (retract, cut, store)"),
     ("ACE_SET_SLOT", cmd_ACE_SET_SLOT,
-     "Set slot: T=<tool> or INSTANCE= INDEX=, COLOR=<name>|R,G,B MATERIAL= TEMP= or EMPTY=1"),
+     "Set slot: T=<tool> or INSTANCE= INDEX=, COLOR=<name>|R,G,B MATERIAL= TEMP= or EMPTY=1 to mark the slot empty or CLEAR=1 to wipe metadata but keep the spool"),
     ("ACE_SAVE_INVENTORY", cmd_ACE_SAVE_INVENTORY, "Save inventory. INSTANCE="),
     ("ACE_START_DRYING", cmd_ACE_START_DRYING, "Start dryer. [INSTANCE=] TEMP= [DURATION=240]"),
     ("ACE_STOP_DRYING", cmd_ACE_STOP_DRYING, "Stop dryer. [INSTANCE=]"),

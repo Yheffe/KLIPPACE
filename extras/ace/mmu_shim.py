@@ -13,19 +13,40 @@ from typing import Any, Dict, List, Optional
 # Material -> suggested nozzle temp, lazily sourced from AceInstance so the
 # material/temp table has a single owner in the backend.
 _MATERIAL_TEMP_DEFAULTS: Optional[Dict[str, int]] = None
+# Original-cased, insertion-ordered copy used when publishing the table to the
+# UI.  Insertion order is what the slot editor renders in its dropdown.
+_MATERIAL_TABLE: Optional[Dict[str, int]] = None
+
+
+def _material_table() -> Dict[str, int]:
+    """Material -> suggested temp, preserving the backend's declared order.
+
+    Published as ``mmu.material_temps`` so the dashboard's slot editor builds
+    its preset list from the backend instead of duplicating the table.
+    """
+    global _MATERIAL_TABLE
+    if _MATERIAL_TABLE is None:
+        try:
+            from .instance import AceInstance
+            source = getattr(AceInstance, "MATERIAL_TEMPS", {}) or {}
+        except Exception:
+            source = {}
+        table: Dict[str, int] = {}
+        for name, temp in source.items():
+            try:
+                table[str(name)] = int(temp)
+            except (TypeError, ValueError):
+                continue
+        _MATERIAL_TABLE = table
+    return _MATERIAL_TABLE
 
 
 def _material_temp_defaults() -> Dict[str, int]:
     global _MATERIAL_TEMP_DEFAULTS
     if _MATERIAL_TEMP_DEFAULTS is None:
-        try:
-            from .instance import AceInstance
-            defaults = getattr(AceInstance, "MATERIAL_TEMPS", {}) or {}
-        except Exception:
-            defaults = {}
         # Key by upper-case material so RFID/UI spellings always resolve.
         _MATERIAL_TEMP_DEFAULTS = {
-            str(k).strip().upper(): int(v) for k, v in defaults.items()
+            str(k).strip().upper(): v for k, v in _material_table().items()
         }
     return _MATERIAL_TEMP_DEFAULTS
 
@@ -257,6 +278,7 @@ class MmuShim:
                 "gate_speed": gate_speed,
                 "gate_temp": gate_temp,
                 "gate_speed_override": [100.0] * num_gates,
+                "material_temps": _material_table(),
                 "tool": tool,
                 "gate": gate,
                 "last_tool": getattr(self, "_last_tool", -1),
@@ -291,6 +313,7 @@ class MmuShim:
                 "gate_speed": [100.0, 100.0, 100.0, 100.0],
                 "gate_temp": [0, 0, 0, 0],
                 "gate_speed_override": [100.0, 100.0, 100.0, 100.0],
+                "material_temps": _material_table(),
                 "tool": -1,
                 "gate": -1,
                 "tool_to_gate_map": [0, 1, 2, 3],

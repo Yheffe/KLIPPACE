@@ -416,7 +416,7 @@
           material: mat,
           // Authoritative source is the ACE slot inventory. The material table is
           // only a fallback for older shims / slots that store no temperature.
-          temp: mmu.gate_temp?.[i] || MATERIAL_TEMPS[mat] || 0,
+          temp: mmu.gate_temp?.[i] || lookupMaterialTemp(mat) || 0,
           name: mmu.gate_filament_name?.[i] || `Gate ${i}`,
         });
       }
@@ -508,20 +508,66 @@
   // Needed for non-RFID spools, which the ACE cannot identify automatically.
   // =========================================================================
 
-  const SLOT_MATERIALS = [
-    'PLA', 'PLA+', 'PLA-CF', 'PLA Matte', 'PLA Silk', 'PLA High Speed',
-    'PETG', 'PETG-CF', 'ABS', 'ASA', 'TPU', 'TPE', 'PVA', 'HIPS',
-    'PC', 'PA', 'PA-CF', 'Nylon', 'POM', 'PP', 'PPS', 'PC-ABS', 'PEEK'
-  ];
-
-  // Suggested nozzle temps per material (used to prefill the editor)
-  const MATERIAL_TEMPS = {
+  // Fallback material presets, used only when the backend table is unavailable
+  // (page load race, older Klipper module). The authoritative list arrives as
+  // mmu.material_temps from AceInstance.MATERIAL_TEMPS via the MMU shim.
+  const MATERIAL_TEMPS_FALLBACK = {
     'PLA': 210, 'PLA+': 215, 'PLA-CF': 220, 'PLA Matte': 210, 'PLA Silk': 215,
     'PLA High Speed': 220, 'PETG': 240, 'PETG-CF': 250, 'ABS': 250, 'ASA': 260,
     'TPU': 230, 'TPE': 230, 'PVA': 200, 'HIPS': 240, 'PC': 270, 'PA': 260,
     'PA-CF': 280, 'Nylon': 260, 'POM': 220, 'PP': 240, 'PPS': 300,
     'PC-ABS': 265, 'PEEK': 380
   };
+
+  // Live tables. Seeded from the fallback, then replaced wholesale by the
+  // backend table so material names/temps have a single owner.
+  let MATERIAL_TEMPS = Object.assign({}, MATERIAL_TEMPS_FALLBACK);
+  let SLOT_MATERIALS = Object.keys(MATERIAL_TEMPS);
+  let materialSource = 'fallback';
+
+  // Adopt the backend's material table when present. Guarded against an empty
+  // or truncated table so a bad payload cannot wipe the preset list.
+  function syncMaterialTables(mmu) {
+    const table = mmu && mmu.material_temps;
+    if (!table || typeof table !== 'object') return;
+    const names = Object.keys(table);
+    if (names.length < 5) return;
+
+    const next = {};
+    names.forEach((name) => {
+      const temp = parseInt(table[name], 10);
+      if (name && Number.isFinite(temp) && temp > 0) next[name] = temp;
+    });
+    if (Object.keys(next).length < 5) return;
+
+    MATERIAL_TEMPS = next;
+    SLOT_MATERIALS = Object.keys(next);
+    materialSource = 'backend';
+  }
+
+  // Case-insensitive material -> temp lookup against the live table.
+  function lookupMaterialTemp(name) {
+    if (!name) return 0;
+    const key = String(name).trim();
+    if (MATERIAL_TEMPS[key]) return MATERIAL_TEMPS[key];
+    const lower = key.toLowerCase();
+    const match = SLOT_MATERIALS.find(m => m.toLowerCase() === lower);
+    return match ? MATERIAL_TEMPS[match] : 0;
+  }
+
+  // Rebuild the material <select> from the current table. The modal is created
+  // once, so this runs on every open to pick up a late-arriving backend table.
+  function populateMaterialOptions() {
+    const sel = document.getElementById('klippace-editor-material');
+    if (!sel) return;
+    const rendered = [...sel.options].map(o => o.value).join('\u0000');
+    const wanted = SLOT_MATERIALS.join('\u0000');
+    if (rendered === wanted) return;
+    const current = sel.value;
+    sel.innerHTML = SLOT_MATERIALS
+      .map(m => `<option value="${m}">${m}</option>`).join('');
+    if (current && SLOT_MATERIALS.includes(current)) sel.value = current;
+  }
 
   const SLOT_PALETTE = [
     '#ffffff', '#000000', '#808080', '#c0c0c0',
@@ -647,7 +693,7 @@
 
     el('klippace-editor-material').addEventListener('change', (e) => {
       slotEditorState.material = e.target.value;
-      const t = MATERIAL_TEMPS[e.target.value];
+      const t = lookupMaterialTemp(e.target.value);
       if (t) { slotEditorState.temp = t; el('klippace-editor-temp').value = t; }
       refreshSlotEditorPreview();
     });
@@ -701,10 +747,22 @@
     if (tempEl) tempEl.textContent = (slotEditorState.temp > 0) ? `${slotEditorState.temp}°C` : '—';
   }
 
-  function openSlotEditor(gateIndex) {
+  async function openSlotEditor(gateIndex) {
     const overlay = createSlotEditorModal();
     const el = (id) => document.getElementById(id);
-    const mmu = cachedMmu || {};
+
+    // Prefer the cached MMU snapshot, but fetch if we do not have one yet so
+    // the authoritative material table is available on the very first open.
+    let mmu = cachedMmu;
+    if (!mmu) {
+      mmu = await getCachedMmu().catch(() => null);
+    }
+    mmu = mmu || {};
+
+    // Adopt the backend's material table, then refresh the preset list before
+    // we bind a value to it (the modal markup is created only once).
+    syncMaterialTables(mmu);
+    populateMaterialOptions();
 
     const gateColor = mmu.gate_color?.[gateIndex];
     const gateMat = (mmu.gate_material?.[gateIndex] || '').trim();
@@ -717,7 +775,7 @@
     slotEditorState = {
       gateIndex,
       material: (!gateMat || gateMat.toLowerCase() === 'unknown') ? 'PLA' : gateMat,
-      temp: gateTemp || MATERIAL_TEMPS[gateMat] || 210,
+      temp: gateTemp || lookupMaterialTemp(gateMat) || 210,
       color: (!gateColor || (isUnknown && gateColor === '#000000')) ? '#ffffff' : gateColor,
       name: ''
     };

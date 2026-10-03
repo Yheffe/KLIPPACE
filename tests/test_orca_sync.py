@@ -7,6 +7,8 @@ temporary directories supplied by fixtures.
 from __future__ import annotations
 
 import json
+import pathlib
+import types
 
 import pytest
 
@@ -219,186 +221,217 @@ class TestInstanceDiscovery:
 
 
 # ---------------------------------------------------------------------------
-# OrcaSlicer.conf mapping — regression tests for the filament_colors bug
+# Printer network resolution (sandbox-safe: never touches OrcaSlicer.conf)
 # ---------------------------------------------------------------------------
 
-def _preset(**overrides):
-    base = {
-        "machine": "Voron 2.4 350",
-        "filament": "old0", "filament_01": "old1",
-        "filament_02": "old2", "filament_03": "old3",
-        "filament_colors": "#111111,#222222,#333333,#444444",
-        "filament_multi_colors": "#111111,#222222,#333333,#444444",
-    }
-    base.update(overrides)
-    return base
+def _write_machine_profile(app_dir, user, name, **fields):
+    """Create a machine profile under ``<app_dir>/user/<user>/machine/``."""
+    machine_dir = app_dir / "user" / user / "machine"
+    machine_dir.mkdir(parents=True, exist_ok=True)
+    body = {"name": name, "from": "User"}
+    body.update(fields)
+    (machine_dir / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
 
 
-class TestPresetSlotCount:
-    def test_four_extruder_machine(self, orca_sync):
-        assert orca_sync._preset_slot_count(_preset()) == 4
+class TestMachineProfileDiscovery:
+    def test_finds_only_profiles_that_define_a_host(self, orca_sync, orca_app_dir):
+        _write_machine_profile(orca_app_dir, "default", "Voron 2.4 350",
+                               print_host="192.168.1.168")
+        _write_machine_profile(orca_app_dir, "default", "No Host Machine")
 
-    def test_single_extruder_machine_has_one_colour(self, orca_sync):
-        assert orca_sync._preset_slot_count({
-            "filament": "PLA", "filament_colors": "#FFFFFF",
-        }) == 1
+        found = orca_sync.find_machine_profiles_with_host(orca_app_dir)
+        assert [name for name, _ in found] == ["Voron 2.4 350"]
 
-    def test_seven_extruder_machine(self, orca_sync):
-        preset = {f"filament_{i:02d}": "x" for i in range(1, 7)}
-        preset["filament"] = "y"
-        assert orca_sync._preset_slot_count(preset) == 7
+    def test_missing_user_tree_returns_empty(self, orca_sync, orca_app_dir):
+        assert orca_sync.find_machine_profiles_with_host(orca_app_dir) == []
 
-    def test_preset_without_slots(self, orca_sync):
-        assert orca_sync._preset_slot_count({}) == 0
+    def test_corrupt_profile_is_skipped(self, orca_sync, orca_app_dir):
+        machine_dir = orca_app_dir / "user" / "default" / "machine"
+        machine_dir.mkdir(parents=True)
+        (machine_dir / "broken.json").write_text("{ not json", encoding="utf-8")
+        assert orca_sync.find_machine_profiles_with_host(orca_app_dir) == []
 
-    def test_colour_keys_do_not_count_as_slots(self, orca_sync):
-        # filament_colors / filament_multi_colors must not register as slots.
-        assert orca_sync._preset_slot_count({
-            "filament": "PLA", "filament_colors": "#FFF", "filament_multi_colors": "",
-        }) == 1
+    def test_non_dict_profile_is_skipped(self, orca_sync, orca_app_dir):
+        machine_dir = orca_app_dir / "user" / "default" / "machine"
+        machine_dir.mkdir(parents=True)
+        (machine_dir / "list.json").write_text(json.dumps(["nope"]), encoding="utf-8")
+        assert orca_sync.find_machine_profiles_with_host(orca_app_dir) == []
 
+    def test_prefers_the_named_printer(self, orca_sync, orca_app_dir):
+        _write_machine_profile(orca_app_dir, "default", "Alpha", print_host="10.0.0.1")
+        _write_machine_profile(orca_app_dir, "default", "Beta", print_host="10.0.0.2")
 
-class TestApplySlotPresets:
-    def test_preset_names_and_colours_are_written(self, orca_sync):
-        preset = _preset()
-        items = {
-            0: {"name": "newP0", "color": "#AAAAAA"},
-            1: {"name": "newP1", "color": "#BBBBBB"},
-            2: {"name": "newP2", "color": "#CCCCCC"},
-            3: {"name": "newP3", "color": "#DDDDDD"},
-        }
-        assert orca_sync._apply_slot_presets(preset, items, 4) is True
-        assert preset["filament"] == "newP0"
-        assert preset["filament_03"] == "newP3"
-        assert preset["filament_colors"] == "#AAAAAA,#BBBBBB,#CCCCCC,#DDDDDD"
+        found = orca_sync.find_machine_profiles_with_host(orca_app_dir, "Beta")
+        assert [name for name, _ in found] == ["Beta"]
 
-    def test_partial_sync_never_writes_a_preset_name_into_colours(self, orca_sync):
-        """Regression: an unfilled slot appended the old preset NAME to colours."""
-        preset = _preset()
-        items = {
-            0: {"name": "newP0", "color": "#AAAAAA"},
-            1: {"name": "newP1", "color": "#BBBBBB"},
-            2: {"name": "newP2", "color": "#CCCCCC"},
-        }
-        orca_sync._apply_slot_presets(preset, items, 4)
-        colours = preset["filament_colors"].split(",")
-        assert len(colours) == 4
-        assert all(c.startswith("#") for c in colours), colours
-        assert "newP" not in preset["filament_colors"]
-        # The unsynced slot keeps whatever colour Orca had.
-        assert colours[3] == "#444444"
-        # ...and its preset name is left alone.
-        assert preset["filament_03"] == "old3"
+    def test_falls_back_to_all_when_the_name_is_unknown(self, orca_sync, orca_app_dir):
+        _write_machine_profile(orca_app_dir, "default", "Alpha", print_host="10.0.0.1")
+        found = orca_sync.find_machine_profiles_with_host(orca_app_dir, "Gamma")
+        assert [name for name, _ in found] == ["Alpha"]
 
-    def test_colour_list_is_padded_when_shorter_than_slots(self, orca_sync):
-        preset = _preset(filament_colors="#111111")
-        orca_sync._apply_slot_presets(preset, {3: {"name": "P3", "color": "#ABCDEF"}}, 4)
-        colours = preset["filament_colors"].split(",")
-        assert len(colours) == 4
-        assert colours[3] == "#ABCDEF"
-        assert all(c.startswith("#") for c in colours)
+    def test_resolution_reads_host_from_a_machine_profile(self, orca_sync, orca_app_dir, monkeypatch):
+        # Disable the runtime orca.host path so this exercises the JSON fallback.
+        monkeypatch.setattr(orca_sync, "orca", None)
+        _write_machine_profile(orca_app_dir, "default", "Voron 2.4 350",
+                               print_host="10.9.8.7", printhost_port="7125",
+                               printhost_apikey="secret-key")
 
-    def test_multi_colors_only_mirrored_when_machine_supports_it(self, orca_sync):
-        supported = _preset()
-        orca_sync._apply_slot_presets(supported, {0: {"name": "P", "color": "#ABCDEF"}}, 1)
-        assert supported["filament_multi_colors"].startswith("#ABCDEF")
+        info = orca_sync.resolve_printer_network_info()
+        assert info["host"] == "10.9.8.7"
+        assert str(info["port"]) == "7125"
+        assert info["apikey"] == "secret-key"
+        assert info["base_url"] == "http://10.9.8.7:7125"
 
-        unsupported = _preset(filament_multi_colors="")
-        orca_sync._apply_slot_presets(unsupported, {0: {"name": "P", "color": "#ABCDEF"}}, 1)
-        assert unsupported["filament_multi_colors"] == ""
+    def test_resolution_never_opens_the_denied_conf(self, orca_sync, orca_app_dir, monkeypatch):
+        """While the sandbox is active, OrcaSlicer.conf must not be opened."""
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text(json.dumps({
+            "presets": {"machine": "Voron 2.4 350"},
+            "local_machines": {"1.2.3.4": {"dev_ip": "1.2.3.4"}},
+            "user_last_selected_machine": "9.9.9.9",
+        }), encoding="utf-8")
+        # A bare orca module stands in for 'running inside OrcaSlicer'.
+        monkeypatch.setattr(orca_sync, "orca", types.SimpleNamespace())
 
-    def test_no_change_reports_false(self, orca_sync):
-        preset = _preset(filament="same", filament_colors="#123456")
-        assert orca_sync._apply_slot_presets(preset, {0: {"name": "same", "color": "#123456"}}, 1) is False
+        opened = []
+        real_open = open
 
-    def test_single_extruder_machine_only_touches_one_colour(self, orca_sync):
-        preset = _preset(filament_colors="#111111")
-        orca_sync._apply_slot_presets(preset, {0: {"name": "P0", "color": "#AAAAAA"}}, 1)
-        assert preset["filament_colors"] == "#AAAAAA"
+        def spy_open(file, *args, **kwargs):
+            opened.append(str(file))
+            return real_open(file, *args, **kwargs)
 
+        monkeypatch.setattr("builtins.open", spy_open)
+        try:
+            info = orca_sync.resolve_printer_network_info()
+        finally:
+            monkeypatch.undo()
 
-class TestManagedMachineMatching:
-    def test_matches_by_printer_name(self, orca_sync):
-        assert orca_sync._is_managed_machine({"machine": "Voron 2.4 350"}, "Voron 2.4 350")
+        assert not any(p.endswith("OrcaSlicer.conf") for p in opened), opened
+        # None of the conf-only values leaked in either.
+        assert info["host"] == orca_sync.DEFAULT_PRINTER_HOST
 
-    def test_matches_by_remembered_machine(self, orca_sync):
-        assert orca_sync._is_managed_machine({"machine": "Voron 2.4 350"}, "", "Voron 2.4 350")
+    def test_resolution_uses_the_conf_outside_the_sandbox(self, orca_sync, orca_app_dir, monkeypatch):
+        """A CLI run has no audit hook, so the saved machine list is usable."""
+        monkeypatch.setattr(orca_sync, "orca", None)
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text(json.dumps({
+            "presets": {"machine": "Voron 2.4 350"},
+            "local_machines": {
+                "192.168.1.50": {"dev_ip": "192.168.1.50",
+                                 "access_code": "12345678",
+                                 "printer_type": "Voron 2.4 350"},
+            },
+        }), encoding="utf-8")
 
-    def test_matches_legacy_generated_preset_names(self, orca_sync):
-        preset = {"machine": "Other", "filament_01": "ACE T1 - PLA Red"}
-        assert orca_sync._is_managed_machine(preset, "Voron 2.4 350")
+        info = orca_sync.resolve_printer_network_info()
+        assert info["host"] == "192.168.1.50"
+        assert info["apikey"] == "12345678"
+        assert info["printer_name"] == "Voron 2.4 350"
 
-    def test_custom_names_alone_do_not_match_an_unknown_machine(self, orca_sync):
-        preset = {"machine": "Other", "filament": "Galaxy Black"}
-        assert not orca_sync._is_managed_machine(preset, "Voron 2.4 350")
-
-    def test_remembered_machine_rescues_custom_names(self, orca_sync):
-        preset = {"machine": "Other", "filament": "Galaxy Black"}
-        assert orca_sync._is_managed_machine(preset, "Voron 2.4 350", "Other")
-
-    def test_unrelated_machine_is_not_touched(self, orca_sync):
-        preset = {"machine": "Anycubic Kobra 3 0.4 nozzle", "filament": "Anycubic PLA"}
-        assert not orca_sync._is_managed_machine(preset, "Voron 2.4 350")
+    def test_override_host_wins_over_everything(self, orca_sync, orca_app_dir):
+        _write_machine_profile(orca_app_dir, "default", "Voron 2.4 350",
+                               print_host="10.0.0.1")
+        info = orca_sync.resolve_printer_network_info(override_host="192.168.5.5")
+        assert info["host"] == "192.168.5.5"
 
 
-class TestUpdateOrcaSlicerConf:
-    def _write_conf(self, app_dir, presets):
-        conf = {"presets": {"machine": "Voron 2.4 350"}, "orca_presets": presets}
-        path = app_dir / "OrcaSlicer.conf"
-        path.write_text(json.dumps(conf, indent=4), encoding="utf-8")
-        return path
+# ---------------------------------------------------------------------------
+# Snapshot cache for the embedded page
+# ---------------------------------------------------------------------------
 
-    def test_updates_only_the_matching_machine(self, orca_sync, orca_app_dir):
-        other = {"machine": "Some Other Printer", "filament": "Unrelated PLA",
-                 "filament_colors": "#123456"}
-        self._write_conf(orca_app_dir, [_preset(), other])
+class TestConfAccessGuard:
+    """OrcaSlicer.conf is readable only when the plugin sandbox is inactive."""
 
-        updated = orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "Synced", "color": "#ABCDEF"}],
-            printer_name="Voron 2.4 350",
+    def test_not_read_while_the_sandbox_is_active(self, orca_sync, orca_app_dir, monkeypatch):
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text(
+            json.dumps({"presets": {"machine": "Voron 2.4 350"}}), encoding="utf-8")
+        monkeypatch.setattr(orca_sync, "orca", types.SimpleNamespace())
+        assert orca_sync.read_conf_unrestricted() == {}
+
+    def test_read_outside_the_sandbox(self, orca_sync, orca_app_dir, monkeypatch):
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text(
+            json.dumps({"presets": {"machine": "Voron 2.4 350"}}), encoding="utf-8")
+        monkeypatch.setattr(orca_sync, "orca", None)
+        assert orca_sync.read_conf_unrestricted()["presets"]["machine"] == "Voron 2.4 350"
+
+    def test_missing_conf_returns_empty(self, orca_sync, orca_app_dir, monkeypatch):
+        monkeypatch.setattr(orca_sync, "orca", None)
+        assert orca_sync.read_conf_unrestricted() == {}
+
+    def test_corrupt_conf_returns_empty(self, orca_sync, orca_app_dir, monkeypatch):
+        monkeypatch.setattr(orca_sync, "orca", None)
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text("{ nope", encoding="utf-8")
+        assert orca_sync.read_conf_unrestricted() == {}
+
+    def test_non_dict_conf_returns_empty(self, orca_sync, orca_app_dir, monkeypatch):
+        monkeypatch.setattr(orca_sync, "orca", None)
+        (orca_app_dir / orca_sync.CONFIG_FILENAME).write_text("[1, 2]", encoding="utf-8")
+        assert orca_sync.read_conf_unrestricted() == {}
+
+
+class TestSnapshotCache:
+    SLOTS = [{"index": 0, "material": "PLA", "color": "#FF7F32", "status": "ready"}]
+    NET = {"host": "192.168.1.168", "base_url": "http://192.168.1.168:7125",
+           "printer_name": "Voron 2.4 350"}
+
+    def test_missing_cache_returns_empty(self, orca_sync, orca_app_dir):
+        assert orca_sync.load_cached_snapshot() == ([], {})
+
+    def test_round_trip(self, orca_sync, orca_app_dir):
+        orca_sync.save_cached_snapshot(self.SLOTS, self.NET)
+        slots, net = orca_sync.load_cached_snapshot()
+        assert slots == self.SLOTS
+        assert net == self.NET
+
+    def test_corrupt_cache_returns_empty(self, orca_sync, orca_app_dir):
+        (orca_app_dir / orca_sync.CACHE_FILENAME).write_text("<<<", encoding="utf-8")
+        assert orca_sync.load_cached_snapshot() == ([], {})
+
+    def test_wrong_shaped_cache_is_coerced(self, orca_sync, orca_app_dir):
+        (orca_app_dir / orca_sync.CACHE_FILENAME).write_text(
+            json.dumps({"slots": "nope", "network": 5}), encoding="utf-8")
+        assert orca_sync.load_cached_snapshot() == ([], {})
+
+    def test_save_failure_is_not_fatal(self, orca_sync, monkeypatch):
+        # An unwritable app dir must not raise out of the sync.
+        monkeypatch.setattr(
+            orca_sync, "get_cache_path",
+            lambda: pathlib.Path("/proc/definitely-not-writable/cache.json"),
         )
+        orca_sync.save_cached_snapshot(self.SLOTS, self.NET)  # must not raise
 
-        assert updated == ["Voron 2.4 350"]
-        conf = json.loads((orca_app_dir / "OrcaSlicer.conf").read_text())
-        machines = {p["machine"]: p for p in conf["orca_presets"]}
-        assert machines["Voron 2.4 350"]["filament"] == "Synced"
-        assert machines["Some Other Printer"] == other
 
-    def test_returns_empty_when_nothing_changes(self, orca_sync, orca_app_dir):
-        preset = _preset(filament="same", filament_colors="#123456")
-        self._write_conf(orca_app_dir, [preset])
-        updated = orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "same", "color": "#123456"}],
-            printer_name="Voron 2.4 350",
+# ---------------------------------------------------------------------------
+# Embedded page rendering
+# ---------------------------------------------------------------------------
+
+class TestRenderHtmlPage:
+    def test_empty_snapshot_prompts_the_user_to_sync(self, orca_sync):
+        html = orca_sync.render_html_page([], {})
+        assert "Sync Filaments to Slicer" in html
+        assert "No snapshot yet" in html
+
+    def test_slots_are_rendered_with_material_and_colour(self, orca_sync):
+        html = orca_sync.render_html_page(
+            [{"index": 2, "status": "ready", "material": "PETG",
+              "color": "#0AC83C", "color_name": "Green", "temp": 245,
+              "bed_temp": 70, "vendor": "AC", "sku": "X1", "custom_name": ""}],
+            {"printer_name": "Voron 2.4 350", "base_url": "http://10.0.0.1:7125"},
         )
-        assert updated == []
+        assert "PETG" in html
+        assert "#0AC83C" in html
+        assert "Slot 2" in html
 
-    def test_missing_conf_is_not_fatal(self, orca_sync, orca_app_dir):
-        assert orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "x", "color": "#FFFFFF"}],
-            printer_name="Voron 2.4 350",
-        ) == []
+    def test_custom_name_is_shown_as_the_preset(self, orca_sync):
+        html = orca_sync.render_html_page(
+            [{"index": 3, "status": "ready", "material": "PETG",
+              "color": "#0AC83C", "color_name": "Green", "temp": 245,
+              "bed_temp": 70, "vendor": "AC", "sku": "", "custom_name": "Galaxy Black"}],
+            {"printer_name": "Voron 2.4 350", "base_url": "http://10.0.0.1:7125"},
+        )
+        assert "Galaxy Black" in html
 
-    def test_corrupt_conf_is_not_fatal(self, orca_sync, orca_app_dir):
-        (orca_app_dir / "OrcaSlicer.conf").write_text("{ not json", encoding="utf-8")
-        assert orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "x", "color": "#FFFFFF"}],
-            printer_name="Voron 2.4 350",
-        ) == []
-
-    def test_conf_without_orca_presets_is_not_fatal(self, orca_sync, orca_app_dir):
-        (orca_app_dir / "OrcaSlicer.conf").write_text(json.dumps({"presets": {}}), encoding="utf-8")
-        assert orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "x", "color": "#FFFFFF"}],
-            printer_name="Voron 2.4 350",
-        ) == []
-
-    def test_junk_entries_in_orca_presets_are_skipped(self, orca_sync, orca_app_dir):
-        self._write_conf(orca_app_dir, ["not a dict", None, _preset()])
-        assert orca_sync.update_orcaslicer_conf(
-            [{"slot": 0, "name": "Synced", "color": "#ABCDEF"}],
-            printer_name="Voron 2.4 350",
-        ) == ["Voron 2.4 350"]
+    def test_empty_snapshot_does_not_claim_a_connection(self, orca_sync):
+        html = orca_sync.render_html_page([], {})
+        assert "Connected to" not in html
 
 
 # ---------------------------------------------------------------------------

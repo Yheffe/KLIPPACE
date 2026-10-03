@@ -7,15 +7,28 @@
 """
 KLIPPACE ACE Pro Sync Plugin for OrcaSlicer.
 
-Dynamically retrieves printer network connection parameters (host, port, API key)
-directly from the active OrcaSlicer printer profile (or OrcaSlicer configuration),
-then queries Moonraker to synchronize ACE Pro filaments, colors, temperatures,
-and RFID tags into OrcaSlicer user profiles.
+Resolves the printer from the active OrcaSlicer preset bundle or a machine
+profile under ``user/*/machine/``, queries Moonraker, and synchronizes ACE Pro
+filaments, colours, temperatures and RFID tags into OrcaSlicer user filament
+presets.
 
 Slots that carry a custom preset name (set via ``ACE_SET_SLOT
 FILAMENT_SETTINGS_ID=`` and surfaced by ``moonraker_lane_sync`` as
 ``filament_settings_id``) are written under that name instead of the generated
 ``ACE T<slot> - <material> <colour>`` default.
+
+OrcaSlicer runs Python plugins under a sandbox (``PluginAuditManager``):
+
+* ``OrcaSlicer.conf`` is an unconditionally denied path — any path component
+  containing "conf" is blocked before allowed roots and before the permission
+  prompt, so the plugin cannot read or write it.
+* OrcaSlicer's data directory is a read/write allowed root, which covers
+  ``user/*/filament``, ``user/*/machine`` and the files this plugin caches.
+
+Consequently the embedded page renders only the last cached snapshot: making a
+network request while OrcaSlicer builds its Pages markup raises a
+``socket.__new__`` permission prompt on every launch, and that audit event has
+no target, so the grant can never be persisted.
 """
 
 import json
@@ -45,6 +58,14 @@ MAX_SLOTS = 4
 # leave an orphaned preset behind, because a custom name carries no slot marker.
 MANIFEST_VERSION = 1
 MANIFEST_FILENAME = "klippace_ace_sync_manifest.json"
+
+# Last synced slot snapshot, rendered by the embedded page without any network
+# or denied-path access (see load_cached_snapshot).
+CACHE_FILENAME = "klippace_ace_sync_cache.json"
+
+# OrcaSlicer's application config. Readable only outside the plugin sandbox —
+# see read_conf_unrestricted().
+CONFIG_FILENAME = "OrcaSlicer.conf"
 
 COLOR_THRESHOLD_WHITE = 35
 COLOR_THRESHOLD_BLACK = 30
@@ -364,128 +385,48 @@ def clean_slot_presets(filament_dirs, slot_idx, keep_paths, previous_paths):
     return cleaned
 
 
-def _split_list(value):
-    """Parse an OrcaSlicer comma-separated field into a list of strings."""
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple)):
-        return [str(v).strip() for v in value]
-    raw = str(value)
-    if not raw.strip():
-        return []
-    return [part.strip() for part in raw.split(",")]
+def get_cache_path():
+    """Where the last synced snapshot is kept for the embedded page.
 
-
-def _preset_slot_count(preset):
-    """How many filament slots this orca_presets bundle actually defines.
-
-    Taken from the keys Orca itself wrote (``filament`` plus ``filament_NN``)
-    rather than assumed to be MAX_SLOTS, so a single-extruder machine is not
-    handed four colours.
+    Lives beside the manifest inside OrcaSlicer's data directory, which the
+    plugin sandbox exposes as a read/write allowed root.
     """
-    count = 1 if "filament" in preset else 0
-    for key in preset:
-        if key.startswith("filament_") and key[9:].isdigit():
-            count = max(count, int(key[9:]) + 1)
-    return count
+    return get_orca_app_dir() / CACHE_FILENAME
 
 
-def _is_managed_machine(preset, printer_name, last_machine=""):
-    """True when this orca_presets bundle belongs to the printer being synced."""
-    machine = str(preset.get("machine") or "")
-    if printer_name and machine == printer_name:
-        return True
-    if last_machine and machine == last_machine:
-        return True
-    # Last resort for an unresolvable active machine: recognise a bundle whose
-    # filament slots we generated. Custom preset names defeat this, which is why
-    # the machine is also recorded in the manifest.
-    for key in ("filament", "filament_01", "filament_02", "filament_03"):
-        if str(preset.get(key) or "").startswith("ACE T"):
-            return True
-    return False
+def load_cached_snapshot():
+    """Return ``(slots, network)`` from the last sync, or ``([], {})``.
 
-
-def _apply_slot_presets(preset, items_by_slot, slot_count):
-    """Map synced presets/colours onto one orca_presets bundle. Returns True if changed."""
-    colors = _split_list(preset.get("filament_colors"))
-    while len(colors) < slot_count:
-        colors.append("#000000")
-
-    changed = False
-    for slot in range(slot_count):
-        item = items_by_slot.get(slot)
-        if not item:
-            continue
-        key = filament_slot_key(slot)
-        if str(preset.get(key) or "") != item["name"]:
-            preset[key] = item["name"]
-            changed = True
-        # Only the colour list is index-aligned; never write a preset name into it.
-        if colors[slot] != item["color"]:
-            colors[slot] = item["color"]
-            changed = True
-
-    if not changed:
-        return False
-
-    color_str = ",".join(colors)
-    preset["filament_colors"] = color_str
-    # filament_multi_colors is only maintained by Orca on machines that support
-    # mixed filaments; it is "" elsewhere and must stay that way.
-    if str(preset.get("filament_multi_colors") or "").strip():
-        preset["filament_multi_colors"] = color_str
-    return True
-
-
-def update_orcaslicer_conf(synced_items, printer_name=None, last_machine=""):
+    Reads only the cache file, so the embedded page can render at startup
+    without touching the printer or any denied path.
     """
-    Map synced slot presets and colours onto the matching machine profile in
-    ``orca_presets``.
-
-    Returns the list of machine names that were updated (empty when nothing
-    matched or nothing changed).
-    """
-    app_dir = get_orca_app_dir()
-    conf_path = app_dir / "OrcaSlicer.conf"
-    if not conf_path.exists():
-        return []
-
+    path = get_cache_path()
     try:
-        with open(conf_path, "r", encoding="utf-8") as f:
-            conf = json.load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return [], {}
+    if not isinstance(data, dict):
+        return [], {}
+    slots = data.get("slots")
+    network = data.get("network")
+    return (
+        slots if isinstance(slots, list) else [],
+        network if isinstance(network, dict) else {},
+    )
 
-        items_by_slot = {int(it["slot"]): it for it in synced_items}
-        orca_presets = conf.get("orca_presets")
-        if not isinstance(orca_presets, list):
-            logging.warning("OrcaSlicer.conf has no orca_presets list; skipping.")
-            return []
 
-        updated_machines = []
-        for p in orca_presets:
-            if not isinstance(p, dict):
-                continue
-            if not _is_managed_machine(p, printer_name, last_machine):
-                continue
-            slot_count = _preset_slot_count(p)
-            if slot_count < 1:
-                continue
-            if _apply_slot_presets(p, items_by_slot, slot_count):
-                updated_machines.append(str(p.get("machine") or ""))
-
-        if updated_machines:
-            tmp_path = conf_path.with_suffix(".tmp")
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(conf, f, indent=4)
-            tmp_path.replace(conf_path)
-            logging.info(
-                "Updated OrcaSlicer.conf machine preset(s): %s",
-                ", ".join(m for m in updated_machines if m) or "(unnamed)",
-            )
-        return updated_machines
-    except Exception as e:
-        logging.error("Failed to update OrcaSlicer.conf: %s", e)
-    return []
+def save_cached_snapshot(slots, net_info):
+    """Record the latest slot snapshot so the page can render it next launch."""
+    path = get_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({"slots": slots, "network": net_info}, f, indent=2)
+        tmp_path.replace(path)
+    except OSError as e:
+        logging.warning("Failed to cache the slot snapshot: %s", e)
 
 
 def resolve_inherits_name(material):
@@ -576,17 +517,82 @@ def parse_network_endpoint(raw_host, port=None):
     return hostname, parsed_port, base_url
 
 
+def find_machine_profiles_with_host(app_dir, printer_name=None):
+    """Yield ``(name, data)`` for machine profiles that define a print host.
+
+    Machine profiles live under ``<app_dir>/user/*/machine/``, inside the
+    data directory that the plugin sandbox grants as a read/write allowed root.
+
+    OrcaSlicer.conf is deliberately never consulted: the plugin audit policy
+    denies any path with a "conf" component (and the ``OrcaSlicer.conf`` base
+    name) unconditionally, before allowed roots and before any permission
+    prompt. No grant can make it readable.
+    """
+    user_base = Path(app_dir) / "user"
+    if not user_base.exists():
+        return []
+
+    profiles = []
+    try:
+        candidates = sorted(user_base.glob("*/machine/*.json"))
+    except OSError:
+        return []
+
+    for profile_path in candidates:
+        try:
+            with open(profile_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if not str(data.get("print_host") or "").strip():
+            continue
+        profiles.append((str(data.get("name") or profile_path.stem), data))
+
+    if printer_name:
+        preferred = [p for p in profiles if p[0] == printer_name]
+        if preferred:
+            return preferred
+    return profiles
+
+
+def read_conf_unrestricted():
+    """Read OrcaSlicer.conf, but only when the plugin sandbox is not active.
+
+    OrcaSlicer's audit policy denies this path unconditionally to Python
+    plugins (any path component containing "conf" is blocked before allowed
+    roots and before any permission prompt), so inside Orca the read is skipped
+    rather than attempted.
+
+    Run as a plain script there is no audit hook, and the config is the only
+    place the *active* machine preset and the local-machine list are recorded.
+    Without it a CLI sync cannot tell which of several saved printers to use.
+    """
+    if orca is not None:
+        return {}
+    try:
+        with open(get_orca_app_dir() / CONFIG_FILENAME, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def resolve_printer_network_info(override_host=None):
     """
-    Dynamically resolve printer network connection details from OrcaSlicer.
+    Resolve printer network connection details.
 
     Resolution hierarchy:
-    1. If override_host is explicitly passed, parse and return immediately.
-    2. Inspect active runtime orca.host preset bundle for current_printer_preset()
-       -> 'print_host', 'printhost_port', 'printhost_apikey'.
-    3. Inspect OrcaSlicer.conf for active selected machine and matching user profile JSON.
-    4. Inspect OrcaSlicer.conf 'local_machines' dictionary.
-    5. Fallback to DEFAULT_PRINTER_HOST if not configured.
+    1. An explicit ``override_host`` wins outright.
+    2. The active runtime ``orca.host`` preset bundle (``print_host``,
+       ``printhost_port``, ``printhost_apikey``) when running inside Orca.
+    3. The active machine preset recorded in OrcaSlicer.conf — **outside the
+       plugin sandbox only** (see read_conf_unrestricted).
+    4. Machine profile JSON under ``user/*/machine/`` whose name matches the
+       active printer, else the first one that defines a ``print_host``.
+    5. The saved local-machine list, then the last selected machine (config
+       only), then ``DEFAULT_PRINTER_HOST``.
     """
     if override_host:
         hostname, parsed_port, base_url = parse_network_endpoint(override_host)
@@ -637,61 +643,52 @@ def resolve_printer_network_info(override_host=None):
         except Exception as e:
             logging.debug("orca.host runtime preset lookup: %s", e)
 
-    # 2. Inspect OrcaSlicer.conf and user machine JSON profiles
-    app_dir = get_orca_app_dir()
-    conf_path = app_dir / "OrcaSlicer.conf"
+    # 3. Outside the plugin sandbox only: the app config records which machine
+    #    preset is currently active. Inside Orca this path is denied outright,
+    #    so read_conf_unrestricted() returns {} and we skip straight to step 4.
+    conf = read_conf_unrestricted()
+    if conf and not printer_name:
+        preset_section = conf.get("presets")
+        if isinstance(preset_section, dict):
+            printer_name = str(preset_section.get("machine") or "").strip() or None
 
-    if conf_path.exists():
-        try:
-            with open(conf_path, "r", encoding="utf-8") as f:
-                conf = json.load(f)
-
-            if not printer_name:
-                printer_name = conf.get("presets", {}).get("machine")
-
-            # Look up matching machine profile in user directories
-            if not host and printer_name:
-                user_base = app_dir / "user"
-                if user_base.exists():
-                    for mp in user_base.rglob("*.json"):
-                        try:
-                            if mp.parent.name != "machine":
-                                continue
-                            with open(mp, "r", encoding="utf-8") as mf_f:
-                                m_data = json.load(mf_f)
-                            m_name = m_data.get("name") or mp.stem
-                            if m_name == printer_name:
-                                if m_data.get("print_host"):
-                                    host = str(m_data["print_host"]).strip()
-                                if m_data.get("printhost_apikey"):
-                                    apikey = str(m_data["printhost_apikey"]).strip()
-                                if m_data.get("printhost_port"):
-                                    port = str(m_data["printhost_port"]).strip()
-                                if host:
-                                    break
-                        except (json.JSONDecodeError, IOError):
-                            continue
-
-            # Look up in OrcaSlicer.conf local_machines
+    # 4. Fall back to machine profile JSON, which lives inside the allowed data
+    #    directory. This also supplies printer_name when neither the runtime
+    #    preset bundle nor the config was available.
+    if not host or not printer_name:
+        for name, data in find_machine_profiles_with_host(
+                get_orca_app_dir(), printer_name):
+            printer_name = printer_name or name
             if not host:
-                local_machines = conf.get("local_machines", {})
-                for ip, dev in local_machines.items():
-                    if printer_name and (dev.get("printer_type") == printer_name or dev.get("dev_name") == printer_name):
-                        host = dev.get("dev_ip") or ip
-                        apikey = apikey or dev.get("access_code")
-                        break
+                host = str(data.get("print_host") or "").strip() or None
+            if not apikey:
+                apikey = str(data.get("printhost_apikey") or "").strip() or None
+            if not port:
+                port = str(data.get("printhost_port") or "").strip() or None
+            if host:
+                break
 
-            # Fallback to user_last_selected_machine in OrcaSlicer.conf
-            if not host and conf.get("user_last_selected_machine"):
-                host = str(conf["user_last_selected_machine"]).strip()
-        except Exception as e:
-            logging.debug("OrcaSlicer.conf lookup error: %s", e)
+    # 5. Config-only last resorts (CLI): the saved local-machine list, then the
+    #    last machine the user selected.
+    if conf and not host:
+        for ip, device in (conf.get("local_machines") or {}).items():
+            if not isinstance(device, dict):
+                continue
+            if printer_name and printer_name in (
+                    device.get("printer_type"), device.get("dev_name")):
+                host = device.get("dev_ip") or ip
+                apikey = apikey or device.get("access_code")
+                break
+    if conf and not host:
+        host = str(conf.get("user_last_selected_machine") or "").strip() or None
 
-    # 3. Fallback default if not detected anywhere
+    # 6. Fallback default if not detected anywhere
     if not host:
         host = DEFAULT_PRINTER_HOST
 
-    hostname, parsed_port, base_url = parse_network_endpoint(host, port)
+    hostname, parsed_port, base_url = parse_network_endpoint(
+        host, port or DEFAULT_PRINTER_PORT
+    )
 
     return {
         "host": hostname,
@@ -950,13 +947,20 @@ def find_orcaslicer_user_filament_dirs():
 
 def sync_filaments_to_orcaslicer(host=None):
     """
-    Main sync action:
-    Dynamically queries Moonraker using network info from OrcaSlicer printer profile,
-    builds universal filament presets for ready slots, cleans stale presets,
-    updates OrcaSlicer configuration, and writes to OrcaSlicer user profiles.
+    Main sync action.
+
+    Resolves the printer, queries Moonraker, writes universal filament presets
+    for every ready slot, removes presets a previous sync left behind, and caches
+    a snapshot for the embedded page.
 
     A slot with a custom preset name is written under that name; otherwise the
     generated ``ACE T<slot> - <material> <colour>`` name is used.
+
+    ``OrcaSlicer.conf`` is deliberately left alone. The plugin sandbox denies
+    that path unconditionally, so the previous attempt to map synced presets
+    onto the active machine never actually worked from inside OrcaSlicer (it
+    only appeared to when run from a shell, where no audit hook is installed).
+    Presets are still created; select them in Orca's filament list.
     """
     net_info = resolve_printer_network_info(override_host=host)
     ace_info = fetch_moonraker_ace_data(net_info=net_info)
@@ -1056,21 +1060,15 @@ def sync_filaments_to_orcaslicer(host=None):
             "files": written_paths,
         })
 
-    # Update OrcaSlicer.conf active presets, then remember which machine we
-    # touched so a later sync can still find it if the active machine cannot be
-    # resolved and the slots carry custom names.
-    updated_machines = update_orcaslicer_conf(
-        synced_items,
-        printer_name=net_info.get("printer_name"),
-        last_machine=manifest.get("machine", ""),
-    )
+    # Remember the snapshot so the embedded page can render it at startup
+    # without any network access (which would raise a permission prompt).
+    save_cached_snapshot(slots, net_info)
 
     manifest["version"] = MANIFEST_VERSION
     manifest["slots"] = new_manifest_slots
-    for machine in updated_machines:
-        if machine:
-            manifest["machine"] = machine
-            break
+    machine_name = str(net_info.get("printer_name") or "")
+    if machine_name and machine_name != "Active Printer":
+        manifest["machine"] = machine_name
     save_manifest(manifest)
 
     printer_label = f"{net_info['printer_name']} ({net_info['base_url']})"
@@ -1106,10 +1104,20 @@ def sync_filaments_to_orcaslicer(host=None):
     }
 
 
-def render_html_page(slots, net_info):
-    """Render sleek dark-mode HTML page for OrcaSlicer Pages capability."""
-    printer_name = net_info.get("printer_name", "Active Printer")
-    base_url = net_info.get("base_url", "http://192.168.1.168")
+def render_html_page(slots, net_info=None):
+    """Render the dark-mode HTML page for the embedded OrcaSlicer tab."""
+    net_info = net_info or {}
+    slots = slots or []
+    printer_name = net_info.get("printer_name") or ""
+    base_url = net_info.get("base_url") or ""
+
+    subtitle = (
+        f"Connected to <strong>{printer_name or 'printer'}</strong> "
+        f"at <strong>{base_url}</strong>"
+        if base_url else
+        "No snapshot yet &mdash; click <strong>Sync Filaments to Slicer</strong> "
+        "to read the ACE Pro."
+    )
 
     slots_html = ""
     for s in slots:
@@ -1244,7 +1252,7 @@ body {{
     <div class="header">
         <div class="title-group">
             <h1>Anycubic ACE Pro Filament Sync</h1>
-            <p>Connected to <strong>{printer_name}</strong> at <strong>{base_url}</strong></p>
+            <p>{subtitle}</p>
         </div>
         <button class="sync-btn" onclick="syncNow()">🔄 Sync Filaments to Slicer</button>
     </div>
@@ -1301,9 +1309,16 @@ if orca:
                 return "ACE Pro"
 
             def get_ui(self):
-                net_info = resolve_printer_network_info()
-                data = fetch_moonraker_ace_data(net_info=net_info)
-                return render_html_page(data["slots"], net_info)
+                # Render from the last synced snapshot only.
+                #
+                # OrcaSlicer builds Pages markup while it starts up, and this
+                # plugin's sandbox turns a network call here into a
+                # "socket.__new__" permission prompt on every launch. That
+                # audit event carries no target, so the grant can never be
+                # persisted and the prompt would return forever. Doing the work
+                # on the explicit Sync action instead keeps startup prompt-free.
+                slots, net_info = load_cached_snapshot()
+                return render_html_page(slots, net_info)
 
             def on_message(self, message):
                 try:

@@ -393,7 +393,7 @@ pytest
 
 | Suite | Covers |
 | --- | --- |
-| `tests/test_orca_sync.py` | OrcaSlicer plugin: colour resolution, preset-name sanitising, material→base-preset mapping, temperature lookup from `mmu.material_temps`, ACE unit discovery, `OrcaSlicer.conf` mapping, preset cleanup and the sync manifest |
+| `tests/test_orca_sync.py` | OrcaSlicer plugin: colour resolution, preset-name sanitising, material→base-preset mapping, temperature lookup from `mmu.material_temps`, ACE unit discovery, printer network resolution, the sandbox conf guard, the page snapshot cache, preset cleanup and the sync manifest |
 | `tests/test_ace_material_temps.py` | Backend material table contract, and that the dashboard and OrcaSlicer plugin stay aligned with it |
 
 A couple of invariants are worth knowing because they are easy to break:
@@ -402,9 +402,12 @@ A couple of invariants are worth knowing because they are easy to break:
   `AceInstance.MATERIAL_TEMPS` owns the table; the dashboard's slot editor and the
   OrcaSlicer plugin both read it rather than keeping their own copies. Tests assert
   that every backend material has a base-preset mapping and that the lookups agree.
-- **`filament_colors` in `OrcaSlicer.conf` is an index-aligned CSV of hex colours.**
-  A preset *name* must never be written into it. The slot count is derived from the
-  machine's own `filament` / `filament_NN` keys, not assumed to be four.
+- **The OrcaSlicer plugin runs sandboxed.** `PluginAuditManager` denies
+  `OrcaSlicer.conf` unconditionally (any path component containing `conf`, `cert`
+  or `secret` is blocked before allowed roots and before any permission prompt),
+  and a network call while Orca builds its Pages markup raises a `socket.__new__`
+  prompt that can never be persisted. So: never touch the app config, and never do
+  network I/O from `get_ui()` — render the cached snapshot instead.
 
 ### Manual sync
 

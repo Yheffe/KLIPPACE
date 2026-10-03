@@ -103,6 +103,22 @@ backup_file() {
 }
 
 # ============================================================================
+# Shared web-install logic
+# ============================================================================
+# The web-asset list and the index.html patch live in one place, used by both
+# installers and this uninstaller. Previously this script kept its own copy of
+# the list, which had fallen behind and left the MMU card's own files installed
+# after an uninstall.
+KLIPPACE_WEB_LIB="$SCRIPT_DIR/acepro-mmu-dashboard/shared/web_install.sh"
+if [ -f "$KLIPPACE_WEB_LIB" ]; then
+    # shellcheck source=/dev/null
+    . "$KLIPPACE_WEB_LIB"
+else
+    print_warning "Missing $KLIPPACE_WEB_LIB"
+    print_info "Web dashboard files may not all be removed."
+fi
+
+# ============================================================================
 # Main Script
 # ============================================================================
 
@@ -241,13 +257,12 @@ main() {
     # ========================================================================
     print_header "Step 3: Removing Mainsail Dashboard Files"
     if [ -d "$MAINSAIL_DIR" ]; then
-        for f in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
-            local target="$MAINSAIL_DIR/$f"
-            if [ -L "$target" ] || [ -e "$target" ]; then
-                rm -f "$target"
-                print_success "Removed: $target"
-            fi
-        done
+        if [ -n "${KLIPPACE_WEB_FILES:-}" ]; then
+            unlink_klippace_web_files "$MAINSAIL_DIR"
+            unpatch_klippace_index_html "$MAINSAIL_DIR" "Mainsail" || true
+        else
+            print_warning "Shared web library unavailable; skipping Mainsail files"
+        fi
     else
         print_info "Mainsail directory not found: $MAINSAIL_DIR"
     fi
@@ -257,13 +272,12 @@ main() {
     # ========================================================================
     print_header "Step 4: Removing Fluidd Dashboard Files"
     if [ -d "$FLUIDD_DIR" ]; then
-        for f in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
-            local target="$FLUIDD_DIR/$f"
-            if [ -L "$target" ] || [ -e "$target" ]; then
-                rm -f "$target"
-                print_success "Removed: $target"
-            fi
-        done
+        if [ -n "${KLIPPACE_WEB_FILES:-}" ]; then
+            unlink_klippace_web_files "$FLUIDD_DIR"
+            unpatch_klippace_index_html "$FLUIDD_DIR" "Fluidd" || true
+        else
+            print_warning "Shared web library unavailable; skipping Fluidd files"
+        fi
     else
         print_info "Fluidd directory not found: $FLUIDD_DIR"
     fi

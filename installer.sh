@@ -411,6 +411,27 @@ create_or_replace_symlink() {
 }
 
 # ============================================================================
+# Shared web-install logic
+# ============================================================================
+# The list of web assets and the index.html patch live in one place, used by
+# both this installer and acepro-mmu-dashboard/install.sh. They had drifted:
+# this installer linked only the standalone page and never patched index.html,
+# so the MMU card was never installed by the installer most people run.
+#
+# NOTE: deliberately not under a `lib/` directory. The repo's .gitignore is the
+# stock Python template and contains a bare `lib/`, which matches at any depth —
+# a file there would never be committed and every fresh clone would have an
+# installer that cannot find its own library.
+KLIPPACE_WEB_LIB="$SCRIPT_DIR/acepro-mmu-dashboard/shared/web_install.sh"
+if [ ! -f "$KLIPPACE_WEB_LIB" ]; then
+    print_error "Missing $KLIPPACE_WEB_LIB"
+    print_info "The ACE dashboard web-asset list lives there; cannot continue."
+    exit 1
+fi
+# shellcheck source=/dev/null
+. "$KLIPPACE_WEB_LIB"
+
+# ============================================================================
 # Main Installation
 # ============================================================================
 
@@ -680,9 +701,13 @@ EOF
                                 ;;
                         esac
                     fi
-                    for ace_file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
-                        create_or_replace_symlink "$ACE_STATUS_DIR/web/$ace_file" "$ACE_WEB_DIR/$ace_file" "$ACE_WEB_LABEL $ace_file"
-                    done
+                    # Shared list + index.html patch (see shared/web_install.sh).
+                    # This is what installs the MMU card itself; previously this
+                    # installer only linked the standalone ace.html page.
+                    link_klippace_web_files "$ACE_STATUS_DIR/web" "$ACE_WEB_DIR" "$ACE_WEB_LABEL"
+                    if ! patch_klippace_index_html "$ACE_WEB_DIR" "$ACE_WEB_LABEL"; then
+                        print_warning "The MMU card will not appear in $ACE_WEB_LABEL until index.html is patched."
+                    fi
                 else
                     print_warning "$ACE_WEB_LABEL directory not found: $ACE_WEB_DIR"
                     print_info "Skipped $ACE_WEB_LABEL dashboard links"

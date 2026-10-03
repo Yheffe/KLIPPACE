@@ -6,13 +6,24 @@ why that matters before you install anything from here.
 
 ## Contents
 
-Two independent pieces live in this directory and they are not interchangeable:
-
 | Path | What it is | Installed by |
 | :--- | :--- | :--- |
-| `moonraker/ace_status.py` | Moonraker component: the `/server/ace/*` REST API, plus automated MCU build/flash | `installer.sh` (symlinked into `moonraker/moonraker/components/`) |
-| `web/ace*.{html,js,css}` | Standalone "ACE Dashboard" page, served at `http://<host>/ace.html` | `acepro-mmu-dashboard/install.sh` |
-| `web/klippace-tool-mapper.{js,css}` | Card injected into Fluidd/Mainsail, with the slot editor and tool mapper | `installer.sh` (symlinked into the Fluidd/Mainsail web root) |
+| `moonraker/ace_status.py` | Moonraker component: the `/server/ace/*` REST API, plus automated MCU build/flash | both installers (symlinked into `moonraker/moonraker/components/`) |
+| `web/ace*.{html,js,css}` | Standalone "ACE Dashboard" page, served at `http://<host>/ace.html` | both installers |
+| `web/klippace-tool-mapper.{js,css}` | Card injected into Fluidd/Mainsail, with the slot editor and tool mapper | both installers |
+| `shared/web_install.sh` | The canonical web-asset list and the `index.html` patch. Not installed itself — sourced by both installers and by `uninstaller.sh` | — |
+
+### `shared/web_install.sh` exists because the two installers drifted
+
+`installer.sh` (repo root) used to link only the standalone page and never
+patched `index.html`, so the MMU card — the main feature — was not installed by
+the installer most people run. It also kept its own copy of the asset list,
+as did `uninstaller.sh`, and those copies had fallen behind. The list and the
+`index.html` patch now live here only, and all three scripts call into it.
+
+> It is deliberately **not** under a `lib/` directory: this repo's `.gitignore`
+is the stock Python template and its bare `lib/` rule matches at any depth, so a
+file there would never be committed.
 
 ### `moonraker/ace_status.py` is not optional
 

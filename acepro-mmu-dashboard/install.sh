@@ -201,6 +201,23 @@ ensure_moonraker_ace_status() {
 }
 
 # ============================================================================
+# Shared web-install logic
+# ============================================================================
+# Defined in one place (see shared/web_install.sh) and also used by the repo-root
+# installer.sh, so the asset list and the index.html patch cannot drift apart.
+#
+# NOTE: not under `lib/` — the repo's .gitignore is the stock Python template
+# and its bare `lib/` rule matches at any depth, so a file there would never be
+# committed.
+KLIPPACE_WEB_LIB="$SCRIPT_DIR/shared/web_install.sh"
+if [ ! -f "$KLIPPACE_WEB_LIB" ]; then
+    print_error "Missing $KLIPPACE_WEB_LIB"
+    exit 1
+fi
+# shellcheck source=/dev/null
+. "$KLIPPACE_WEB_LIB"
+
+# ============================================================================
 # Main Installation
 # ============================================================================
 
@@ -357,31 +374,22 @@ main() {
     fi
     
     # ========================================================================
-    # Step 4: Link web files to Mainsail/Fluidd
+    # Step 4: Link web files into the selected UI
     # ========================================================================
-    
+    # Both the asset list and the index.html patch come from
+    # shared/web_install.sh, shared with the repo-root installer.sh. Only one UI
+    # is selected (see Step 2), so this is if/elif rather than two blocks.
+
     if [ -n "$MAINSAIL_DIR" ]; then
         print_header "Linking dashboard files into Mainsail"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg vue.global.prod.js klippace-tool-mapper.js klippace-tool-mapper.css; do
-            create_or_replace_symlink "$SOURCE_DIR/web/$file" "$MAINSAIL_DIR/$file" "Mainsail $file"
-        done
-        if [ -f "$MAINSAIL_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$MAINSAIL_DIR/index.html"; then
-            sed -i 's|</head>|  <link rel="stylesheet" href="./klippace-tool-mapper.css">\n</head>|' "$MAINSAIL_DIR/index.html" 2>/dev/null || true
-            sed -i 's|</body>|  <script type="module" src="./klippace-tool-mapper.js"></script>\n</body>|' "$MAINSAIL_DIR/index.html" 2>/dev/null || true
-            print_success "Injected Tool Mapper into Mainsail index.html"
-        fi
-    fi
-    
-    if [ -n "$FLUIDD_DIR" ]; then
+        link_klippace_web_files "$SOURCE_DIR/web" "$MAINSAIL_DIR" "Mainsail"
+        patch_klippace_index_html "$MAINSAIL_DIR" "Mainsail" \
+            || print_warning "The MMU card will not appear in Mainsail until index.html is patched."
+    elif [ -n "$FLUIDD_DIR" ]; then
         print_header "Linking dashboard files into Fluidd"
-        for file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg vue.global.prod.js klippace-tool-mapper.js klippace-tool-mapper.css; do
-            create_or_replace_symlink "$SOURCE_DIR/web/$file" "$FLUIDD_DIR/$file" "Fluidd $file"
-        done
-        if [ -f "$FLUIDD_DIR/index.html" ] && ! grep -q "klippace-tool-mapper.js" "$FLUIDD_DIR/index.html"; then
-            sed -i 's|</head>|  <link rel="stylesheet" href="./klippace-tool-mapper.css">\n</head>|' "$FLUIDD_DIR/index.html" 2>/dev/null || true
-            sed -i 's|</body>|  <script type="module" src="./klippace-tool-mapper.js"></script>\n</body>|' "$FLUIDD_DIR/index.html" 2>/dev/null || true
-            print_success "Injected Tool Mapper into Fluidd index.html"
-        fi
+        link_klippace_web_files "$SOURCE_DIR/web" "$FLUIDD_DIR" "Fluidd"
+        patch_klippace_index_html "$FLUIDD_DIR" "Fluidd" \
+            || print_warning "The MMU card will not appear in Fluidd until index.html is patched."
     fi
     
     # ========================================================================

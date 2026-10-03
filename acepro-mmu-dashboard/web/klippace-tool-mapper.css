@@ -662,28 +662,13 @@ svg.svg-colors {
   transform: translateY(0);
 }
 
-/* Quick Trigger Buttons */
-.klippace-topbar-btn {
-  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
-  border: 1px solid rgba(255, 87, 34, 0.5) !important;
-  color: #FF7043 !important;
-  font-weight: 600 !important;
-  font-size: 0.82rem !important;
-  border-radius: 6px !important;
-  padding: 5px 11px !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  margin-left: 10px !important;
-}
-
-.klippace-topbar-btn:hover {
-  background: linear-gradient(135deg, #FF5722 0%, #E64A19 100%) !important;
-  color: #FFFFFF !important;
-  box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
-}
+/* Quick Trigger Buttons
+   NOTE: there is deliberately no `.klippace-topbar-btn` rule any more. The Tool
+   Mapper used to have a page app-bar trigger as well as the card one; the card
+   trigger made it redundant and it was removed from the JS. Removing the rule
+   also frees the class, which a stale Moonraker theme override
+   (config/.theme/custom.css) still suppresses with
+   `button.klippace-topbar-btn { display: none !important; }`. */
 
 /* Tools Mapper trigger for Mainsail. It lives in the MMU card's own panel
    toolbar because Mainsail's app bar is a different component and the app-bar

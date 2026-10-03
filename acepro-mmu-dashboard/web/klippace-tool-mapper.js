@@ -1257,28 +1257,10 @@
   }
 
   function injectButtons() {
-    // 1. Top Bar Injection
-    const appbar = document.querySelector('header.v-app-bar .v-toolbar__content, header .v-toolbar__content');
-    if (appbar && !appbar.querySelector('.klippace-topbar-btn')) {
-      const topBtn = document.createElement('button');
-      topBtn.type = 'button';
-      topBtn.className = 'klippace-topbar-btn';
-      topBtn.innerHTML = `<span>⚡</span> Tool Mapper`;
-      topBtn.title = 'Open ACE Pro Tool Mapper';
-      topBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openToolMapper();
-      });
-      // Place right after the title or at a prominent position
-      const titleEl = appbar.querySelector('.v-toolbar__title');
-      if (titleEl && titleEl.nextSibling) {
-        appbar.insertBefore(topBtn, titleEl.nextSibling);
-      } else {
-        appbar.appendChild(topBtn);
-      }
-    }
+    // The Tool Mapper trigger lives on the MMU card itself (see decorateHeader),
+    // so there is no page app-bar button to inject any more.
 
-    // 2. Dashboard MMU Card Injection & Bambu Lab AMS Styling
+    // Dashboard MMU Card Injection & Bambu Lab AMS Styling
     const mmuCards = findMmuCards();
     mmuCards.forEach((card) => {
       // Apply Bambu AMS style decoration
@@ -1558,9 +1540,9 @@
     // Tools Mapper trigger, inside the card's own header, in BOTH UIs:
     //   Mainsail -> .panel-toolbar > .v-toolbar__items
     //   Fluidd   -> .v-card__title > .row > .col-auto (the button group)
-    // Fluidd additionally has a page-app-bar trigger (klippace-topbar-btn) and
-    // Mainsail's app bar is hidden by Moonraker's config/.theme/custom.css, so
-    // the card trigger is the one that works everywhere.
+    // This is now the ONLY trigger. The page app-bar button was removed as
+    // redundant once the card had one (and Mainsail's app bar is a different
+    // component anyway).
     let toolsHost = title.querySelector('.v-toolbar__items');
     if (!toolsHost) {
       const cols = [...title.querySelectorAll('.col-auto, [class*="col-auto"]')];
@@ -1591,6 +1573,19 @@
       });
       toolsHost.insertBefore(toolsBtn, toolsHost.firstChild);
     }
+
+    // Hide Fluidd's native MMU "Tools" activator. It is a Happy Hare menu
+    // (aria-haspopup) whose menu renders EMPTY under our shim, because it reads
+    // configfile.settings.mmu keys we do not publish — clicking it does nothing,
+    // so it reads as a dead control. Our own trigger replaces it.
+    //
+    // Scoped to the card title and to .btncolor deliberately: .btncolor is a
+    // Fluid-wide generic class used on ~42 buttons across the page (macros,
+    // presets, T0-T3, Cancel/Reload...), but the MMU card title has exactly one,
+    // so this cannot reach anything else.
+    title.querySelectorAll('button.btncolor').forEach((btn) => {
+      if (btn.style.display !== 'none') btn.style.display = 'none';
+    });
 
     // Hide the status/refresh round icon button; keep only the collapse chevron.
     // Mainsail-specific: its toolbar hosts the panel menu (kebab) and settings

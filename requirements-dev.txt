@@ -1,0 +1,10 @@
+# KLIPPACE development dependencies
+#
+# Install with: pip install -r requirements-dev.txt
+#
+# These are only needed to run the test suite locally. They are NOT installed
+# on the printer and are not required at runtime.
+
+-r requirements.txt
+
+pytest>=8.0

@@ -37,6 +37,7 @@ Supports **up to 3 ACE Pro units (12 tools)** chained together.
 - [♻️ Endless Spool & Contextual Start Purge](#️-endless-spool--contextual-start-purge)
 - [🔌 Connection Supervision](#-connection-supervision)
 - [🖥️ Web Dashboard & KlipperScreen](#️-web-dashboard--klipperscreen)
+- [🛠️ Development & Testing](#️-development--testing)
 - [🔧 Troubleshooting](#-troubleshooting)
 - [🙏 Credits & License](#-credits--license)
 
@@ -378,6 +379,40 @@ A native touchscreen panel is available for KlipperScreen:
   panel: acepro
   ```
 - Restart KlipperScreen: `sudo systemctl restart KlipperScreen`.
+
+---
+
+## 🛠️ Development & Testing
+
+The test suite runs entirely offline — no printer and no network access required.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+| Suite | Covers |
+| --- | --- |
+| `tests/test_orca_sync.py` | OrcaSlicer plugin: colour resolution, preset-name sanitising, material→base-preset mapping, temperature lookup from `mmu.material_temps`, ACE unit discovery, `OrcaSlicer.conf` mapping, preset cleanup and the sync manifest |
+| `tests/test_ace_material_temps.py` | Backend material table contract, and that the dashboard and OrcaSlicer plugin stay aligned with it |
+
+A couple of invariants are worth knowing because they are easy to break:
+
+- **`mmu.material_temps` is the single source of truth for material temperatures.**
+  `AceInstance.MATERIAL_TEMPS` owns the table; the dashboard's slot editor and the
+  OrcaSlicer plugin both read it rather than keeping their own copies. Tests assert
+  that every backend material has a base-preset mapping and that the lookups agree.
+- **`filament_colors` in `OrcaSlicer.conf` is an index-aligned CSV of hex colours.**
+  A preset *name* must never be written into it. The slot count is derived from the
+  machine's own `filament` / `filament_NN` keys, not assumed to be four.
+
+### Manual sync
+
+```bash
+python3 scripts/sync_ace_to_orca.py           # human-readable summary
+python3 scripts/sync_ace_to_orca.py --json    # full result payload
+python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
+```
 
 ---
 

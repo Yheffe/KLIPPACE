@@ -100,6 +100,106 @@ STANDARD_PALETTE = {
     "Brown": (165, 42, 42),
 }
 
+# ---------------------------------------------------------------------------
+# OrcaSlicer system filament library integration
+# ---------------------------------------------------------------------------
+
+# Every ``Generic * @System`` filament preset shipped in OrcaSlicer's
+# OrcaFilamentLibrary, captured from a 2.4.0.4 install. A synced preset's
+# ``inherits`` must name one of these (or another resolvable preset) or Orca
+# cannot resolve the chain, so tests assert our mapping stays inside this set.
+GENERIC_SYSTEM_FILAMENTS = frozenset({
+    "Generic ABS @System",
+    "Generic ASA @System",
+    "Generic BVOH @System",
+    "Generic CoPE @System",
+    "Generic EVA @System",
+    "Generic HIPS @System",
+    "Generic PA @System",
+    "Generic PA-CF @System",
+    "Generic PC @System",
+    "Generic PCTG @System",
+    "Generic PE @System",
+    "Generic PE-CF @System",
+    "Generic PETG @System",
+    "Generic PETG HF @System",
+    "Generic PETG-CF @System",
+    "Generic PHA @System",
+    "Generic PLA @System",
+    "Generic PLA High Speed @System",
+    "Generic PLA Matte @System",
+    "Generic PLA Silk @System",
+    "Generic PLA-CF @System",
+    "Generic PP @System",
+    "Generic PP-CF @System",
+    "Generic PP-GF @System",
+    "Generic PPA-CF @System",
+    "Generic PPA-GF @System",
+    "Generic PVA @System",
+    "Generic SBS @System",
+    "Generic Silk PLA @System",
+    "Generic TPU @System",
+})
+
+# Best available Generic preset for each material the ACE can carry.
+#
+# Several materials have no Generic equivalent in Orca's library, so they map to
+# the nearest family preset. ``inherits`` only supplies defaults (flow, cooling,
+# pressure advance); the real material is written to ``filament_type`` by the
+# payload, so an approximate base is safe and far better than inheriting PLA for
+# everything.
+MATERIAL_INHERITS = {
+    # --- PLA family ---
+    "PLA": "Generic PLA @System",
+    "PLA+": "Generic PLA @System",
+    "PLA-CF": "Generic PLA-CF @System",
+    "PLA GLOW": "Generic PLA @System",
+    "PLA HIGH SPEED": "Generic PLA High Speed @System",
+    "PLA MARBLE": "Generic PLA @System",
+    "PLA MATTE": "Generic PLA Matte @System",
+    "PLA SE": "Generic PLA @System",
+    "PLA SILK": "Generic PLA Silk @System",
+    # --- PETG family ---
+    "PETG": "Generic PETG @System",
+    "PETG-CF": "Generic PETG-CF @System",
+    # --- Styrenics ---
+    "ABS": "Generic ABS @System",
+    "ASA": "Generic ASA @System",
+    "HIPS": "Generic HIPS @System",
+    "SBS": "Generic SBS @System",
+    # --- Flexible: no Generic TPE, TPU is the equivalent family ---
+    "TPU": "Generic TPU @System",
+    "TPE": "Generic TPU @System",
+    # --- Soluble support ---
+    "PVA": "Generic PVA @System",
+    "BVOH": "Generic BVOH @System",
+    # --- Engineering ---
+    "PC": "Generic PC @System",
+    "PC-ABS": "Generic PC @System",
+    "PA": "Generic PA @System",
+    "NYLON": "Generic PA @System",
+    "PA-CF": "Generic PA-CF @System",
+    "PCTG": "Generic PCTG @System",
+    # Orca ships no Generic POM/PPS/PEEK/PPA. Map to the closest available
+    # high-temperature base and rely on the payload's explicit temperatures.
+    "POM": "Generic PLA @System",
+    "PPS": "Generic PPA-CF @System",
+    "PP": "Generic PP @System",
+    "PPA": "Generic PPA-CF @System",
+    "PEEK": "Generic PPA-CF @System",
+}
+
+# Used when a material has no mapping at all.
+FALLBACK_INHERITS = "Generic PLA @System"
+
+# Materials already reported as unmapped, so the warning is logged once each.
+_WARNED_UNMAPPED_MATERIALS = set()
+
+# Last-resort nozzle temperature when neither the slot nor the printer's
+# material table knows better.
+DEFAULT_NOZZLE_TEMP = 210
+DEFAULT_BED_TEMP = 60
+
 
 def resolve_filament_color(hex_code, sku="", vendor=""):
     """
@@ -388,6 +488,52 @@ def update_orcaslicer_conf(synced_items, printer_name=None, last_machine=""):
     return []
 
 
+def resolve_inherits_name(material):
+    """OrcaSlicer base preset for *material*.
+
+    Matches case-insensitively against MATERIAL_INHERITS and falls back to
+    FALLBACK_INHERITS for anything unmapped, logging once so an unexpected
+    material does not pass silently.
+    """
+    key = str(material or "").strip().upper()
+    if key in MATERIAL_INHERITS:
+        return MATERIAL_INHERITS[key]
+
+    unmapped = key or "(empty)"
+    if unmapped not in _WARNED_UNMAPPED_MATERIALS:
+        _WARNED_UNMAPPED_MATERIALS.add(unmapped)
+        logging.warning(
+            "No OrcaSlicer base preset mapped for material %r; using %s",
+            unmapped, FALLBACK_INHERITS,
+        )
+    return FALLBACK_INHERITS
+
+
+def lookup_material_temp(material_temps, material, default=DEFAULT_NOZZLE_TEMP):
+    """Nozzle temperature for *material* from the printer's published table.
+
+    ``material_temps`` is ``mmu.material_temps``, which the ACE module derives
+    from ``AceInstance.MATERIAL_TEMPS``. Matching is case-insensitive so RFID
+    spellings resolve. Returns *default* when the material is unknown.
+    """
+    if not isinstance(material_temps, dict) or not material:
+        return default
+    key = str(material).strip()
+    if key in material_temps:
+        value = material_temps[key]
+    else:
+        lowered = key.lower()
+        value = next(
+            (v for k, v in material_temps.items() if str(k).lower() == lowered),
+            None,
+        )
+    try:
+        temp = int(value)
+    except (TypeError, ValueError):
+        return default
+    return temp if temp > 0 else default
+
+
 def get_orca_app_dir():
     """Return the platform-specific OrcaSlicer application configuration directory."""
     system = platform.system()
@@ -556,8 +702,58 @@ def resolve_printer_network_info(override_host=None):
     }
 
 
+def _http_get_json(url, headers, timeout=3.5):
+    """GET *url* and return the decoded JSON body, or None on any failure."""
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def discover_ace_instances(raw_mmu):
+    """Locate each ACE unit on the printer.
+
+    Returns a list of ``(object_name, first_gate, num_gates)``. The MMU shim
+    publishes ``unit`` with each unit's ``first_gate``/``num_gates``; when that
+    is unavailable (older module, query failed) fall back to a single unit so a
+    minimal setup still syncs.
+    """
+    units = raw_mmu.get("unit")
+    discovered = []
+    if isinstance(units, list):
+        for idx, unit in enumerate(units):
+            if not isinstance(unit, dict):
+                continue
+            try:
+                first_gate = int(unit.get("first_gate", idx * MAX_SLOTS))
+                num_gates = int(unit.get("num_gates", MAX_SLOTS))
+            except (TypeError, ValueError):
+                continue
+            if num_gates > 0 and first_gate >= 0:
+                discovered.append((f"ace_instance_{idx}", first_gate, num_gates))
+
+    if not discovered:
+        discovered.append(("ace_instance_0", 0, MAX_SLOTS))
+
+    discovered.sort(key=lambda entry: entry[1])
+    return discovered
+
+
+def build_gate_source_map(instances):
+    """Map a global gate index to ``(object_name, local_slot)``."""
+    mapping = {}
+    for object_name, first_gate, num_gates in instances:
+        for local_slot in range(num_gates):
+            mapping[first_gate + local_slot] = (object_name, local_slot)
+    return mapping
+
+
 def fetch_moonraker_ace_data(net_info=None):
-    """Fetch ACE Pro and lane_data objects from Moonraker API."""
+    """Fetch ACE Pro and lane_data objects from Moonraker API.
+
+    Handles any number of ACE units: units are discovered from the MMU shim and
+    every ``ace_instance_N`` object is queried, so a second ACE is synced
+    instead of being silently ignored.
+    """
     info = net_info or resolve_printer_network_info()
     base_url = info["base_url"]
     headers = {"User-Agent": "OrcaSlicer-KlippaceSync"}
@@ -568,6 +764,8 @@ def fetch_moonraker_ace_data(net_info=None):
         "slots": [],
         "raw_mmu": {},
         "raw_ace": {},
+        "ace_instances": [],
+        "material_temps": {},
         "host": info["host"],
         "base_url": base_url,
         "printer_name": info["printer_name"],
@@ -577,52 +775,83 @@ def fetch_moonraker_ace_data(net_info=None):
     lane_data = {}
     try:
         url = f"{base_url}/server/database/item?namespace=lane_data"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            lane_data = data.get("result", {}).get("value", {})
+        data = _http_get_json(url, headers)
+        lane_data = (data.get("result", {}) or {}).get("value", {}) or {}
     except Exception as e:
         logging.warning("Failed to fetch lane_data from %s: %s", base_url, e)
 
-    # 2. Fetch printer objects (mmu, ace_instance_0)
+    # 2. Fetch the MMU shim first: it tells us how many ACE units exist.
     printer_objects = {}
     try:
-        url = f"{base_url}/printer/objects/query?mmu&mmu_machine&ace_instance_0"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            printer_objects = data.get("result", {}).get("status", {})
+        url = f"{base_url}/printer/objects/query?mmu&mmu_machine"
+        data = _http_get_json(url, headers)
+        printer_objects = (data.get("result", {}) or {}).get("status", {}) or {}
     except Exception as e:
-        logging.warning("Failed to fetch printer objects from %s: %s", base_url, e)
+        logging.warning("Failed to fetch mmu object from %s: %s", base_url, e)
 
-    results["raw_mmu"] = printer_objects.get("mmu", {})
-    results["raw_ace"] = printer_objects.get("ace_instance_0", {})
+    results["raw_mmu"] = printer_objects.get("mmu", {}) or {}
+    material_temps = results["raw_mmu"].get("material_temps")
+    results["material_temps"] = material_temps if isinstance(material_temps, dict) else {}
 
-    # Extract one entry per ACE lane
-    ace_slots = results["raw_ace"].get("slots", [])
+    # 3. Query every ACE instance the shim reported
+    instances = discover_ace_instances(results["raw_mmu"])
+    results["ace_instances"] = [
+        {"object": name, "first_gate": first, "num_gates": count}
+        for name, first, count in instances
+    ]
+
+    instance_query = "&".join(name for name, _, _ in instances)
+    instance_objects = {}
+    if instance_query:
+        try:
+            url = f"{base_url}/printer/objects/query?{instance_query}"
+            data = _http_get_json(url, headers)
+            instance_objects = (data.get("result", {}) or {}).get("status", {}) or {}
+        except Exception as e:
+            logging.warning(
+                "Failed to fetch ACE instances (%s) from %s: %s",
+                instance_query, base_url, e,
+            )
+
+    results["raw_ace"] = instance_objects.get("ace_instance_0", {}) or {}
+
+    # 4. Build one entry per ACE lane across every unit
+    gate_source = build_gate_source_map(instances)
+    total_gates = len(gate_source)
+    try:
+        reported_gates = int(results["raw_mmu"].get("num_gates") or 0)
+    except (TypeError, ValueError):
+        reported_gates = 0
+    total_gates = max(total_gates, reported_gates)
+
     mmu_colors = results["raw_mmu"].get("gate_color") or []
     mmu_materials = results["raw_mmu"].get("gate_material") or []
     mmu_status = results["raw_mmu"].get("gate_status") or []
 
-    for i in range(MAX_SLOTS):
+    for i in range(total_gates):
+        ace_object, local_slot = gate_source.get(i, (instances[0][0], i))
+        ace_slots = (instance_objects.get(ace_object) or {}).get("slots") or []
+
         slot_data = {
             "index": i,
             "tool": i,
+            "ace_instance": ace_object,
+            "local_slot": local_slot,
             "status": "empty",
             "material": "PLA",
             "color": "#FFFFFF",
             "color_name": "",
-            "temp": 210,
-            "bed_temp": 60,
+            "temp": 0,
+            "bed_temp": 0,
             "vendor": "Anycubic",
             "sku": "",
             "rfid": False,
             "custom_name": "",
         }
 
-        # Priority 1: ace_instance_0 data
-        if i < len(ace_slots):
-            raw_s = ace_slots[i]
+        # Priority 1: the ACE instance owning this gate
+        raw_s = ace_slots[local_slot] if local_slot < len(ace_slots) else None
+        if raw_s:
             slot_data["status"] = raw_s.get("status", "empty")
             if raw_s.get("material") and raw_s.get("material") not in ("Unknown", "???"):
                 slot_data["material"] = raw_s.get("material")
@@ -669,22 +898,29 @@ def fetch_moonraker_ace_data(net_info=None):
             if ld.get("filament_settings_id"):
                 slot_data["custom_name"] = str(ld["filament_settings_id"]).strip()
 
-        # Fallback to MMU shim gate attributes if present
+        # Fallback to MMU shim gate attributes if present. The shim aggregates
+        # every ACE unit, so these arrays are already global gate indices.
         if i < len(mmu_colors) and mmu_colors[i]:
-            if slot_data["color"] in ("#FFFFFF", "#000000") and mmu_colors[i].startswith("#"):
+            if slot_data["color"] in ("#FFFFFF", "#000000") and str(mmu_colors[i]).startswith("#"):
                 slot_data["color"] = mmu_colors[i].upper()
         if i < len(mmu_materials) and mmu_materials[i] and mmu_materials[i] != "Unknown":
             slot_data["material"] = mmu_materials[i]
-        if i < len(mmu_status) and mmu_status[i] == 1:
-            slot_data["status"] = "ready"
+        if i < len(mmu_status):
+            # 1 = spool present, 0 = empty, -1 = unknown (keep what we have)
+            if mmu_status[i] == 1:
+                slot_data["status"] = "ready"
+            elif mmu_status[i] == 0:
+                slot_data["status"] = "empty"
 
         # Default fallback for unconfigured non-RFID slots
         if not slot_data["material"] or slot_data["material"].upper() in ("UNKNOWN", "???", "NONE", "N/A"):
             slot_data["material"] = "PLA"
+        # Temperature: the slot's own value first, otherwise ask the printer's
+        # material table (mmu.material_temps) rather than assuming PLA.
         if slot_data["temp"] <= 0:
-            slot_data["temp"] = 210
+            slot_data["temp"] = lookup_material_temp(material_temps, slot_data["material"])
         if slot_data["bed_temp"] <= 0:
-            slot_data["bed_temp"] = 60
+            slot_data["bed_temp"] = DEFAULT_BED_TEMP
 
         # Resolve normalized color and friendly color name
         norm_col, col_name = resolve_filament_color(
@@ -752,10 +988,10 @@ def sync_filaments_to_orcaslicer(host=None):
         col_name = s.get("color_name") or get_color_name(col, sku=s.get("sku", "")) or col
         temp = s.get("temp", 0)
         if not temp or temp <= 0:
-            temp = 210
+            temp = lookup_material_temp(ace_info.get("material_temps"), mat)
         bed_temp = s.get("bed_temp", 0)
         if not bed_temp or bed_temp <= 0:
-            bed_temp = 60
+            bed_temp = DEFAULT_BED_TEMP
 
         vendor = s.get("vendor") or "Anycubic"
         sku = s.get("sku", "")
@@ -765,14 +1001,7 @@ def sync_filaments_to_orcaslicer(host=None):
         custom_name = sanitize_preset_name(s.get("custom_name"))
         generated_name = sanitize_preset_name(f"ACE T{slot_idx} - {mat} {col_name}")
         preset_name = custom_name or generated_name
-        inherits_map = {
-            "PLA": "Generic PLA @System",
-            "PETG": "Generic PETG @System",
-            "ABS": "Generic ABS @System",
-            "ASA": "Generic ASA @System",
-            "TPU": "Generic TPU @System",
-        }
-        inherits_name = inherits_map.get(mat.upper(), "Generic PLA @System")
+        inherits_name = resolve_inherits_name(mat)
 
         # Empty compatible_printers means universal compatibility in OrcaSlicer
         preset_payload = {

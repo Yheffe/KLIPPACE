@@ -1631,6 +1631,16 @@ svg.svg-colors {
    ========================================================= */
 
 /* ---- Rows ---- */
+
+/* The action cluster sits in a single column that Vuetify caps at 58.33% and
+   pins to the left of its row, so the right-hand ~40% of the card was empty
+   next to gate tiles that span the full width. Auto margins on the row's only
+   child centre the cluster instead. */
+.mmu-card .row > .col:has(button.base-btn) {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
 .mmu-card .row--dense:has(button.base-btn) {
   margin: 0 0 6px 0 !important;
   align-items: stretch !important;

@@ -17,6 +17,13 @@
   let showAllTools = false;
   let isPrintingAction = false;
 
+  // A single gate element, across both supported UIs:
+  //   Fluidd  -> <div class="gate gate--menu bambu-ams-bay">
+  //   Mainsail -> <div class="... gate-menu">   (no `.gate` class at all)
+  // The two are mutually exclusive, so this never matches an element twice.
+  // Wrapped in :is() so it can also be used as a descendant selector.
+  const GATE_SELECTOR = ':is(.gate, .gate-menu)';
+
   // --- Color Utilities ---
   function hexToRgb(hex) {
     if (!hex) return [128, 128, 128];
@@ -1181,7 +1188,7 @@
       closeSlotEditor();
       showToast(`T${idx} saved: ${slotEditorState.material} ${temp}°C`);
       // Optimistically update the card, then refresh from the backend
-      const swatch = document.querySelectorAll('.mmu-unit:not(.mmu-unit-clear) .gate')[idx]?.querySelector('.klippace-swatch');
+      const swatch = document.querySelectorAll(`.mmu-unit:not(.mmu-unit-clear) ${GATE_SELECTOR}`)[idx]?.querySelector('.klippace-swatch');
       if (swatch) {
         swatch.dataset.nocolor = 'false';
         swatch.dataset.klippaceColor = slotEditorState.color;
@@ -1291,7 +1298,7 @@
     allCards.forEach((c) => {
       if (list.includes(c)) return;
       if (c.closest('#klippace-tool-mapper-overlay')) return;
-      if (c.querySelector('.mmu-unit, .gate, .mmu-controls, .mmu-gate-summary, svg.clip-spool, [ref="mmuControls"]')) {
+      if (c.querySelector(`.mmu-unit, ${GATE_SELECTOR}, .mmu-controls, .mmu-gate-summary, svg.clip-spool, [ref="mmuControls"]`)) {
         list.push(c);
         return;
       }
@@ -1335,9 +1342,9 @@
     if (!card.dataset.klippaceGateClick) {
       card.dataset.klippaceGateClick = '1';
       card.addEventListener('click', (e) => {
-        const gate = e.target && e.target.closest ? e.target.closest('.gate') : null;
+        const gate = e.target && e.target.closest ? e.target.closest(GATE_SELECTOR) : null;
         if (!gate || !card.contains(gate)) return;
-        const gates = Array.from(card.querySelectorAll('.mmu-unit:not(.mmu-unit-clear) .gate'));
+        const gates = Array.from(card.querySelectorAll(`.mmu-unit:not(.mmu-unit-clear) ${GATE_SELECTOR}`));
         const idx = gates.indexOf(gate);
         if (idx < 0) return;
         e.stopPropagation();
@@ -1346,7 +1353,7 @@
       }, true);
     }
 
-    unit.querySelectorAll('.gate').forEach((gate, i) => {
+    unit.querySelectorAll(GATE_SELECTOR).forEach((gate, i) => {
       gate.style.cursor = 'pointer';
       gate.title = `Edit slot T${i} (click to set material/colour)`;
 
@@ -1445,7 +1452,7 @@
     const unit = card.querySelector('.mmu-unit:not(.mmu-unit-clear)');
     if (!unit) return;
     const activeGate = (typeof mmu.gate === 'number' && mmu.gate >= 0) ? mmu.gate : -1;
-    unit.querySelectorAll('.gate').forEach((gate, i) => {
+    unit.querySelectorAll(GATE_SELECTOR).forEach((gate, i) => {
       const swatch = gate.querySelector('.klippace-swatch');
       if (swatch) {
         const color = mmu.gate_color?.[i] || '#666666';
@@ -1642,7 +1649,7 @@
     units.forEach((u) => {
       u.classList.add('bambu-ams-unit');
       // Bay slots
-      const gates = u.querySelectorAll('.gate');
+      const gates = u.querySelectorAll(GATE_SELECTOR);
       gates.forEach((g) => {
         g.classList.add('bambu-ams-bay');
         if (g.querySelector('.highlight-spool') || g.classList.contains('highlight-spool')) {
@@ -1651,9 +1658,24 @@
           g.classList.remove('bambu-bay-active');
         }
       });
-      // Footer
-      const footer = u.querySelector('.position-relative, [class*="footer"], mmu-unit-footer');
+      // Footer = the unit's label bar (e.g. "#1 ACE Pro 0").
+      // Prefer an explicit footer class, and never accept an element that
+      // contains the gates. In Mainsail the gate wrapper is *also*
+      // `.position-relative` and appears earlier in the DOM than the real
+      // `mmu-unit-footer`, so the old bare `.position-relative` query grabbed
+      // the gate wrapper — which made the footer badge styles apply to every
+      // gate tile. Fluidd has a single `.position-relative` (the footer), so
+      // this picks the same element as before there.
+      const footer =
+        u.querySelector('mmu-unit-footer, .mmu-unit-footer') ||
+        [...u.querySelectorAll('[class*="footer"]')].find((el) => !el.querySelector(GATE_SELECTOR)) ||
+        [...u.querySelectorAll('.position-relative')].find((el) => !el.querySelector(GATE_SELECTOR)) ||
+        null;
       if (footer) footer.classList.add('bambu-ams-footer');
+      // Repair a footer class left on a gate container by an earlier version.
+      u.querySelectorAll('.bambu-ams-footer').forEach((el) => {
+        if (el.querySelector(GATE_SELECTOR)) el.classList.remove('bambu-ams-footer');
+      });
     });
 
     // 3b. Build color-swatch gate tiles and apply live MMU data

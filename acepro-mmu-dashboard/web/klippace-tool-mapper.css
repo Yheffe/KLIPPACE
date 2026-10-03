@@ -16,8 +16,11 @@
    decorator runs and during Vue re-renders, so the "old card" never flashes)
    ========================================================================== */
 
-/* Spool graphic (replaced by color swatches) */
-.gate .clip-spool {
+/* Spool graphic (replaced by color swatches).
+   Fluidd exposes it as `.gate .clip-spool`; Mainsail has no `.gate` class at
+   all and draws the spool as a bare SVG inside `.gate-menu`. */
+.gate .clip-spool,
+.gate-menu svg[viewBox="0 0 248 500"] {
   display: none !important;
 }
 
@@ -58,10 +61,21 @@ svg.svg-colors {
   display: none !important;   /* replaced by .klippace-slot badge */
 }
 
+/* Mainsail's per-gate native status box (`mmu-unit-box`, one per `.gate-menu`,
+   a direct child) is the counterpart of Fluidd's `.gate-status-row` above and
+   is likewise replaced by our .klippace-slot badge.
+   Specificity must be (0,3,0): the element also carries Vuetify's `.d-flex`
+   utility, and `.v-application .d-flex` is (0,2,0) with !important, so a plain
+   `.mmu-unit-box` rule loses despite also being !important. */
+.v-application :is(.gate, .gate-menu) .mmu-unit-box {
+  display: none !important;
+}
+
 /* Slot badge: gate number + spool-present indicator.
-   Scoped under .gate so these never leak into the tool-mapper modal, which
-   reuses .klippace-slot-num / .klippace-swatch for its own layout. */
-.gate .klippace-slot {
+   Scoped under the gate so these never leak into the tool-mapper modal, which
+   reuses .klippace-slot-num / .klippace-swatch for its own layout. The gate
+   element is `.gate` in Fluidd and `.gate-menu` in Mainsail. */
+:is(.gate, .gate-menu) .klippace-slot {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -70,14 +84,14 @@ svg.svg-colors {
   min-height: 18px !important;
 }
 
-.gate .klippace-slot-num {
+:is(.gate, .gate-menu) .klippace-slot-num {
   font-size: 0.95rem !important;
   font-weight: 700 !important;
   line-height: 1 !important;
   color: #e2e5ea !important;
 }
 
-.gate .klippace-slot-dot {
+:is(.gate, .gate-menu) .klippace-slot-dot {
   width: 9px !important;
   height: 9px !important;
   border-radius: 50% !important;
@@ -87,27 +101,28 @@ svg.svg-colors {
 }
 
 /* Spool present */
-.gate .klippace-slot-dot[data-present="present"] {
+:is(.gate, .gate-menu) .klippace-slot-dot[data-present="present"] {
   background: #4caf50 !important;
   box-shadow: 0 0 6px rgba(76, 175, 80, 0.7) !important;
 }
 
 /* Spool absent */
-.gate .klippace-slot-dot[data-present="empty"] {
+:is(.gate, .gate-menu) .klippace-slot-dot[data-present="empty"] {
   background: #555 !important;
   box-shadow: none !important;
 }
 
 /* Unknown */
-.gate .klippace-slot-dot[data-present="unknown"] {
+:is(.gate, .gate-menu) .klippace-slot-dot[data-present="unknown"] {
   background: #ffb300 !important;
   box-shadow: none !important;
 }
 
 /* Gate tile layout (swatch-first) — unscoped so no layout flash. These values
    MUST match the .bambu-ams-card-scoped gate rule exactly, otherwise the gate
-   height jumps (shrink/grow) whenever Vue patches the class away. */
-.gate {
+   height jumps (shrink/grow) whenever Vue patches the class away. The gate is
+   `.gate` in Fluidd and `.gate-menu` in Mainsail. */
+:is(.gate, .gate-menu) {
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
@@ -951,11 +966,15 @@ svg.svg-colors {
   padding-top: 0 !important;
 }
 
-.v-application .bambu-ams-card .bambu-ams-footer span,
+/* Footer label styled as a small pill.
+   `span:not(.v-icon)` matters on Mainsail, where the footer also contains a
+   leading sensor icon (SPAN.v-icon) that would otherwise be pill-ified into a
+   stray box. Fluidd's footer holds only a DIV, so this changes nothing there. */
+.v-application .bambu-ams-card .bambu-ams-footer span:not(.v-icon),
 .v-application .bambu-ams-card .bambu-ams-footer div,
-.bambu-ams-card .bambu-ams-footer span,
-[layout-path="dashboard.mmu-card"] .bambu-ams-footer span,
-.mmu-card .mmu-unit-footer span {
+.bambu-ams-card .bambu-ams-footer span:not(.v-icon),
+[layout-path="dashboard.mmu-card"] .bambu-ams-footer span:not(.v-icon),
+.mmu-card .mmu-unit-footer span:not(.v-icon) {
   display: inline-flex !important;
   align-items: center !important;
   background: rgba(255, 255, 255, 0.06) !important;
@@ -1335,16 +1354,16 @@ svg.svg-colors {
 }
 
 /* Active / loaded gate highlight */
-.v-application .bambu-ams-card .gate.klippace-gate-active,
-.bambu-ams-card .gate.klippace-gate-active,
-[layout-path="dashboard.mmu-card"] .gate.klippace-gate-active,
-.mmu-card .gate.klippace-gate-active {
+.v-application .bambu-ams-card :is(.gate, .gate-menu).klippace-gate-active,
+.bambu-ams-card :is(.gate, .gate-menu).klippace-gate-active,
+[layout-path="dashboard.mmu-card"] :is(.gate, .gate-menu).klippace-gate-active,
+.mmu-card :is(.gate, .gate-menu).klippace-gate-active {
   border-color: var(--v-primary-base, #ff2300) !important;
   background: rgba(255, 255, 255, 0.08) !important;
 }
 
-.v-application .bambu-ams-card .gate.klippace-gate-active .klippace-swatch,
-.bambu-ams-card .gate.klippace-gate-active .klippace-swatch {
+.v-application .bambu-ams-card :is(.gate, .gate-menu).klippace-gate-active .klippace-swatch,
+.bambu-ams-card :is(.gate, .gate-menu).klippace-gate-active .klippace-swatch {
   border-color: var(--v-primary-base, #ff2300) !important;
   box-shadow: 0 0 0 3px rgba(255, 35, 0, 0.28), inset 0 0 0 1px rgba(0, 0, 0, 0.35) !important;
 }
@@ -1411,21 +1430,21 @@ svg.svg-colors {
    (spool present but no material info; click to edit)
    Placed last so it wins over the active-gate highlight.
    ========================================================= */
-.v-application .bambu-ams-card .gate.klippace-needs-data,
-.bambu-ams-card .gate.klippace-needs-data,
-[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data,
-.mmu-card .gate.klippace-needs-data,
-.gate.klippace-needs-data {
+.v-application .bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data,
+.bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data,
+[layout-path="dashboard.mmu-card"] :is(.gate, .gate-menu).klippace-needs-data,
+.mmu-card :is(.gate, .gate-menu).klippace-needs-data,
+:is(.gate, .gate-menu).klippace-needs-data {
   position: relative !important;
   border: 1px solid rgba(255, 179, 0, 0.75) !important;
   background: linear-gradient(180deg, rgba(255, 179, 0, 0.10) 0%, rgba(255, 179, 0, 0.03) 100%) !important;
 }
 
-.v-application .bambu-ams-card .gate.klippace-needs-data::after,
-.bambu-ams-card .gate.klippace-needs-data::after,
-[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data::after,
-.mmu-card .gate.klippace-needs-data::after,
-.gate.klippace-needs-data::after {
+.v-application .bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data::after,
+.bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data::after,
+[layout-path="dashboard.mmu-card"] :is(.gate, .gate-menu).klippace-needs-data::after,
+.mmu-card :is(.gate, .gate-menu).klippace-needs-data::after,
+:is(.gate, .gate-menu).klippace-needs-data::after {
   content: "!" !important;
   position: absolute !important;
   top: 3px !important;
@@ -1443,11 +1462,11 @@ svg.svg-colors {
   pointer-events: none !important;
 }
 
-.v-application .bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
-.bambu-ams-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
-[layout-path="dashboard.mmu-card"] .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
-.mmu-card .gate.klippace-needs-data .klippace-slot-dot[data-present="present"],
-.gate.klippace-needs-data .klippace-slot-dot[data-present="present"] {
+.v-application .bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data .klippace-slot-dot[data-present="present"],
+.bambu-ams-card :is(.gate, .gate-menu).klippace-needs-data .klippace-slot-dot[data-present="present"],
+[layout-path="dashboard.mmu-card"] :is(.gate, .gate-menu).klippace-needs-data .klippace-slot-dot[data-present="present"],
+.mmu-card :is(.gate, .gate-menu).klippace-needs-data .klippace-slot-dot[data-present="present"],
+:is(.gate, .gate-menu).klippace-needs-data .klippace-slot-dot[data-present="present"] {
   background: #ffb300 !important;
   box-shadow: 0 0 6px rgba(255, 179, 0, 0.7) !important;
 }

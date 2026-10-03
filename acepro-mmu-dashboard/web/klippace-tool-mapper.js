@@ -1566,8 +1566,11 @@
       const toolsBtn = document.createElement('button');
       toolsBtn.type = 'button';
       toolsBtn.className = 'klippace-tools-btn';
-      toolsBtn.innerHTML = '<span>\u26a1</span> Tools';
+      // Icon-only, matching Mainsail's own toolbar buttons. A text label clipped
+      // the panel title on narrow viewports.
+      toolsBtn.innerHTML = '<span aria-hidden="true">\u26a1</span>';
       toolsBtn.title = 'Open ACE Pro Tool Mapper';
+      toolsBtn.setAttribute('aria-label', 'Open ACE Pro Tool Mapper');
       toolsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         openToolMapper();

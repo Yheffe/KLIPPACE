@@ -685,39 +685,39 @@ svg.svg-colors {
   box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
 }
 
-/* Tools Mapper trigger for Mainsail, which lives inside the MMU card's own
-   panel toolbar (its app bar is a different component and the app-bar variant
-   above is hidden there by custom.css). Kept as its own class so the two
-   never inherit each other's suppression. */
+/* Tools Mapper trigger for Mainsail. It lives in the MMU card's own panel
+   toolbar because Mainsail's app bar is a different component and the app-bar
+   variant above is hidden there by custom.css. Kept as its own class so the
+   two never inherit each other's suppression.
+
+   Icon-sized to match Mainsail's own toolbar buttons (kebab / settings /
+   collapse). A labelled chip looked better at full width but stole so much of
+   the toolbar that the panel title was clipped to "MI" on a narrow viewport,
+   and Mainsail's toolbar is an icon bar anyway. The tooltip carries the name. */
 .klippace-tools-btn {
   display: inline-flex !important;
   align-items: center !important;
-  gap: 5px !important;
-  /* Vuetify's .v-toolbar__items stretches its children to the full 48px bar
-     height, which made this read as a large filled block. Keep it chip-sized
-     like the app-bar variant in Fluidd. */
+  justify-content: center !important;
   align-self: center !important;
   flex: 0 0 auto !important;
-  height: 26px !important;
-  background: linear-gradient(135deg, rgba(255, 87, 34, 0.2) 0%, rgba(255, 35, 0, 0.2) 100%) !important;
+  width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  margin: 0 5px 0 0 !important;
+  border-radius: 50% !important;
+  background: transparent !important;
   border: 1px solid rgba(255, 87, 34, 0.5) !important;
   color: #FF7043 !important;
-  font-weight: 600 !important;
-  font-size: 0.7rem !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-  border-radius: 4px !important;
-  padding: 2px 8px !important;
-  margin-left: 8px !important;
+  font-size: 0.95rem !important;
+  line-height: 1 !important;
   cursor: pointer !important;
-  white-space: nowrap !important;
-  transition: all 0.2s ease !important;
+  transition: background 0.15s ease, border-color 0.15s ease !important;
 }
 
 .klippace-tools-btn:hover {
-  background: linear-gradient(135deg, #FF5722 0%, #E64A19 100%) !important;
+  background: rgba(255, 87, 34, 0.18) !important;
+  border-color: #FF5722 !important;
   color: #FFFFFF !important;
-  box-shadow: 0 0 12px rgba(255, 87, 34, 0.4) !important;
 }
 
 /* Caption injected into Mainsail's icon-only action buttons, which otherwise

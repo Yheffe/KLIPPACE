@@ -77,6 +77,42 @@ prompt_input() {
     echo "${response:-$default}"
 }
 
+# Multiple-choice prompt. Displays a numbered menu and echoes the chosen value.
+# The menu goes to stderr so that $(prompt_choice ...) captures only the value.
+# Usage: choice=$(prompt_choice "Which UI?" "Fluidd" "Mainsail")
+prompt_choice() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local count=${#options[@]}
+    local i response
+    while true; do
+        echo -e "${BLUE}${prompt}${NC}" >&2
+        i=1
+        while [ "$i" -le "$count" ]; do
+            echo "  ${i}) ${options[$((i - 1))]}" >&2
+            i=$((i + 1))
+        done
+        if ! read -p "$(echo -e ${BLUE}Choose 1-${count}${NC}: )" response; then
+            # stdin is closed (EOF). Returning here matters: read fails
+            # immediately, so without this the loop would reprint the menu
+            # forever. Callers apply their own safe default.
+            echo "No input available for a choice." >&2
+            return 1
+        fi
+        case "$response" in
+            ''|*[!0-9]*) ;;
+            *)
+                if [ "$response" -ge 1 ] && [ "$response" -le "$count" ]; then
+                    echo "${options[$((response - 1))]}"
+                    return 0
+                fi
+                ;;
+        esac
+        echo "Please enter a number between 1 and ${count}" >&2
+    done
+}
+
 # Create backup with timestamp
 backup_file() {
     local file="$1"
@@ -213,39 +249,67 @@ main() {
     print_info "Source web files: $SOURCE_DIR/web/"
     print_info "Source moonraker component: $SOURCE_DIR/moonraker/ace_status.py"
 
-    # 2.1 Ask about Mainsail
-    if prompt_yes_no "\nInstall dashboard files into Mainsail?"; then
-        DEFAULT_MAINSAIL_DIR="$INSTALL_HOME/mainsail"
-        MAINSAIL_DIR=$(prompt_input "Mainsail installation directory" "$DEFAULT_MAINSAIL_DIR")
-        if [ ! -d "$MAINSAIL_DIR" ]; then
-            print_warning "Mainsail directory not found: $MAINSAIL_DIR"
-            if ! prompt_yes_no "Directory does not exist. Create symlinks anyway?"; then
-                MAINSAIL_DIR=""
-            fi
-        elif [ -d "$MAINSAIL_DIR/assets" ] && ! grep -rlq 'gate_status' "$MAINSAIL_DIR/assets" 2>/dev/null; then
-            # Mainsail gained Happy Hare / MMU support in v2.15.0. On an older
-            # build there is no MMU card, so the dashboard would install but
-            # render nothing — warn rather than fail silently later.
-            print_warning "This Mainsail build has no MMU support (requires v2.15.0+)."
-            print_warning "The card will be linked, but no MMU card will appear."
-        fi
-    else
-        MAINSAIL_DIR=""
-    fi
+    # 2.1 Choose the ONE web interface to install into.
+    #
+    # This was two separate "install into Mainsail?" / "install into Fluidd?"
+    # questions, which invited installing into both. Almost everyone runs one or
+    # the other, and installing into the wrong one is actively harmful: a
+    # Mainsail path that is really a symlink to Fluidd silently targets Fluidd,
+    # and a Mainsail older than v2.15.0 has no MMU card to decorate at all.
+    # So: pick exactly one, or skip the web dashboard (the Moonraker component
+    # is independent and still installs).
+    WEB_UI=$(prompt_choice "Which web interface should host the dashboard?" \
+        "Fluidd" \
+        "Mainsail" \
+        "Neither (no web dashboard)") || WEB_UI="Neither (no web dashboard)"
 
-    # 2.2 Ask about Fluidd
-    if prompt_yes_no "\nInstall dashboard files into Fluidd?"; then
-        DEFAULT_FLUIDD_DIR="$INSTALL_HOME/fluidd"
-        FLUIDD_DIR=$(prompt_input "Fluidd installation directory" "$DEFAULT_FLUIDD_DIR")
-        if [ ! -d "$FLUIDD_DIR" ]; then
-            print_warning "Fluidd directory not found: $FLUIDD_DIR"
-            if ! prompt_yes_no "Directory does not exist. Create symlinks anyway?"; then
-                FLUIDD_DIR=""
+    MAINSAIL_DIR=""
+    FLUIDD_DIR=""
+
+    case "$WEB_UI" in
+        Mainsail)
+            DEFAULT_MAINSAIL_DIR="$INSTALL_HOME/mainsail"
+            MAINSAIL_DIR=$(prompt_input "Mainsail installation directory" "$DEFAULT_MAINSAIL_DIR")
+            if [ ! -d "$MAINSAIL_DIR" ]; then
+                print_warning "Mainsail directory not found: $MAINSAIL_DIR"
+                if ! prompt_yes_no "Directory does not exist. Create symlinks anyway?"; then
+                    MAINSAIL_DIR=""
+                fi
+            else
+                # A "Mainsail" path that is actually a symlink to Fluidd is a
+                # common misconfiguration, and it would silently install into
+                # Fluidd instead.
+                if is_symlink "$MAINSAIL_DIR"; then
+                    case "$(readlink "$MAINSAIL_DIR")" in
+                        *fluidd*)
+                            print_warning "$MAINSAIL_DIR is a symlink to Fluidd, not Mainsail."
+                            print_info "Choose Fluidd instead, or point this at a real Mainsail install."
+                            ;;
+                    esac
+                fi
+                # Mainsail gained Happy Hare / MMU support in v2.15.0. On an
+                # older build there is no MMU card, so the dashboard would
+                # install but render nothing.
+                if [ -d "$MAINSAIL_DIR/assets" ] && ! grep -rlq 'gate_status' "$MAINSAIL_DIR/assets" 2>/dev/null; then
+                    print_warning "This Mainsail build has no MMU support (requires v2.15.0+)."
+                    print_warning "The card will be linked, but no MMU card will appear."
+                fi
             fi
-        fi
-    else
-        FLUIDD_DIR=""
-    fi
+            ;;
+        Fluidd)
+            DEFAULT_FLUIDD_DIR="$INSTALL_HOME/fluidd"
+            FLUIDD_DIR=$(prompt_input "Fluidd installation directory" "$DEFAULT_FLUIDD_DIR")
+            if [ ! -d "$FLUIDD_DIR" ]; then
+                print_warning "Fluidd directory not found: $FLUIDD_DIR"
+                if ! prompt_yes_no "Directory does not exist. Create symlinks anyway?"; then
+                    FLUIDD_DIR=""
+                fi
+            fi
+            ;;
+        *)
+            print_info "Skipping the web dashboard (no files will be linked)."
+            ;;
+    esac
 
     # 2.3 Ask about Moonraker component
     if prompt_yes_no "\nInstall Moonraker ACE status component?"; then
@@ -269,17 +333,17 @@ main() {
     
     echo ""
     print_header "Installation Summary"
-    
+
+    # Exactly one web UI is selected now, so report a single resolved target
+    # rather than printing an always-empty "not selected" line next to it.
     if [ -n "$MAINSAIL_DIR" ]; then
-        echo "Mainsail: $MAINSAIL_DIR"
+        WEB_UI_SUMMARY="Mainsail ($MAINSAIL_DIR)"
+    elif [ -n "$FLUIDD_DIR" ]; then
+        WEB_UI_SUMMARY="Fluidd ($FLUIDD_DIR)"
     else
-        echo "Mainsail: not selected"
+        WEB_UI_SUMMARY="none (no web dashboard)"
     fi
-    if [ -n "$FLUIDD_DIR" ]; then
-        echo "Fluidd:   $FLUIDD_DIR"
-    else
-        echo "Fluidd:   not selected"
-    fi
+    echo "Web dashboard:       $WEB_UI_SUMMARY"
     if [ -n "$MOONRAKER_DIR" ]; then
         echo "Moonraker component: $MOONRAKER_DIR/moonraker/components/"
         echo "Moonraker config:    $MOONRAKER_CONF"
@@ -386,7 +450,7 @@ main() {
     cat << EOF
 The ACE Dashboard has been installed.
 
-- Web files linked to: ${MAINSAIL_DIR:-none} ${FLUIDD_DIR:-none}
+- Web files linked to: ${WEB_UI_SUMMARY:-none}
 - Moonraker component: ${MOONRAKER_DIR:-not installed}
 - Moonraker config updated: ${MOONRAKER_CONF:-no changes}
 

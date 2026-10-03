@@ -103,6 +103,11 @@ chmod +x installer.sh uninstaller.sh
 
 # Generic / Bed-Slinger Profile
 ./installer.sh --profile generic -y
+
+# Pick the web interface explicitly (otherwise the installer prompts for one)
+./installer.sh --profile voron --web-ui fluidd -y
+./installer.sh --profile voron --web-ui mainsail -y
+./installer.sh --profile voron --web-ui none -y     # Moonraker API only, no web UI
 ```
 
 The installer will:
@@ -112,7 +117,7 @@ The installer will:
    - **`1) Voron 2.4`**: Copies the modular `config/voron24/` suite (including Blobifier v1.5) into `~/printer_data/config/` and adds `[include ace_voron24.cfg]` and `[include blobifier.cfg]` to `printer.cfg`.
    - **`2) Anycubic Kobra`** or **`3) Generic`**: Copies `acepro.cfg`, `acepro_setting.cfg`, `acepro_macros.cfg`, and optional `spoolman_logic.cfg`.
 4. Configure the **Moonraker Update Manager** (`[update_manager KLIPPACE]`) in `moonraker.conf` for one-click Web UI updates.
-5. Optionally install the **ACE Status Moonraker Component** and Web Dashboard for Mainsail / Fluidd.
+5. Optionally install the **ACE Status Moonraker Component** and Web Dashboard. You are asked to pick **one** web interface (Fluidd or Mainsail) — almost everyone runs one, and linking the card into both is a common source of confusion (see [Web Dashboard](#️-web-dashboard--klipperscreen)).
 6. Optionally link the **KlipperScreen** panel and menu entries.
 
 Restart Klipper when the installer completes:

@@ -33,6 +33,7 @@ fi
 FLAG_ASSUME_YES=0
 FLAG_COPY_VORON_CFG=0
 FLAG_INSTALL_LED=0
+FLAG_WEB_UI=""
 PRINTER_PROFILE_OVERRIDE=""
 
 # ============================================================================
@@ -59,6 +60,48 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}✗ ${1}${NC}"
+}
+
+# Multiple-choice prompt. Displays a numbered menu and echoes the chosen value.
+# The menu is written to stderr so that $(prompt_choice ...) captures only the
+# value. Honours --yes: returns the first option without prompting.
+# Usage: choice=$(prompt_choice "Which UI?" "Fluidd" "Mainsail")
+prompt_choice() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    local count=${#options[@]}
+    local i response
+    if [ "${FLAG_ASSUME_YES:-0}" -eq 1 ]; then
+        echo -e "${BLUE}${prompt}${NC} ${options[0]} (auto)" >&2
+        echo "${options[0]}"
+        return 0
+    fi
+    while true; do
+        echo -e "${BLUE}${prompt}${NC}" >&2
+        i=1
+        while [ "$i" -le "$count" ]; do
+            echo "  ${i}) ${options[$((i - 1))]}" >&2
+            i=$((i + 1))
+        done
+        if ! read -p "$(echo -e ${BLUE}Choose 1-${count}${NC}: )" response; then
+            # stdin is closed (EOF). Returning here matters: read fails
+            # immediately, so without this the loop would reprint the menu
+            # forever. Callers apply their own safe default.
+            echo "No input available for a choice." >&2
+            return 1
+        fi
+        case "$response" in
+            ''|*[!0-9]*) ;;
+            *)
+                if [ "$response" -ge 1 ] && [ "$response" -le "$count" ]; then
+                    echo "${options[$((response - 1))]}"
+                    return 0
+                fi
+                ;;
+        esac
+        echo "Please enter a number between 1 and ${count}" >&2
+    done
 }
 
 # Yes/No prompt
@@ -404,6 +447,15 @@ main() {
                 FLAG_INSTALL_LED=1
                 shift
                 ;;
+            --web-ui)
+                case "$2" in
+                    [fF]luidd) FLAG_WEB_UI="Fluidd" ;;
+                    [mM]ainsail) FLAG_WEB_UI="Mainsail" ;;
+                    [nN]one|[sS]kip|[nN]either) FLAG_WEB_UI="Neither" ;;
+                    *) print_warning "Unknown --web-ui value: $2 (expected fluidd, mainsail or none)" ;;
+                esac
+                shift 2
+                ;;
             --klipper-dir)
                 klipper_dir_override="$2"
                 shift 2
@@ -423,6 +475,7 @@ main() {
                 echo "  --profile <1|2|3|voron|kobra|generic>  Select printer profile"
                 echo "  --voron, --copy-voron-cfg, -v          Select Voron 2.4 profile and copy Voron machine configs"
                 echo "  --led                                  Install LED lighting control (needs neopixel hardware)"
+                echo "  --web-ui <fluidd|mainsail|none>        Which web interface to link the ACE dashboard into"
                 echo "  --klipper-dir <dir>                    Path to Klipper installation directory"
                 echo "  --config-dir <dir>                     Path to Klipper config directory (e.g. ~/printer_data/config)"
                 echo "  -y, --yes                              Non-interactive mode (assume yes to prompts)"
@@ -566,6 +619,22 @@ EOF
             ACE_FLUIDD_DEFAULT="$INSTALL_HOME/fluidd"
             ACE_MOONRAKER_CONF_DEFAULT="$INSTALL_HOME/printer_data/config/moonraker.conf"
 
+            # Which single web interface gets the dashboard symlinks.
+            # This used to be two independent questions (Mainsail, then
+            # Fluidd), which invited installing into both. Almost everyone runs
+            # one, and the wrong one is harmful: a Mainsail path that is really
+            # a symlink to Fluidd silently targets Fluidd, and Mainsail older
+            # than v2.15.0 has no MMU card to decorate.
+            if [ -n "$FLAG_WEB_UI" ]; then
+                ACE_WEB_UI="$FLAG_WEB_UI"
+                print_info "Web interface (from --web-ui): $ACE_WEB_UI"
+            else
+                ACE_WEB_UI=$(prompt_choice "Which web interface should host the ACE dashboard?" \
+                    "Fluidd" \
+                    "Mainsail" \
+                    "Neither (no web dashboard)") || ACE_WEB_UI="Neither (no web dashboard)"
+            fi
+
             # Moonraker component
             ACE_MOONRAKER_DIR=$(prompt_input "Moonraker directory (press ENTER to use default)" "$ACE_MOONRAKER_DEFAULT")
             ACE_MOONRAKER_COMPONENTS="$ACE_MOONRAKER_DIR/moonraker/components"
@@ -584,29 +653,39 @@ EOF
                 print_info "Skipping Moonraker ACE status symlink"
             fi
 
-            # Mainsail dashboard files
-            if prompt_yes_no "Link dashboard files into Mainsail?"; then
-                ACE_MAINSAIL_DIR=$(prompt_input "Mainsail install directory" "$ACE_MAINSAIL_DEFAULT")
-                if [ -d "$ACE_MAINSAIL_DIR" ]; then
-                    for ace_file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
-                        create_or_replace_symlink "$ACE_STATUS_DIR/web/$ace_file" "$ACE_MAINSAIL_DIR/$ace_file" "Mainsail $ace_file"
-                    done
-                else
-                    print_warning "Mainsail directory not found: $ACE_MAINSAIL_DIR"
-                    print_info "Skipped Mainsail dashboard links"
-                fi
-            fi
+            # Web dashboard symlinks (one UI only)
+            case "$ACE_WEB_UI" in
+                Mainsail)
+                    ACE_WEB_DIR=$(prompt_input "Mainsail install directory" "$ACE_MAINSAIL_DEFAULT")
+                    ACE_WEB_LABEL="Mainsail"
+                    ;;
+                Fluidd)
+                    ACE_WEB_DIR=$(prompt_input "Fluidd install directory" "$ACE_FLUIDD_DEFAULT")
+                    ACE_WEB_LABEL="Fluidd"
+                    ;;
+                *)
+                    ACE_WEB_DIR=""
+                    ACE_WEB_LABEL=""
+                    print_info "Skipping web dashboard symlinks"
+                    ;;
+            esac
 
-            # Fluidd dashboard files
-            if prompt_yes_no "Link dashboard files into Fluidd?"; then
-                ACE_FLUIDD_DIR=$(prompt_input "Fluidd install directory" "$ACE_FLUIDD_DEFAULT")
-                if [ -d "$ACE_FLUIDD_DIR" ]; then
+            if [ -n "$ACE_WEB_DIR" ]; then
+                if [ -d "$ACE_WEB_DIR" ]; then
+                    if [ "$ACE_WEB_LABEL" = "Mainsail" ] && [ -L "$ACE_WEB_DIR" ]; then
+                        case "$(readlink "$ACE_WEB_DIR")" in
+                            *fluidd*)
+                                print_warning "$ACE_WEB_DIR is a symlink to Fluidd, not Mainsail."
+                                print_info "Use --web-ui fluidd, or point this at a real Mainsail install."
+                                ;;
+                        esac
+                    fi
                     for ace_file in ace.html ace-dashboard.js ace-dashboard.css ace-dashboard-config.js favicon.svg; do
-                        create_or_replace_symlink "$ACE_STATUS_DIR/web/$ace_file" "$ACE_FLUIDD_DIR/$ace_file" "Fluidd $ace_file"
+                        create_or_replace_symlink "$ACE_STATUS_DIR/web/$ace_file" "$ACE_WEB_DIR/$ace_file" "$ACE_WEB_LABEL $ace_file"
                     done
                 else
-                    print_warning "Fluidd directory not found: $ACE_FLUIDD_DIR"
-                    print_info "Skipped Fluidd dashboard links"
+                    print_warning "$ACE_WEB_LABEL directory not found: $ACE_WEB_DIR"
+                    print_info "Skipped $ACE_WEB_LABEL dashboard links"
                 fi
             fi
 

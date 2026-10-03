@@ -49,6 +49,13 @@ Answer the prompts to choose which components to install and where, then open
 `http://<host>/ace.html`. Adjust `ace-dashboard-config.js` if you need a fixed
 API host.
 
+The installer asks for **one** web interface — Fluidd or Mainsail — rather than
+asking about each in turn. Almost everyone runs a single dashboard, and linking
+into both is a common source of confusion: a path like `~/mainsail` is often
+a symlink to `~/fluidd`, and a Mainsail older than **v2.15.0** has no MMU card
+for the script to attach to. Choose *Neither* to install the Moonraker component
+without touching any web UI.
+
 ## Provenance
 
 Vendored from [`ducati1198/acepro-mmu-dashboard`](https://github.com/ducati1198/acepro-mmu-dashboard)

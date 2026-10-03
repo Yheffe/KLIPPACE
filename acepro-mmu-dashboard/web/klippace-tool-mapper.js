@@ -553,284 +553,666 @@
 
     style.textContent = `
       /* =========================================================
-         Bambu Lab AMS Styling for Fluidd MMU Card
+         KLIPPACE - Ultra-Compact Streamlined Deck for MMU / AMS Card
          ========================================================= */
 
-      /* Card Container */
+      /* Root Card Frame */
       .v-application .bambu-ams-card,
       .v-card.bambu-ams-card,
+      [layout-path="dashboard.mmu-card"],
       .mmu-card {
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 18px !important;
+        border-radius: 16px !important;
         background: linear-gradient(180deg, #1C1E26 0%, #121318 100%) !important;
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
         position: relative !important;
+        overflow: hidden !important;
       }
 
       /* Card Header */
       .v-application .bambu-ams-card .v-card__title,
       .bambu-ams-card .v-card__title,
-      .v-application .bambu-ams-card .card-heading {
+      .v-application .bambu-ams-card .card-heading,
+      [layout-path="dashboard.mmu-card"] .v-card__title,
+      .mmu-card .v-card__title {
         font-weight: 700 !important;
         letter-spacing: -0.01em !important;
         color: #FFFFFF !important;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding-bottom: 12px !important;
-        margin-bottom: 12px !important;
+        padding: 10px 16px !important;
+        margin-bottom: 0 !important;
         display: flex !important;
         align-items: center !important;
         gap: 8px !important;
+        background: rgba(255, 255, 255, 0.02) !important;
       }
 
       .v-application .bambu-ams-card .bambu-ams-title-badge,
-      .bambu-ams-card .bambu-ams-title-badge {
+      .bambu-ams-card .bambu-ams-title-badge,
+      [layout-path="dashboard.mmu-card"] .bambu-ams-title-badge,
+      .mmu-card .bambu-ams-title-badge {
         background: rgba(0, 194, 80, 0.16) !important;
         color: #00C250 !important;
         border: 1px solid rgba(0, 194, 80, 0.35) !important;
-        font-size: 0.68rem !important;
+        font-size: 0.65rem !important;
         font-weight: 800 !important;
-        padding: 1px 7px !important;
-        border-radius: 6px !important;
+        padding: 1px 6px !important;
+        border-radius: 5px !important;
         letter-spacing: 0.08em !important;
         text-transform: uppercase !important;
         display: inline-block !important;
-        line-height: 1.4 !important;
+        line-height: 1.3 !important;
+      }
+
+      /* Hide stock dividing lines */
+      .v-application .bambu-ams-card hr.v-divider,
+      .bambu-ams-card hr.v-divider,
+      [layout-path="dashboard.mmu-card"] hr.v-divider,
+      .mmu-card hr.v-divider {
+        display: none !important;
+      }
+
+      /* Card Body Container */
+      .v-application .bambu-ams-card .v-card__text,
+      .bambu-ams-card .v-card__text,
+      [layout-path="dashboard.mmu-card"] .v-card__text,
+      .mmu-card .v-card__text {
+        padding: 10px 14px !important;
+      }
+
+      .v-application .bambu-ams-card .v-card__text > .container,
+      .bambu-ams-card .v-card__text > .container,
+      [layout-path="dashboard.mmu-card"] .v-card__text > .container,
+      .mmu-card .v-card__text > .container {
+        padding: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 8px !important;
+        width: 100% !important;
+      }
+
+      /* =========================================================
+         TIER 1: Wide AMS Chamber Hero (Top Section)
+         ========================================================= */
+      .v-application .bambu-ams-card .mmu-machine,
+      .bambu-ams-card .mmu-machine,
+      [layout-path="dashboard.mmu-card"] .mmu-machine,
+      .mmu-card .mmu-machine {
+        width: 100% !important;
+        display: block !important;
+        overflow: visible !important;
+      }
+
+      .v-application .bambu-ams-card .mmu-machine > .row,
+      .bambu-ams-card .mmu-machine > .row,
+      [layout-path="dashboard.mmu-card"] .mmu-machine > .row,
+      .mmu-card .mmu-machine > .row {
+        margin: 0 !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: stretch !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        gap: 8px !important;
+      }
+
+      .v-application .bambu-ams-card .mmu-machine > .row > .col:first-child,
+      .bambu-ams-card .mmu-machine > .row > .col:first-child,
+      [layout-path="dashboard.mmu-card"] .mmu-machine > .row > .col:first-child,
+      .mmu-card .mmu-machine > .row > .col:first-child {
+        flex: 1 1 auto !important;
+        max-width: calc(100% - 76px) !important;
+        padding: 0 !important;
+      }
+
+      .v-application .bambu-ams-card .mmu-machine > .row > .col:last-child,
+      .bambu-ams-card .mmu-machine > .row > .col:last-child,
+      [layout-path="dashboard.mmu-card"] .mmu-machine > .row > .col:last-child,
+      .mmu-card .mmu-machine > .row > .col:last-child {
+        flex: 0 0 68px !important;
+        width: 68px !important;
+        max-width: 68px !important;
+        padding: 0 !important;
+      }
+
+      /* Completely eliminate scrollbars anywhere in MMU unit */
+      .v-application .bambu-ams-card .mmu-unit,
+      .v-application .bambu-ams-card .mmu-unit *,
+      .v-application .bambu-ams-card .mmu-machine,
+      .v-application .bambu-ams-card .mmu-machine *,
+      .v-application .bambu-ams-card .bambu-ams-unit,
+      .v-application .bambu-ams-card .bambu-ams-unit *,
+      .v-application .bambu-ams-card .v-sheet,
+      .v-application .bambu-ams-card .v-sheet * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+
+      .v-application .bambu-ams-card *::-webkit-scrollbar,
+      .bambu-ams-card *::-webkit-scrollbar,
+      [layout-path="dashboard.mmu-card"] *::-webkit-scrollbar,
+      .mmu-card *::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
       }
 
       /* AMS Enclosure: Authentic Smoked Acrylic Dome */
       .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear),
-      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear) {
+      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear),
+      [layout-path="dashboard.mmu-card"] .mmu-unit:not(.mmu-unit-clear),
+      .mmu-card .mmu-unit:not(.mmu-unit-clear) {
+        width: 100% !important;
         position: relative !important;
-        background: linear-gradient(180deg, #2D323E 0%, #171920 100%) !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.22) !important;
-        border-radius: 20px !important;
-        box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.75), inset 0 2px 4px rgba(255, 255, 255, 0.3) !important;
-        backdrop-filter: blur(16px) !important;
-        -webkit-backdrop-filter: blur(16px) !important;
-        padding: 16px 10px 12px 10px !important;
-        margin-bottom: 16px !important;
+        background: linear-gradient(180deg, #262B37 0%, #14161D 100%) !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.18) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.7), inset 0 2px 3px rgba(255, 255, 255, 0.25) !important;
+        backdrop-filter: blur(14px) !important;
+        -webkit-backdrop-filter: blur(14px) !important;
+        padding: 8px 6px 4px 6px !important;
+        margin-bottom: 0 !important;
         overflow: hidden !important;
       }
 
       /* Smoked Glass Dome Gloss Reflection */
       .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear)::before,
-      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear)::before {
+      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear)::before,
+      [layout-path="dashboard.mmu-card"] .mmu-unit:not(.mmu-unit-clear)::before,
+      .mmu-card .mmu-unit:not(.mmu-unit-clear)::before {
         content: "" !important;
         position: absolute !important;
         top: 0 !important;
         left: 0 !important;
         right: 0 !important;
-        height: 48% !important;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.03) 60%, transparent 100%) !important;
-        border-radius: 20px 20px 0 0 !important;
+        height: 44% !important;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%) !important;
+        border-radius: 14px 14px 0 0 !important;
         pointer-events: none !important;
         z-index: 1 !important;
       }
 
+      /* Spool Cassette Bay Row */
+      .v-application .bambu-ams-card .bambu-ams-unit .v-row,
+      .bambu-ams-card .mmu-unit .v-row,
+      [layout-path="dashboard.mmu-card"] .mmu-unit .v-row,
+      .mmu-card .mmu-unit .v-row {
+        margin: 0 !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        overflow: hidden !important;
+      }
+
       /* Recessed Cassette Bays */
       .v-application .bambu-ams-card .bambu-ams-bay,
-      .bambu-ams-card .gate {
+      .bambu-ams-card .gate,
+      [layout-path="dashboard.mmu-card"] .gate,
+      .mmu-card .gate {
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        max-width: 25% !important;
         background: #0E1015 !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 14px !important;
-        padding: 10px 4px 8px 4px !important;
-        margin: 0 3px !important;
-        box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.7) !important;
-        transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-                    background 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-                    border-color 0.22s cubic-bezier(0.16, 1, 0.3, 1),
-                    box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        border-radius: 10px !important;
+        padding: 4px 2px 2px 2px !important;
+        margin: 0 2px !important;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7) !important;
+        transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+                    background 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+                    border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
         position: relative !important;
         z-index: 2 !important;
       }
 
       .v-application .bambu-ams-card .bambu-ams-bay:hover,
-      .bambu-ams-card .gate:hover {
+      .bambu-ams-card .gate:hover,
+      [layout-path="dashboard.mmu-card"] .gate:hover,
+      .mmu-card .gate:hover {
         background: #181B24 !important;
         border-color: rgba(255, 255, 255, 0.25) !important;
         transform: translateY(-2px) !important;
-        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.5) !important;
+        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
       }
 
       /* Active / Loaded Bay Neon Green Glow */
       .v-application .bambu-ams-card .bambu-ams-bay.bambu-bay-active,
       .v-application .bambu-ams-card .bambu-ams-bay:has(.highlight-spool),
-      .bambu-ams-card .gate.highlight-spool {
+      .bambu-ams-card .gate.highlight-spool,
+      [layout-path="dashboard.mmu-card"] .gate.highlight-spool,
+      .mmu-card .gate.highlight-spool {
         border-color: #00C250 !important;
         background: linear-gradient(180deg, rgba(0, 194, 80, 0.16) 0%, #0E1015 100%) !important;
-        box-shadow: inset 0 0 16px rgba(0, 194, 80, 0.35), 0 0 18px rgba(0, 194, 80, 0.45) !important;
+        box-shadow: inset 0 0 12px rgba(0, 194, 80, 0.35), 0 0 14px rgba(0, 194, 80, 0.4) !important;
       }
 
-      /* Spool 3D Depth */
+      /* Spool Graphic Depth */
       .v-application .bambu-ams-card .clip-spool,
-      .bambu-ams-card .clip-spool {
-        filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.75)) !important;
-        transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+      .bambu-ams-card .clip-spool,
+      [layout-path="dashboard.mmu-card"] .clip-spool,
+      .mmu-card .clip-spool {
+        width: 100% !important;
+        height: auto !important;
+        max-height: 62px !important;
+        filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7)) !important;
+        transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
       }
 
-      .v-application .bambu-ams-card .bambu-ams-bay:hover .clip-spool {
-        transform: scale(1.04) !important;
+      .v-application .bambu-ams-card .bambu-ams-bay:hover .clip-spool,
+      .bambu-ams-card .gate:hover .clip-spool,
+      [layout-path="dashboard.mmu-card"] .gate:hover .clip-spool,
+      .mmu-card .gate:hover .clip-spool {
+        transform: scale(1.03) !important;
       }
 
-      /* Slot Badges & Pills */
-      .v-application .bambu-ams-card .gate-status-row {
+      /* Slot Badges & Gate Numbers */
+      .v-application .bambu-ams-card .gate-status-row,
+      .bambu-ams-card .gate-status-row,
+      [layout-path="dashboard.mmu-card"] .gate-status-row,
+      .mmu-card .gate-status-row {
         background: transparent !important;
-        margin-top: 6px !important;
+        margin-top: 2px !important;
         display: flex !important;
         justify-content: center !important;
       }
 
       .v-application .bambu-ams-card svg[ref="mmuGateStatusSvg"],
-      .v-application .bambu-ams-card .mmu-gate-status svg {
-        max-height: 28px !important;
-        filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6)) !important;
+      .v-application .bambu-ams-card .mmu-gate-status svg,
+      [layout-path="dashboard.mmu-card"] svg[ref="mmuGateStatusSvg"],
+      .mmu-card svg[ref="mmuGateStatusSvg"] {
+        max-height: 20px !important;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5)) !important;
       }
 
       /* AMS Unit Tag / Footer Badge */
-      .v-application .bambu-ams-card .bambu-ams-footer {
+      .v-application .bambu-ams-card .bambu-ams-footer,
+      .bambu-ams-card .bambu-ams-footer,
+      [layout-path="dashboard.mmu-card"] .bambu-ams-footer,
+      .mmu-card .mmu-unit-footer {
         text-align: center !important;
-        margin-top: 10px !important;
-        padding-top: 6px !important;
+        margin-top: 3px !important;
+        padding-top: 0 !important;
       }
 
       .v-application .bambu-ams-card .bambu-ams-footer span,
-      .v-application .bambu-ams-card .bambu-ams-footer div {
+      .v-application .bambu-ams-card .bambu-ams-footer div,
+      .bambu-ams-card .bambu-ams-footer span,
+      [layout-path="dashboard.mmu-card"] .bambu-ams-footer span,
+      .mmu-card .mmu-unit-footer span {
         display: inline-flex !important;
         align-items: center !important;
-        background: rgba(255, 255, 255, 0.08) !important;
-        border: 1px solid rgba(255, 255, 255, 0.14) !important;
-        border-radius: 20px !important;
-        padding: 4px 16px !important;
-        font-size: 0.78rem !important;
+        background: rgba(255, 255, 255, 0.07) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 12px !important;
+        padding: 1px 8px !important;
+        font-size: 0.65rem !important;
         font-weight: 700 !important;
         letter-spacing: 0.08em !important;
         text-transform: uppercase !important;
-        color: #E4E4E7 !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+        color: #D4D4D8 !important;
       }
 
       /* Standalone Bypass Spool Bracket */
       .v-application .bambu-ams-card .mmu-unit-clear,
-      .bambu-ams-card .mmu-unit-clear {
-        background: rgba(255, 255, 255, 0.025) !important;
-        border: 1.5px dashed rgba(255, 255, 255, 0.2) !important;
-        border-radius: 18px !important;
-        box-shadow: none !important;
-        padding: 12px 8px !important;
-      }
-
-      /* Filament Status & Flow Panel (Left Column) */
-      .v-application .bambu-ams-card .bambu-ams-toolhead-panel {
-        background: linear-gradient(180deg, #181A22 0%, #0E1015 100%) !important;
-        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+      .bambu-ams-card .mmu-unit-clear,
+      [layout-path="dashboard.mmu-card"] .mmu-unit-clear,
+      .mmu-card .mmu-unit-clear {
+        width: 68px !important;
+        height: 100% !important;
+        background: rgba(255, 255, 255, 0.02) !important;
+        border: 1.5px dashed rgba(255, 255, 255, 0.16) !important;
         border-radius: 14px !important;
-        padding: 14px !important;
-        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.5), 0 4px 14px rgba(0, 0, 0, 0.35) !important;
+        box-shadow: none !important;
+        padding: 6px 2px !important;
+        margin-bottom: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        overflow: hidden !important;
       }
 
-      .v-application .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font {
-        font-size: 0.82rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.06em !important;
-        text-transform: uppercase !important;
-        color: #FFFFFF !important;
-        margin-bottom: 10px !important;
-        display: inline-flex !important;
+      .v-application .bambu-ams-card .mmu-unit-clear .clip-spool,
+      .bambu-ams-card .mmu-unit-clear .clip-spool {
+        max-height: 62px !important;
+      }
+
+      /* =========================================================
+         TIER 2: Horizontal Status Ribbon (Tight 1-Line Deck)
+         ========================================================= */
+
+      /* Middle Row container: Full width vertical stack for ribbon & controls */
+      .v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2),
+      .v-application .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2),
+      .v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-child(2),
+      .v-application .bambu-ams-card .v-card__text > .container > .row:nth-child(2),
+      .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2),
+      .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2),
+      .bambu-ams-card .v-card__text > .container > .v-row:nth-child(2),
+      .bambu-ams-card .v-card__text > .container > .row:nth-child(2),
+      [layout-path="dashboard.mmu-card"] .v-card__text > .container > .v-row:nth-of-type(2),
+      [layout-path="dashboard.mmu-card"] .v-card__text > .container > .row:nth-of-type(2),
+      .mmu-card .v-card__text > .container > .v-row:nth-of-type(2),
+      .mmu-card .v-card__text > .container > .row:nth-of-type(2) {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+        margin: 0 !important;
+        width: 100% !important;
+      }
+
+      /* Col 1: Transforms into a sleek full-width 34px horizontal status ribbon */
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel,
+      .bambu-ams-card .bambu-ams-toolhead-panel,
+      [layout-path="dashboard.mmu-card"] .bambu-ams-toolhead-panel,
+      .mmu-card .bambu-ams-toolhead-panel {
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        max-height: 34px !important;
+        background: rgba(255, 255, 255, 0.035) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 9px !important;
+        padding: 0 12px !important;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        cursor: pointer !important;
+        transition: background 0.18s ease, border-color 0.18s ease !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel:hover,
+      .bambu-ams-card .bambu-ams-toolhead-panel:hover {
+        background: rgba(255, 255, 255, 0.06) !important;
+        border-color: rgba(255, 255, 255, 0.16) !important;
+      }
+
+      /* Col 2: Contains mmu-controls (full width stack below ribbon) */
+      .v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > .v-col:nth-child(2),
+      .v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > [class*="v-col"]:has(mmu-controls),
+      .v-application .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2) > .col:nth-child(2),
+      .v-application .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2) > [class*="col"]:has(mmu-controls),
+      .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > .v-col:nth-child(2),
+      .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > [class*="v-col"]:has(mmu-controls),
+      [layout-path="dashboard.mmu-card"] .v-card__text > .container > [class*="v-col"]:has(mmu-controls),
+      .mmu-card .v-card__text > .container > [class*="v-col"]:has(mmu-controls) {
+        display: flex !important;
+        flex-direction: column !important;
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        gap: 6px !important;
+      }
+
+      /* Hide the clunky stock SVG wire diagram, TTG schematic, and gate summary in card */
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel svg[ref="filStatusSvg"],
+      .bambu-ams-card .bambu-ams-toolhead-panel svg[ref="filStatusSvg"],
+      [layout-path="dashboard.mmu-card"] svg[ref="filStatusSvg"],
+      .mmu-card svg[ref="filStatusSvg"],
+      .v-application .bambu-ams-card mmu-ttg-map,
+      .bambu-ams-card mmu-ttg-map,
+      [layout-path="dashboard.mmu-card"] mmu-ttg-map,
+      .mmu-card mmu-ttg-map,
+      .v-application .bambu-ams-card .bambu-ams-ttg-panel,
+      .bambu-ams-card .bambu-ams-ttg-panel,
+      .v-application .bambu-ams-card mmu-gate-summary,
+      .bambu-ams-card mmu-gate-summary,
+      .v-application .bambu-ams-card .bambu-ams-summary-card,
+      .bambu-ams-card .bambu-ams-summary-card {
+        display: none !important;
+      }
+
+      /* Status Ribbon */
+      .v-application .bambu-ams-card .bambu-status-ribbon,
+      .bambu-ams-card .bambu-status-ribbon,
+      [layout-path="dashboard.mmu-card"] .bambu-status-ribbon,
+      .mmu-card .bambu-status-ribbon {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-status-left,
+      .bambu-ams-card .bambu-status-left {
+        display: flex !important;
         align-items: center !important;
         gap: 8px !important;
       }
 
-      .v-application .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font::before {
-        content: "" !important;
-        display: inline-block !important;
+      .v-application .bambu-ams-card .bambu-status-dot,
+      .bambu-ams-card .bambu-status-dot {
         width: 8px !important;
         height: 8px !important;
         border-radius: 50% !important;
         background: #00C250 !important;
-        box-shadow: 0 0 8px #00C250 !important;
+        box-shadow: 0 0 10px #00C250 !important;
+        display: inline-block !important;
       }
 
-      /* Spool Metadata Card */
-      .v-application .bambu-ams-card .bambu-ams-summary-card,
-      .bambu-ams-card .v-card.bambu-ams-summary-card {
-        display: block !important;
-        background: #181A22 !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-left: 4px solid #00C250 !important;
-        border-radius: 12px !important;
-        padding: 12px 16px !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
-        margin-bottom: 14px !important;
-      }
-
-      .v-application .bambu-ams-card .bambu-ams-summary-card .text-overline {
-        color: #00C250 !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.08em !important;
-        font-size: 0.75rem !important;
-        margin-bottom: 4px !important;
-      }
-
-      .v-application .bambu-ams-card .bambu-ams-summary-card .text-h6 {
-        color: #FFFFFF !important;
+      .v-application .bambu-ams-card .bambu-status-title,
+      .bambu-ams-card .bambu-status-title {
+        font-size: 0.8rem !important;
         font-weight: 700 !important;
-        font-size: 1.2rem !important;
-        letter-spacing: -0.01em !important;
-        margin-bottom: 4px !important;
-      }
-
-      .v-application .bambu-ams-card .bambu-ams-summary-card .subtitle-container {
-        color: #A1A1AA !important;
-        font-size: 0.85rem !important;
-      }
-
-      /* Maintenance Utility Buttons */
-      .v-application .bambu-ams-card .bambu-btn-secondary,
-      .theme--dark.v-btn.bambu-btn-secondary {
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 8px !important;
-        color: #E4E4E7 !important;
-        font-weight: 600 !important;
-        font-size: 0.82rem !important;
         letter-spacing: 0.04em !important;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        text-transform: uppercase !important;
+        color: #FFFFFF !important;
+        white-space: nowrap !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-status-right,
+      .bambu-ams-card .bambu-status-right {
+        display: flex !important;
+        align-items: center !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-temp-badge,
+      .bambu-ams-card .bambu-temp-badge {
+        font-size: 0.74rem !important;
+        font-weight: 700 !important;
+        color: #A1A1AA !important;
+        background: rgba(255, 255, 255, 0.06) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 6px !important;
+        padding: 1px 8px !important;
+        letter-spacing: 0.03em !important;
+      }
+
+      /* =========================================================
+         TIER 3: Action Dock (Single-Row Tools + Load/Unload Hero)
+         ========================================================= */
+
+      /* Controls Container */
+      .v-application .bambu-ams-card mmu-controls,
+      .bambu-ams-card mmu-controls,
+      [layout-path="dashboard.mmu-card"] mmu-controls,
+      .mmu-card mmu-controls {
+        width: 100% !important;
+        margin-top: 0 !important;
+      }
+
+      .v-application .bambu-ams-card mmu-controls > .container,
+      .v-application .bambu-ams-card mmu-controls .mmu-controls-container,
+      .bambu-ams-card mmu-controls > .container,
+      .bambu-ams-card mmu-controls .mmu-controls-container,
+      [layout-path="dashboard.mmu-card"] mmu-controls > .container,
+      [layout-path="dashboard.mmu-card"] mmu-controls .mmu-controls-container,
+      .mmu-card mmu-controls > .container,
+      .mmu-card mmu-controls .mmu-controls-container {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+      }
+
+      /* Secondary Tools Row: Unwrap rows 0, 1, 2 into a single unified flex row */
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child),
+      .v-application .bambu-ams-card mmu-controls .row:not(:last-child),
+      .bambu-ams-card mmu-controls .v-row:not(:last-child),
+      .bambu-ams-card mmu-controls .row:not(:last-child),
+      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child),
+      [layout-path="dashboard.mmu-card"] mmu-controls .row:not(:last-child),
+      .mmu-card mmu-controls .v-row:not(:last-child),
+      .mmu-card mmu-controls .row:not(:last-child) {
+        display: contents !important;
+      }
+
+      /* All 5 Secondary Utility Buttons Cols sit in ONE single horizontal row (order: 1) */
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) > .v-col,
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) > [class*="v-col"],
+      .v-application .bambu-ams-card mmu-controls .row:not(:last-child) > .col,
+      .v-application .bambu-ams-card mmu-controls .row:not(:last-child) > [class*="col"],
+      .bambu-ams-card mmu-controls .v-row:not(:last-child) > .v-col,
+      .bambu-ams-card mmu-controls .v-row:not(:last-child) > [class*="v-col"],
+      .bambu-ams-card mmu-controls .row:not(:last-child) > .col,
+      .bambu-ams-card mmu-controls .row:not(:last-child) > [class*="col"],
+      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child) > [class*="v-col"],
+      .mmu-card mmu-controls .v-row:not(:last-child) > [class*="v-col"] {
+        display: flex !important;
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        width: auto !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        order: 1 !important;
+      }
+
+      /* Compact Mini-Pill Style for Secondary Buttons */
+      .v-application .bambu-ams-card .bambu-btn-secondary,
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn,
+      .theme--dark.v-btn.bambu-btn-secondary,
+      .bambu-ams-card .bambu-btn-secondary,
+      .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-secondary,
+      .mmu-card .bambu-btn-secondary,
+      .mmu-card mmu-controls .v-row:not(:last-child) .v-btn {
+        height: 28px !important;
+        min-height: 28px !important;
+        max-height: 28px !important;
+        padding: 0 4px !important;
+        background: rgba(255, 255, 255, 0.045) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 6px !important;
+        color: #D4D4D8 !important;
+        font-weight: 600 !important;
+        font-size: 0.65rem !important;
+        letter-spacing: 0.02em !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+        overflow: hidden !important;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25) !important;
+        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        width: 100% !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-btn-secondary .v-btn__content,
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn .v-btn__content {
+        font-size: 0.65rem !important;
+        letter-spacing: 0.01em !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        padding: 0 2px !important;
+      }
+
+      .v-application .bambu-ams-card .bambu-btn-secondary .v-icon,
+      .theme--dark.v-btn.bambu-btn-secondary .v-icon,
+      .mmu-card mmu-controls .v-row:not(:last-child) .v-btn .v-icon {
+        font-size: 11px !important;
+        margin-right: 2px !important;
       }
 
       .v-application .bambu-ams-card .bambu-btn-secondary:hover:not(:disabled),
-      .theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.12) !important;
-        border-color: rgba(255, 255, 255, 0.25) !important;
+      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn:hover:not(:disabled),
+      .theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled),
+      [layout-path="dashboard.mmu-card"] .bambu-btn-secondary:hover:not(:disabled),
+      .mmu-card .bambu-btn-secondary:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: rgba(255, 255, 255, 0.22) !important;
         color: #FFFFFF !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35) !important;
       }
 
-      /* UNLOAD Button: High-Tech Warm Pill */
+      /* Primary Action Bar: Big Bold UNLOAD & LOAD Buttons (order: 2, breaks onto next row) */
+      .v-application .bambu-ams-card mmu-controls .v-row:last-child,
+      .v-application .bambu-ams-card mmu-controls .row:last-child,
+      .bambu-ams-card mmu-controls .v-row:last-child,
+      .bambu-ams-card mmu-controls .row:last-child,
+      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child,
+      [layout-path="dashboard.mmu-card"] mmu-controls .row:last-child,
+      .mmu-card mmu-controls .v-row:last-child,
+      .mmu-card mmu-controls .row:last-child {
+        margin: 4px 0 0 0 !important;
+        display: flex !important;
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        order: 2 !important;
+        gap: 6px !important;
+      }
+
+      .v-application .bambu-ams-card mmu-controls .v-row:last-child > .v-col,
+      .v-application .bambu-ams-card mmu-controls .v-row:last-child > [class*="v-col"],
+      .v-application .bambu-ams-card mmu-controls .row:last-child > .col,
+      .v-application .bambu-ams-card mmu-controls .row:last-child > [class*="col"],
+      .bambu-ams-card mmu-controls .v-row:last-child > .v-col,
+      .bambu-ams-card mmu-controls .v-row:last-child > [class*="v-col"],
+      .bambu-ams-card mmu-controls .row:last-child > .col,
+      .bambu-ams-card mmu-controls .row:last-child > [class*="col"],
+      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child > [class*="v-col"],
+      .mmu-card mmu-controls .v-row:last-child > [class*="v-col"] {
+        padding: 0 !important;
+        margin: 0 !important;
+        flex: 1 1 0 !important;
+        max-width: none !important;
+      }
+
+      /* UNLOAD Button: High-Tech Warm Coral Pill */
       .v-application .bambu-ams-card .bambu-btn-unload,
       .theme--dark.v-btn.bambu-btn-unload,
-      .bambu-btn-unload {
-        background: linear-gradient(135deg, rgba(255, 87, 34, 0.25) 0%, rgba(216, 67, 21, 0.38) 100%) !important;
-        background-color: rgba(255, 87, 34, 0.25) !important;
-        color: #FF7043 !important;
-        border: 1.5px solid rgba(255, 87, 34, 0.55) !important;
+      .bambu-btn-unload,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-unload,
+      .mmu-card .bambu-btn-unload {
+        height: 42px !important;
+        min-height: 42px !important;
+        width: 100% !important;
         border-radius: 10px !important;
-        font-weight: 700 !important;
+        font-weight: 800 !important;
         font-size: 0.95rem !important;
         letter-spacing: 0.05em !important;
-        box-shadow: 0 4px 14px rgba(255, 87, 34, 0.25) !important;
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        text-transform: uppercase !important;
+        background: linear-gradient(135deg, rgba(255, 87, 34, 0.28) 0%, rgba(216, 67, 21, 0.42) 100%) !important;
+        background-color: rgba(255, 87, 34, 0.28) !important;
+        color: #FF7043 !important;
+        border: 1.5px solid rgba(255, 87, 34, 0.55) !important;
+        box-shadow: 0 3px 12px rgba(255, 87, 34, 0.2) !important;
+        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
       }
 
       .v-application .bambu-ams-card .bambu-btn-unload:hover:not(:disabled),
-      .theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled) {
+      .theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled),
+      [layout-path="dashboard.mmu-card"] .bambu-btn-unload:hover:not(:disabled),
+      .mmu-card .bambu-btn-unload:hover:not(:disabled) {
         background: linear-gradient(135deg, #FF5722 0%, #D84315 100%) !important;
         background-color: #FF5722 !important;
         color: #FFFFFF !important;
         border-color: #FF7043 !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 6px 20px rgba(255, 87, 34, 0.45) !important;
+        box-shadow: 0 5px 16px rgba(255, 87, 34, 0.4) !important;
       }
 
       /* UNLOAD Button when disabled/standby */
@@ -838,7 +1220,9 @@
       .v-application .bambu-ams-card .bambu-btn-unload:disabled,
       .theme--dark.v-btn.bambu-btn-unload.v-btn--disabled,
       .theme--dark.v-btn.bambu-btn-unload.v-btn--disabled.v-btn--has-bg,
-      .bambu-btn-unload.v-btn--disabled {
+      .bambu-btn-unload.v-btn--disabled,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-unload.v-btn--disabled,
+      .mmu-card .bambu-btn-unload.v-btn--disabled {
         background: rgba(255, 112, 67, 0.14) !important;
         background-color: rgba(255, 112, 67, 0.14) !important;
         color: rgba(255, 112, 67, 0.65) !important;
@@ -852,26 +1236,34 @@
       /* LOAD Button: Iconic Bambu Green */
       .v-application .bambu-ams-card .bambu-btn-load,
       .theme--dark.v-btn.bambu-btn-load,
-      .bambu-btn-load {
+      .bambu-btn-load,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-load,
+      .mmu-card .bambu-btn-load {
+        height: 42px !important;
+        min-height: 42px !important;
+        width: 100% !important;
+        border-radius: 10px !important;
+        font-weight: 800 !important;
+        font-size: 0.95rem !important;
+        letter-spacing: 0.05em !important;
+        text-transform: uppercase !important;
         background: linear-gradient(135deg, #00C250 0%, #00963C 100%) !important;
         background-color: #00C250 !important;
         color: #FFFFFF !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
-        border-radius: 10px !important;
-        font-weight: 700 !important;
-        font-size: 0.95rem !important;
-        letter-spacing: 0.05em !important;
-        box-shadow: 0 4px 16px rgba(0, 194, 80, 0.45) !important;
-        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
+        box-shadow: 0 3px 14px rgba(0, 194, 80, 0.35) !important;
+        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
       }
 
       .v-application .bambu-ams-card .bambu-btn-load:hover:not(:disabled),
-      .theme--dark.v-btn.bambu-btn-load:hover:not(:disabled) {
+      .theme--dark.v-btn.bambu-btn-load:hover:not(:disabled),
+      [layout-path="dashboard.mmu-card"] .bambu-btn-load:hover:not(:disabled),
+      .mmu-card .bambu-btn-load:hover:not(:disabled) {
         background: linear-gradient(135deg, #00E65E 0%, #00AE42 100%) !important;
         background-color: #00E65E !important;
         color: #FFFFFF !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 6px 22px rgba(0, 194, 80, 0.6) !important;
+        box-shadow: 0 5px 18px rgba(0, 194, 80, 0.5) !important;
         filter: brightness(1.06) !important;
       }
 
@@ -880,7 +1272,9 @@
       .v-application .bambu-ams-card .bambu-btn-load:disabled,
       .theme--dark.v-btn.bambu-btn-load.v-btn--disabled,
       .theme--dark.v-btn.bambu-btn-load.v-btn--disabled.v-btn--has-bg,
-      .bambu-btn-load.v-btn--disabled {
+      .bambu-btn-load.v-btn--disabled,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-load.v-btn--disabled,
+      .mmu-card .bambu-btn-load.v-btn--disabled {
         background: rgba(0, 174, 66, 0.22) !important;
         background-color: rgba(0, 174, 66, 0.22) !important;
         color: rgba(0, 230, 94, 0.85) !important;
@@ -893,25 +1287,13 @@
 
       /* Generic disabled button */
       .v-application .bambu-ams-card .bambu-btn-secondary:disabled,
-      .theme--dark.v-btn.bambu-btn-secondary:disabled {
+      .theme--dark.v-btn.bambu-btn-secondary:disabled,
+      [layout-path="dashboard.mmu-card"] .bambu-btn-secondary:disabled,
+      .mmu-card .bambu-btn-secondary:disabled {
         opacity: 0.4 !important;
         cursor: not-allowed !important;
         box-shadow: none !important;
         transform: none !important;
-      }
-
-      /* Tool Mapping Schematic Panel */
-      .v-application .bambu-ams-card .bambu-ams-ttg-panel svg,
-      .v-application .bambu-ams-card svg[ref="ttgMap"],
-      .v-application .bambu-ams-card svg.cursor-pointer[viewBox*="100 100"] {
-        display: block !important;
-        background: rgba(0, 0, 0, 0.35) !important;
-        border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 12px !important;
-        padding: 8px !important;
-        margin-top: 8px !important;
-        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45) !important;
-        transition: border-color 0.22s ease !important;
       }
     `;
 
@@ -940,8 +1322,80 @@
     // 4. Decorate Filament Status & Toolhead Flow
     const filStatusSvg = card.querySelector('svg.svg-colors, [ref="filStatusSvg"]');
     if (filStatusSvg) {
-      const filCol = filStatusSvg.closest('.col');
-      if (filCol) filCol.classList.add('bambu-ams-toolhead-panel');
+      const filCol = filStatusSvg.closest('.v-col, .col');
+      if (filCol) {
+        filCol.classList.add('bambu-ams-toolhead-panel');
+        filCol.style.width = '100%';
+        filCol.style.maxWidth = '100%';
+        filCol.style.flex = '1 1 100%';
+
+        // Hide only DIRECT sibling columns (e.g. TTG map) — never anything
+        // inside or containing mmu-controls (its buttons live in nested .col's)
+        const parentRow = filCol.parentElement;
+        if (parentRow) {
+          Array.from(parentRow.children).forEach((col) => {
+            if (col === filCol) return;
+            if (!col.matches('.v-col, .col, [class*="col-"]')) return;
+            if (col.querySelector('mmu-controls') || col.closest('mmu-controls')) return;
+            col.style.display = 'none';
+          });
+          // Undo any stale hiding from earlier versions
+          card.querySelectorAll('mmu-controls .col, mmu-controls .v-col, mmu-controls [class*="col-"]').forEach((c) => {
+            c.style.display = '';
+          });
+        }
+
+        // Extract nozzle temperature or tool text if available
+        let nozzleTemp = '';
+        const allSvgTexts = filStatusSvg.querySelectorAll('text');
+        allSvgTexts.forEach((t) => {
+          const content = (t.textContent || '').trim();
+          if (content.includes('°C')) {
+            nozzleTemp = content;
+          }
+        });
+
+        // Determine active gate or loaded status
+        let statusText = 'Filament: Unloaded';
+        allSvgTexts.forEach((t) => {
+          const content = (t.textContent || '').trim();
+          if (/unloaded|loaded|printing/i.test(content)) {
+            statusText = content;
+          }
+        });
+
+        const activeBay = card.querySelector('.bambu-bay-active, .highlight-spool');
+        if (activeBay) {
+          const gText = activeBay.querySelector('text');
+          const gateNum = gText ? gText.textContent.trim() : '';
+          statusText = gateNum ? `Loaded: Gate ${gateNum}` : 'Filament: Loaded';
+        }
+
+        // Inject or update sleek HTML status ribbon
+        let ribbon = filCol.querySelector('.bambu-status-ribbon');
+        if (!ribbon) {
+          ribbon = document.createElement('div');
+          ribbon.className = 'bambu-status-ribbon';
+          filCol.insertBefore(ribbon, filCol.firstChild);
+        }
+
+        ribbon.style.cursor = 'pointer';
+        ribbon.title = 'Click to open KLIPPACE Tool Mapper';
+        ribbon.onclick = (e) => {
+          e.stopPropagation();
+          openToolMapper();
+        };
+
+        ribbon.innerHTML = `
+          <div class="bambu-status-left">
+            <span class="bambu-status-dot"></span>
+            <span class="bambu-status-title">${statusText}</span>
+          </div>
+          <div class="bambu-status-right">
+            <span class="bambu-temp-badge">${nozzleTemp || 'Nozzle: Ready'}</span>
+          </div>
+        `;
+      }
     }
 
     // 5. Decorate Spool Metadata Summary
@@ -955,6 +1409,11 @@
         c.classList.add('bambu-ams-summary-card');
       }
     });
+    const gateSummary = card.querySelector('mmu-gate-summary');
+    if (gateSummary) {
+      gateSummary.classList.add('bambu-ams-summary-card');
+      gateSummary.style.display = 'none';
+    }
 
     // 6. Decorate Title with AMS Badge
     const titleEl = card.querySelector('.v-card__title');
@@ -969,7 +1428,7 @@
     const btns = card.querySelectorAll('.v-btn');
     btns.forEach((btn) => {
       const txt = (btn.textContent || '').trim().toLowerCase();
-      if (txt.includes('preload')) {
+      if (txt.includes('preload') || txt.includes('eject') || txt.includes('check gate') || txt.includes('recover') || txt.includes('unlock') || txt.includes('lock')) {
         btn.classList.add('bambu-btn-secondary');
         btn.classList.remove('bambu-btn-load', 'bambu-btn-unload');
       } else if (txt.includes('unload')) {
@@ -984,11 +1443,31 @@
       }
     });
 
-    // 7. Decorate Tool Mapping Schematic
+    // 8. Hide redundant stock TTG schematics and gate summary from card deck
     const ttgSvg = card.querySelector('svg.cursor-pointer, svg[ref="ttgMap"]');
     if (ttgSvg) {
-      const ttgCol = ttgSvg.closest('.col');
-      if (ttgCol) ttgCol.classList.add('bambu-ams-ttg-panel');
+      ttgSvg.style.display = 'none';
+    }
+    const ttgMapEl = card.querySelector('mmu-ttg-map');
+    if (ttgMapEl) {
+      ttgMapEl.style.display = 'none';
+    }
+
+    // 9. Ensure Controls Container and its Column are 100% Width & Visible
+    const mmuControls = card.querySelector('mmu-controls');
+    if (mmuControls) {
+      mmuControls.style.display = 'block';
+      mmuControls.style.width = '100%';
+      const ctrlCol = mmuControls.closest('.v-col, .col');
+      if (ctrlCol) {
+        ctrlCol.style.display = 'flex';
+        ctrlCol.style.flexDirection = 'column';
+        ctrlCol.style.width = '100%';
+        ctrlCol.style.maxWidth = '100%';
+        ctrlCol.style.flex = '1 1 100%';
+        ctrlCol.style.padding = '0';
+        ctrlCol.style.margin = '0';
+      }
     }
   }
 

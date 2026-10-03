@@ -1042,14 +1042,10 @@ svg.svg-colors {
   border-color: rgba(255, 255, 255, 0.16) !important;
 }
 
-/* Col 2: Contains mmu-controls (full width stack below ribbon) */
+/* Col 2: holds the action controls, full width below the ribbon */
 .v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > .v-col:nth-child(2),
-.v-application .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > [class*="v-col"]:has(mmu-controls),
 .v-application .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2) > .col:nth-child(2),
-.v-application .bambu-ams-card .v-card__text > .container > .row:nth-of-type(2) > [class*="col"]:has(mmu-controls),
 .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > .v-col:nth-child(2),
-.bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > [class*="v-col"]:has(mmu-controls),
-[layout-path="dashboard.mmu-card"] .v-card__text > .container > [class*="v-col"]:has(mmu-controls),
 
 /* Hide the clunky stock SVG wire diagram, TTG schematic, and gate summary in card */
 .v-application .bambu-ams-card .bambu-ams-toolhead-panel svg[ref="filStatusSvg"],
@@ -1150,44 +1146,16 @@ svg.svg-colors {
          ========================================================= */
 
       /* Controls Container */
-      .v-application .bambu-ams-card mmu-controls,
-      .bambu-ams-card mmu-controls,
-      [layout-path="dashboard.mmu-card"] mmu-controls,
 
-      .v-application .bambu-ams-card mmu-controls > .container,
-      .v-application .bambu-ams-card mmu-controls .mmu-controls-container,
-      .bambu-ams-card mmu-controls > .container,
-      .bambu-ams-card mmu-controls .mmu-controls-container,
-      [layout-path="dashboard.mmu-card"] mmu-controls > .container,
-      [layout-path="dashboard.mmu-card"] mmu-controls .mmu-controls-container,
-      .mmu-card mmu-controls > .container,
 
       /* Secondary Tools Row: Unwrap rows 0, 1, 2 into a single unified flex row */
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child),
-      .v-application .bambu-ams-card mmu-controls .row:not(:last-child),
-      .bambu-ams-card mmu-controls .v-row:not(:last-child),
-      .bambu-ams-card mmu-controls .row:not(:last-child),
-      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child),
-      [layout-path="dashboard.mmu-card"] mmu-controls .row:not(:last-child),
-      .mmu-card mmu-controls .v-row:not(:last-child),
 
       /* All 5 Secondary Utility Buttons Cols sit in ONE single horizontal row (order: 1) */
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) > .v-col,
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) > [class*="v-col"],
-      .v-application .bambu-ams-card mmu-controls .row:not(:last-child) > .col,
-      .v-application .bambu-ams-card mmu-controls .row:not(:last-child) > [class*="col"],
-      .bambu-ams-card mmu-controls .v-row:not(:last-child) > .v-col,
-      .bambu-ams-card mmu-controls .v-row:not(:last-child) > [class*="v-col"],
-      .bambu-ams-card mmu-controls .row:not(:last-child) > .col,
-      .bambu-ams-card mmu-controls .row:not(:last-child) > [class*="col"],
-      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child) > [class*="v-col"],
 
       /* Compact Mini-Pill Style for Secondary Buttons */
       .v-application .bambu-ams-card .bambu-btn-secondary,
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn,
       .theme--dark.v-btn.bambu-btn-secondary,
       .bambu-ams-card .bambu-btn-secondary,
-      .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn,
       [layout-path="dashboard.mmu-card"] .bambu-btn-secondary,
       .mmu-card .bambu-btn-secondary,
 
@@ -1197,28 +1165,11 @@ svg.svg-colors {
       .theme--dark.v-btn.bambu-btn-secondary .v-icon,
 
       .v-application .bambu-ams-card .bambu-btn-secondary:hover:not(:disabled),
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn:hover:not(:disabled),
       .theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled),
       [layout-path="dashboard.mmu-card"] .bambu-btn-secondary:hover:not(:disabled),
 
       /* Primary Action Bar: Big Bold UNLOAD & LOAD Buttons (order: 2, breaks onto next row) */
-      .v-application .bambu-ams-card mmu-controls .v-row:last-child,
-      .v-application .bambu-ams-card mmu-controls .row:last-child,
-      .bambu-ams-card mmu-controls .v-row:last-child,
-      .bambu-ams-card mmu-controls .row:last-child,
-      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child,
-      [layout-path="dashboard.mmu-card"] mmu-controls .row:last-child,
-      .mmu-card mmu-controls .v-row:last-child,
 
-      .v-application .bambu-ams-card mmu-controls .v-row:last-child > .v-col,
-      .v-application .bambu-ams-card mmu-controls .v-row:last-child > [class*="v-col"],
-      .v-application .bambu-ams-card mmu-controls .row:last-child > .col,
-      .v-application .bambu-ams-card mmu-controls .row:last-child > [class*="col"],
-      .bambu-ams-card mmu-controls .v-row:last-child > .v-col,
-      .bambu-ams-card mmu-controls .v-row:last-child > [class*="v-col"],
-      .bambu-ams-card mmu-controls .row:last-child > .col,
-      .bambu-ams-card mmu-controls .row:last-child > [class*="col"],
-      [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child > [class*="v-col"],
 
 /* UNLOAD Button: primary-toned outline */
 .v-application .bambu-ams-card .bambu-btn-unload,
@@ -1625,7 +1576,6 @@ svg.svg-colors {
    Everything here targets those, plus the data-klippace-action /
    data-klippace-disabled attributes the decorator adds.
 
-   The previous button styles targeted `mmu-controls`, `bambu-btn-secondary`,
    `bambu-btn-unload` and `bambu-btn-load`, none of which exist in the DOM, so
    they never applied.
    ========================================================= */

@@ -539,69 +539,297 @@
     return list;
   }
 
+  // --- Gate tile building (color swatches) ---
+  let cachedMmu = null;
+  let mmuFetchedAt = 0;
+  let mmuFetchPromise = null;
+  const MMU_CACHE_TTL_MS = 3000;
+
+  function getCachedMmu() {
+    const fresh = cachedMmu && (Date.now() - mmuFetchedAt < MMU_CACHE_TTL_MS);
+    if (fresh) return Promise.resolve(cachedMmu);
+    if (mmuFetchPromise) return mmuFetchPromise;
+    // Do NOT permanently cache a null result (the first query often runs before
+    // Moonraker connects, returning null) — otherwise swatch colours stay blank.
+    // A short TTL also keeps colours current after spool/tool changes.
+    // Clearing the in-flight promise afterwards lets a later call retry.
+    mmuFetchPromise = fetchMmuState()
+      .then((m) => { if (m) { cachedMmu = m; mmuFetchedAt = Date.now(); } return m; })
+      .catch(() => null)
+      .then((m) => { mmuFetchPromise = null; return m; });
+    return mmuFetchPromise;
+  }
+
+  function buildGateTiles(card) {
+    const unit = card.querySelector('.mmu-unit:not(.mmu-unit-clear)');
+    if (!unit) return;
+    unit.querySelectorAll('.gate').forEach((gate, i) => {
+      if (gate.querySelector('.klippace-swatch')) return; // idempotent
+      const swatch = document.createElement('div');
+      swatch.className = 'klippace-swatch';
+      gate.insertBefore(swatch, gate.firstChild);
+
+      // Slot badge: gate number + spool-present indicator, replacing the native
+      // (hardcoded-green) ring so the indicator reflects real spool presence.
+      const slot = document.createElement('div');
+      slot.className = 'klippace-slot';
+      slot.innerHTML = `
+        <span class="klippace-slot-dot" data-present="unknown"></span>
+        <span class="klippace-slot-num">${i}</span>
+      `;
+      gate.appendChild(slot);
+
+      const material = document.createElement('div');
+      material.className = 'klippace-gate-material';
+      material.textContent = '';
+      gate.appendChild(material);
+    });
+  }
+
+  function updateStatusRibbon(card, mmu) {
+    const ribbon = card.querySelector('.bambu-status-ribbon');
+    if (!ribbon) return;
+    const title = ribbon.querySelector('.bambu-status-title');
+    const temp = ribbon.querySelector('.bambu-temp-badge');
+    const dot = ribbon.querySelector('.bambu-status-dot');
+
+    // Authoritative MMU state. `gate`/`tool` are the SELECTED index only and do
+    // NOT indicate whether filament is actually loaded — that is `filament_pos`
+    // (bowden → splitter → toolhead → nozzle) and `action`. Using `gate` here was
+    // what made the state look wrong/inconsistent.
+    const action = String(mmu.action || 'Idle');
+    const pos = String(mmu.filament_pos || 'bowden').toLowerCase();
+    const gate = (typeof mmu.gate === 'number' && mmu.gate >= 0) ? mmu.gate : null;
+    const tool = (typeof mmu.tool === 'number' && mmu.tool >= 0) ? mmu.tool : null;
+    const id = tool != null ? `T${tool}` : (gate != null ? `Gate ${gate}` : '');
+
+    let stateText, stateClass;
+    if (action && action.toLowerCase() !== 'idle') {
+      // e.g. Loading, Unloading, Exchanging, Checking
+      stateText = id ? `${action} · ${id}` : action;
+      stateClass = 'busy';
+    } else if (pos === 'nozzle') {
+      stateText = id ? `Loaded · ${id}` : 'Loaded';
+      stateClass = 'loaded';
+    } else if (pos === 'toolhead') {
+      stateText = id ? `At toolhead · ${id}` : 'At toolhead';
+      stateClass = 'partial';
+    } else if (pos === 'splitter') {
+      stateText = id ? `At splitter · ${id}` : 'At splitter';
+      stateClass = 'partial';
+    } else {
+      stateText = id ? `Unloaded · ${id}` : 'Unloaded';
+      stateClass = 'unloaded';
+    }
+
+    if (title) {
+      if (title.textContent !== stateText) title.textContent = stateText;
+      if (title.dataset.state !== stateClass) {
+        title.dataset.state = stateClass;
+        ribbon.dataset.state = stateClass;
+      }
+    }
+    if (dot && dot.dataset.state !== stateClass) {
+      dot.dataset.state = stateClass;
+    }
+
+    if (temp) {
+      const unit = mmu.unit?.[0] || {};
+      const t = (unit.temp != null) ? `${unit.temp}°C` : '';
+      const drying = (unit.dryer_status === 'drying');
+      const dryer = drying ? 'Drying' : (unit.dryer_target_temp > 0 ? 'Dryer On' : 'Dryer Off');
+      const next = [t, dryer].filter(Boolean).join(' · ') || 'Nozzle: Ready';
+      if (temp.textContent !== next) temp.textContent = next;
+    }
+  }
+
+  function applyGateData(card, mmu) {
+    if (!mmu) return;
+    const unit = card.querySelector('.mmu-unit:not(.mmu-unit-clear)');
+    if (!unit) return;
+    const activeGate = (typeof mmu.gate === 'number' && mmu.gate >= 0) ? mmu.gate : -1;
+    unit.querySelectorAll('.gate').forEach((gate, i) => {
+      const swatch = gate.querySelector('.klippace-swatch');
+      if (swatch) {
+        const color = mmu.gate_color?.[i] || '#666666';
+        const mat = mmu.gate_material?.[i] || '';
+        // "#000000" (all-zero RGB) is the sentinel the ACE module uses for
+        // "no colour data" (DEFAULT_COLOR = [0,0,0]). Rendering it as pure black
+        // makes the swatch look like a hollow hole and is ambiguous with a real
+        // black spool. Treat all-zero + unknown material as "unknown" so it gets
+        // a distinct neutral placeholder instead.
+        const rgbMatch = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color.replace('#', ''));
+        const isAllZero = rgbMatch
+          ? (parseInt(rgbMatch[1], 16) === 0 && parseInt(rgbMatch[2], 16) === 0 && parseInt(rgbMatch[3], 16) === 0)
+          : false;
+        const matUnknown = !mat || mat.toLowerCase() === 'unknown';
+        const noColor = isAllZero && matUnknown;
+        if (swatch.dataset.nocolor !== (noColor ? 'true' : 'false')) {
+          swatch.dataset.nocolor = noColor ? 'true' : 'false';
+        }
+        // Track in a data attribute (NOT style readback) so this stays
+        // idempotent: the browser normalizes "#ff7f32" -> "rgb(255,127,50)"
+        // on readback, which would otherwise make this write every pass and
+        // re-trigger the MutationObserver in an endless loop.
+        if (swatch.dataset.klippaceColor !== color) {
+          swatch.dataset.klippaceColor = color;
+          swatch.style.backgroundColor = color;
+        }
+      }
+      const material = gate.querySelector('.klippace-gate-material');
+      if (material) {
+        const mat = (mmu.gate_material?.[i] || '').trim();
+        // Show a label for every slot — "Unknown" when there's no material data,
+        // rather than leaving it blank.
+        const label = (mat && mat.toLowerCase() !== 'unknown') ? mat : 'Unknown';
+        if (material.textContent !== label) material.textContent = label;
+        const unknown = (label === 'Unknown');
+        if (material.dataset.unknown !== (unknown ? 'true' : 'false')) {
+          material.dataset.unknown = unknown ? 'true' : 'false';
+        }
+      }
+
+      // Spool-present indicator: 1 = present, 0 = empty, -1/None = unknown.
+      const slotDot = gate.querySelector('.klippace-slot-dot');
+      if (slotDot) {
+        const raw = Array.isArray(mmu.gate_status) ? mmu.gate_status[i] : null;
+        const present = (raw === 1) ? 'present' : (raw === 0 ? 'empty' : 'unknown');
+        if (slotDot.dataset.present !== present) slotDot.dataset.present = present;
+      }
+
+      const shouldActive = (i === activeGate);
+      if (gate.classList.contains('klippace-gate-active') !== shouldActive) {
+        gate.classList.toggle('klippace-gate-active', shouldActive);
+      }
+    });
+    updateStatusRibbon(card, mmu);
+  }
+
+  function decorateHeader(card) {
+    const title = card.querySelector('.v-card__title');
+    if (!title) return;
+
+    // Style the "Mmu" title span via INLINE style. CSS rules targeting the MMU
+    // title cannot be scoped reliably (the JS-added .bambu-ams-card class is
+    // transiently patched away by Vue, and :has()-scoped rules were dropped by
+    // the CSS parser). Inline styles on the persistent span are dependable.
+    const titleSpan = title.querySelector('.font-weight-light');
+    if (titleSpan) {
+      if (titleSpan.style.textTransform !== 'uppercase') {
+        titleSpan.style.textTransform = 'uppercase';
+        titleSpan.style.letterSpacing = '0.02em';
+      }
+    }
+
+    // Move the ACE badge next to the title text (idempotent)
+    const badge = title.querySelector('.bambu-ams-title-badge');
+    const titleCol = title.querySelector('.text-no-wrap');
+    if (badge && titleCol && badge.parentElement !== titleCol) {
+      titleCol.appendChild(badge);
+    }
+    if (badge && badge.style.marginLeft !== '10px') {
+      badge.style.marginLeft = '10px';
+    }
+
+    // Hide the status/refresh round icon button; keep only the collapse chevron
+    title.querySelectorAll('button.v-btn--round, button.v-btn--icon').forEach((btn) => {
+      const path = btn.querySelector('svg path');
+      const d = path ? (path.getAttribute('d') || '') : '';
+      // Collapse chevron (expand_more) contains "L12,10.83"; hide everything else
+      if (!d.includes('L12,10.83')) {
+        if (btn.style.display !== 'none') btn.style.display = 'none';
+      }
+    });
+  }
+
   // --- Bambu Lab AMS Style Injection & Decoration ---
   function decorateBambuMmuCard(card) {
     if (!card || card.closest('#klippace-tool-mapper-overlay')) return;
 
-    // 1. Ensure style element is injected at the bottom of head
-    let style = document.getElementById('klippace-bambu-ams-style');
-    if (!style) {
-      style = document.createElement('style');
-      style.id = 'klippace-bambu-ams-style';
-      document.head.appendChild(style);
+    // Fast path: if the card is already fully decorated, skip ALL structural DOM
+    // work and only refresh live data. This makes repeated calls cheap and, more
+    // importantly, CONVERGENT — once decorated, no further mutations occur, so the
+    // MutationObserver cannot re-trigger itself in an endless loop.
+    const alreadyDecorated =
+      card.classList.contains('bambu-ams-card') &&
+      card.querySelector('.klippace-swatch') &&
+      card.querySelector('.bambu-status-ribbon');
+    if (alreadyDecorated) {
+      getCachedMmu().then((mmu) => { if (mmu) applyGateData(card, mmu); });
+      return;
     }
 
-    style.textContent = `
+    // 1. Inject the style element ONCE. Assigning .textContent on every pass
+    //    would replace its text node (a childList mutation) and re-trigger the
+    //    MutationObserver, causing an endless re-decorate loop.
+    if (!document.getElementById('klippace-bambu-ams-style')) {
+      const style = document.createElement('style');
+      style.id = 'klippace-bambu-ams-style';
+      style.textContent = `
       /* =========================================================
          KLIPPACE - Ultra-Compact Streamlined Deck for MMU / AMS Card
          ========================================================= */
 
-      /* Root Card Frame */
+      /* =========================================================
+         UNSCOPED: hide native MMU clutter so the "old card" never
+         flashes during Vue re-renders / collapse toggles
+         ========================================================= */
+      .gate .clip-spool { display: none !important; }
+      svg.svg-colors { display: none !important; }
+      .col:has(> .mmu-unit-clear) { display: none !important; }
+      .gate-status-row,
+      .gate-status-row-dark-theme,
+      .gate-status-row-light-theme { display: none !important; }
+
+      /* Slot badge: gate number + spool-present indicator */
+      .klippace-slot { display: flex !important; align-items: center !important; justify-content: center !important; gap: 6px !important; margin-top: 4px !important; min-height: 18px !important; }
+      .klippace-slot-num { font-size: 0.95rem !important; font-weight: 700 !important; line-height: 1 !important; color: #e2e5ea !important; }
+      .klippace-slot-dot { width: 9px !important; height: 9px !important; border-radius: 50% !important; flex: 0 0 auto !important; background: #555 !important; transition: none !important; }
+      .klippace-slot-dot[data-present="present"] { background: #4caf50 !important; box-shadow: 0 0 6px rgba(76, 175, 80, 0.7) !important; }
+      .klippace-slot-dot[data-present="empty"] { background: #555 !important; box-shadow: none !important; }
+      .klippace-slot-dot[data-present="unknown"] { background: #ffb300 !important; box-shadow: none !important; }
+      .gate { display: flex !important; flex-direction: column !important; align-items: center !important; justify-content: center !important; flex: 1 1 0 !important; min-width: 0 !important; max-width: 25% !important; gap: 8px !important; min-height: 86px !important; background: rgba(255,255,255,0.03) !important; border: 1px solid rgba(255,255,255,0.08) !important; border-radius: 4px !important; padding: 4px 2px 2px 2px !important; margin: 0 2px !important; transition: none !important; }
+      .mmu-unit { background: rgba(255,255,255,0.04) !important; border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 4px !important; padding: 6px 4px 4px 4px !important; overflow: hidden !important; box-shadow: none !important; }
+      .mmu-unit .v-divider, .mmu-unit hr, .unit-container .v-divider, .unit-container hr, .spool-row .v-divider, .spool-row hr { display: none !important; }
+      .unit-container .d-flex.flex-row.align-center, .unit-container .flex-grow-1.flex-shrink-1, .unit-container .text-caption { display: none !important; }
+
+      /* Root Card Frame: inherit native Vuetify card surface */
       .v-application .bambu-ams-card,
       .v-card.bambu-ams-card,
       [layout-path="dashboard.mmu-card"],
       .mmu-card {
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 16px !important;
-        background: linear-gradient(180deg, #1C1E26 0%, #121318 100%) !important;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
         position: relative !important;
         overflow: hidden !important;
       }
 
-      /* Card Header */
+      /* Card Header (native, no divider) */
       .v-application .bambu-ams-card .v-card__title,
       .bambu-ams-card .v-card__title,
       .v-application .bambu-ams-card .card-heading,
       [layout-path="dashboard.mmu-card"] .v-card__title,
       .mmu-card .v-card__title {
-        font-weight: 700 !important;
-        letter-spacing: -0.01em !important;
-        color: #FFFFFF !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-        padding: 10px 16px !important;
-        margin-bottom: 0 !important;
         display: flex !important;
         align-items: center !important;
         gap: 8px !important;
-        background: rgba(255, 255, 255, 0.02) !important;
       }
 
       .v-application .bambu-ams-card .bambu-ams-title-badge,
       .bambu-ams-card .bambu-ams-title-badge,
       [layout-path="dashboard.mmu-card"] .bambu-ams-title-badge,
-      .mmu-card .bambu-ams-title-badge {
-        background: rgba(0, 194, 80, 0.16) !important;
-        color: #00C250 !important;
-        border: 1px solid rgba(0, 194, 80, 0.35) !important;
+      .mmu-card .bambu-ams-title-badge,
+      .bambu-ams-title-badge {
+        background: rgba(255, 255, 255, 0.06) !important;
+        color: var(--v-primary-base, #ff2300) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
         font-size: 0.65rem !important;
-        font-weight: 800 !important;
+        font-weight: 700 !important;
         padding: 1px 6px !important;
-        border-radius: 5px !important;
-        letter-spacing: 0.08em !important;
+        border-radius: 4px !important;
+        letter-spacing: 0.06em !important;
         text-transform: uppercase !important;
         display: inline-block !important;
         line-height: 1.3 !important;
+        transition: none !important;
       }
 
       /* Hide stock dividing lines */
@@ -697,40 +925,22 @@
         height: 0 !important;
       }
 
-      /* AMS Enclosure: Authentic Smoked Acrylic Dome */
+      /* AMS Enclosure: subtle raised surface */
       .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear),
       .bambu-ams-card .mmu-unit:not(.mmu-unit-clear),
       [layout-path="dashboard.mmu-card"] .mmu-unit:not(.mmu-unit-clear),
       .mmu-card .mmu-unit:not(.mmu-unit-clear) {
         width: 100% !important;
         position: relative !important;
-        background: linear-gradient(180deg, #262B37 0%, #14161D 100%) !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.18) !important;
-        border-radius: 14px !important;
-        box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.7), inset 0 2px 3px rgba(255, 255, 255, 0.25) !important;
-        backdrop-filter: blur(14px) !important;
-        -webkit-backdrop-filter: blur(14px) !important;
-        padding: 8px 6px 4px 6px !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 4px !important;
+        padding: 6px 4px 4px 4px !important;
         margin-bottom: 0 !important;
         overflow: hidden !important;
       }
 
-      /* Smoked Glass Dome Gloss Reflection */
-      .v-application .bambu-ams-card .bambu-ams-unit:not(.mmu-unit-clear)::before,
-      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear)::before,
-      [layout-path="dashboard.mmu-card"] .mmu-unit:not(.mmu-unit-clear)::before,
-      .mmu-card .mmu-unit:not(.mmu-unit-clear)::before {
-        content: "" !important;
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        height: 44% !important;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.02) 60%, transparent 100%) !important;
-        border-radius: 14px 14px 0 0 !important;
-        pointer-events: none !important;
-        z-index: 1 !important;
-      }
+      /* (dome gloss reflection removed to match native theme) */
 
       /* Spool Cassette Bay Row */
       .v-application .bambu-ams-card .bambu-ams-unit .v-row,
@@ -753,15 +963,12 @@
         flex: 1 1 0 !important;
         min-width: 0 !important;
         max-width: 25% !important;
-        background: #0E1015 !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 10px !important;
+        background: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-radius: 4px !important;
         padding: 4px 2px 2px 2px !important;
         margin: 0 2px !important;
-        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7) !important;
-        transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-                    background 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-                    border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        transition: background 0.15s ease, border-color 0.15s ease !important;
         position: relative !important;
         z-index: 2 !important;
       }
@@ -770,21 +977,18 @@
       .bambu-ams-card .gate:hover,
       [layout-path="dashboard.mmu-card"] .gate:hover,
       .mmu-card .gate:hover {
-        background: #181B24 !important;
-        border-color: rgba(255, 255, 255, 0.25) !important;
-        transform: translateY(-2px) !important;
-        box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        background: rgba(255, 255, 255, 0.07) !important;
+        border-color: rgba(255, 255, 255, 0.2) !important;
       }
 
-      /* Active / Loaded Bay Neon Green Glow */
+      /* Active / Loaded Bay Highlight */
       .v-application .bambu-ams-card .bambu-ams-bay.bambu-bay-active,
       .v-application .bambu-ams-card .bambu-ams-bay:has(.highlight-spool),
       .bambu-ams-card .gate.highlight-spool,
       [layout-path="dashboard.mmu-card"] .gate.highlight-spool,
       .mmu-card .gate.highlight-spool {
-        border-color: #00C250 !important;
-        background: linear-gradient(180deg, rgba(0, 194, 80, 0.16) 0%, #0E1015 100%) !important;
-        box-shadow: inset 0 0 12px rgba(0, 194, 80, 0.35), 0 0 14px rgba(0, 194, 80, 0.4) !important;
+        border-color: var(--v-primary-base, #ff2300) !important;
+        background: rgba(255, 255, 255, 0.07) !important;
       }
 
       /* Spool Graphic Depth */
@@ -806,17 +1010,7 @@
         transform: scale(1.03) !important;
       }
 
-      /* Slot Badges & Gate Numbers */
-      .v-application .bambu-ams-card .gate-status-row,
-      .bambu-ams-card .gate-status-row,
-      [layout-path="dashboard.mmu-card"] .gate-status-row,
-      .mmu-card .gate-status-row {
-        background: transparent !important;
-        margin-top: 2px !important;
-        display: flex !important;
-        justify-content: center !important;
-      }
-
+      /* Native gate-status SVG is replaced by the .klippace-slot badge (see top). */
       .v-application .bambu-ams-card svg[ref="mmuGateStatusSvg"],
       .v-application .bambu-ams-card .mmu-gate-status svg,
       [layout-path="dashboard.mmu-card"] svg[ref="mmuGateStatusSvg"],
@@ -842,9 +1036,9 @@
       .mmu-card .mmu-unit-footer span {
         display: inline-flex !important;
         align-items: center !important;
-        background: rgba(255, 255, 255, 0.07) !important;
+        background: rgba(255, 255, 255, 0.06) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 12px !important;
+        border-radius: 4px !important;
         padding: 1px 8px !important;
         font-size: 0.65rem !important;
         font-weight: 700 !important;
@@ -861,8 +1055,8 @@
         width: 68px !important;
         height: 100% !important;
         background: rgba(255, 255, 255, 0.02) !important;
-        border: 1.5px dashed rgba(255, 255, 255, 0.16) !important;
-        border-radius: 14px !important;
+        border: 1px dashed rgba(255, 255, 255, 0.16) !important;
+        border-radius: 4px !important;
         box-shadow: none !important;
         padding: 6px 2px !important;
         margin-bottom: 0 !important;
@@ -910,14 +1104,14 @@
         flex: 1 1 100% !important;
         width: 100% !important;
         max-width: 100% !important;
-        height: 34px !important;
-        min-height: 34px !important;
-        max-height: 34px !important;
-        background: rgba(255, 255, 255, 0.035) !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        max-height: 40px !important;
+        background: rgba(255, 255, 255, 0.04) !important;
         border: 1px solid rgba(255, 255, 255, 0.08) !important;
-        border-radius: 9px !important;
+        border-radius: 4px !important;
         padding: 0 12px !important;
-        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+        box-shadow: none !important;
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
@@ -926,7 +1120,7 @@
         margin: 0 !important;
         overflow: hidden !important;
         cursor: pointer !important;
-        transition: background 0.18s ease, border-color 0.18s ease !important;
+        transition: background 0.15s ease, border-color 0.15s ease !important;
       }
 
       .v-application .bambu-ams-card .bambu-ams-toolhead-panel:hover,
@@ -976,11 +1170,22 @@
       .v-application .bambu-ams-card .bambu-status-ribbon,
       .bambu-ams-card .bambu-status-ribbon,
       [layout-path="dashboard.mmu-card"] .bambu-status-ribbon,
-      .mmu-card .bambu-status-ribbon {
+      .mmu-card .bambu-status-ribbon,
+      .bambu-status-ribbon {
         display: flex !important;
         align-items: center !important;
         justify-content: space-between !important;
         width: 100% !important;
+        /* Fixed height — a percentage height resolves against the animating
+           parent during the collapse transition, squishing then popping. */
+        height: 38px !important;
+        min-height: 38px !important;
+        max-height: 38px !important;
+        flex: 0 0 auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        transition: none !important;
+        animation: none !important;
       }
 
       .v-application .bambu-ams-card .bambu-status-left,
@@ -991,18 +1196,26 @@
       }
 
       .v-application .bambu-ams-card .bambu-status-dot,
-      .bambu-ams-card .bambu-status-dot {
+      .bambu-ams-card .bambu-status-dot,
+      .bambu-status-dot {
         width: 8px !important;
         height: 8px !important;
         border-radius: 50% !important;
-        background: #00C250 !important;
-        box-shadow: 0 0 10px #00C250 !important;
+        background: #888 !important;
+        box-shadow: none !important;
         display: inline-block !important;
+        transition: none !important;
       }
 
+      .bambu-status-dot[data-state="loaded"] { background: #4caf50 !important; }
+      .bambu-status-dot[data-state="partial"] { background: #ffb300 !important; }
+      .bambu-status-dot[data-state="busy"] { background: #29b6f6 !important; }
+      .bambu-status-dot[data-state="unloaded"] { background: #888 !important; }
+
       .v-application .bambu-ams-card .bambu-status-title,
-      .bambu-ams-card .bambu-status-title {
-        font-size: 0.8rem !important;
+      .bambu-ams-card .bambu-status-title,
+      .bambu-status-title {
+        font-size: 0.95rem !important;
         font-weight: 700 !important;
         letter-spacing: 0.04em !important;
         text-transform: uppercase !important;
@@ -1018,13 +1231,13 @@
 
       .v-application .bambu-ams-card .bambu-temp-badge,
       .bambu-ams-card .bambu-temp-badge {
-        font-size: 0.74rem !important;
+        font-size: 0.85rem !important;
         font-weight: 700 !important;
-        color: #A1A1AA !important;
+        color: #B8BDC5 !important;
         background: rgba(255, 255, 255, 0.06) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
         border-radius: 6px !important;
-        padding: 1px 8px !important;
+        padding: 2px 10px !important;
         letter-spacing: 0.03em !important;
       }
 
@@ -1104,18 +1317,17 @@
         min-height: 28px !important;
         max-height: 28px !important;
         padding: 0 4px !important;
-        background: rgba(255, 255, 255, 0.045) !important;
+        background: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 6px !important;
-        color: #D4D4D8 !important;
+        border-radius: 4px !important;
         font-weight: 600 !important;
         font-size: 0.65rem !important;
         letter-spacing: 0.02em !important;
         white-space: nowrap !important;
         text-overflow: ellipsis !important;
         overflow: hidden !important;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25) !important;
-        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-shadow: none !important;
+        transition: background 0.15s ease, border-color 0.15s ease !important;
         width: 100% !important;
       }
 
@@ -1143,9 +1355,6 @@
       .mmu-card .bambu-btn-secondary:hover:not(:disabled) {
         background: rgba(255, 255, 255, 0.1) !important;
         border-color: rgba(255, 255, 255, 0.22) !important;
-        color: #FFFFFF !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35) !important;
       }
 
       /* Primary Action Bar: Big Bold UNLOAD & LOAD Buttons (order: 2, breaks onto next row) */
@@ -1181,38 +1390,33 @@
         max-width: none !important;
       }
 
-      /* UNLOAD Button: High-Tech Warm Coral Pill */
+      /* UNLOAD Button: primary-toned outline */
       .v-application .bambu-ams-card .bambu-btn-unload,
       .theme--dark.v-btn.bambu-btn-unload,
       .bambu-btn-unload,
       [layout-path="dashboard.mmu-card"] .bambu-btn-unload,
       .mmu-card .bambu-btn-unload {
-        height: 42px !important;
-        min-height: 42px !important;
+        height: 36px !important;
+        min-height: 36px !important;
         width: 100% !important;
-        border-radius: 10px !important;
-        font-weight: 800 !important;
-        font-size: 0.95rem !important;
+        border-radius: 4px !important;
+        font-weight: 700 !important;
+        font-size: 0.85rem !important;
         letter-spacing: 0.05em !important;
         text-transform: uppercase !important;
-        background: linear-gradient(135deg, rgba(255, 87, 34, 0.28) 0%, rgba(216, 67, 21, 0.42) 100%) !important;
-        background-color: rgba(255, 87, 34, 0.28) !important;
-        color: #FF7043 !important;
-        border: 1.5px solid rgba(255, 87, 34, 0.55) !important;
-        box-shadow: 0 3px 12px rgba(255, 87, 34, 0.2) !important;
-        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        background: transparent !important;
+        color: var(--v-primary-base, #ff2300) !important;
+        border: 1px solid var(--v-primary-base, #ff2300) !important;
+        box-shadow: none !important;
+        transition: background 0.15s ease !important;
       }
 
       .v-application .bambu-ams-card .bambu-btn-unload:hover:not(:disabled),
       .theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled),
       [layout-path="dashboard.mmu-card"] .bambu-btn-unload:hover:not(:disabled),
       .mmu-card .bambu-btn-unload:hover:not(:disabled) {
-        background: linear-gradient(135deg, #FF5722 0%, #D84315 100%) !important;
-        background-color: #FF5722 !important;
+        background: var(--v-primary-base, #ff2300) !important;
         color: #FFFFFF !important;
-        border-color: #FF7043 !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 5px 16px rgba(255, 87, 34, 0.4) !important;
       }
 
       /* UNLOAD Button when disabled/standby */
@@ -1223,51 +1427,44 @@
       .bambu-btn-unload.v-btn--disabled,
       [layout-path="dashboard.mmu-card"] .bambu-btn-unload.v-btn--disabled,
       .mmu-card .bambu-btn-unload.v-btn--disabled {
-        background: rgba(255, 112, 67, 0.14) !important;
-        background-color: rgba(255, 112, 67, 0.14) !important;
-        color: rgba(255, 112, 67, 0.65) !important;
-        border: 1px solid rgba(255, 112, 67, 0.32) !important;
-        opacity: 0.65 !important;
+        background: transparent !important;
+        color: rgba(255, 255, 255, 0.35) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        opacity: 0.6 !important;
         cursor: not-allowed !important;
         box-shadow: none !important;
-        transform: none !important;
       }
 
-      /* LOAD Button: Iconic Bambu Green */
+      /* LOAD Button: filled primary */
       .v-application .bambu-ams-card .bambu-btn-load,
       .theme--dark.v-btn.bambu-btn-load,
       .bambu-btn-load,
       [layout-path="dashboard.mmu-card"] .bambu-btn-load,
       .mmu-card .bambu-btn-load {
-        height: 42px !important;
-        min-height: 42px !important;
+        height: 36px !important;
+        min-height: 36px !important;
         width: 100% !important;
-        border-radius: 10px !important;
-        font-weight: 800 !important;
-        font-size: 0.95rem !important;
+        border-radius: 4px !important;
+        font-weight: 700 !important;
+        font-size: 0.85rem !important;
         letter-spacing: 0.05em !important;
         text-transform: uppercase !important;
-        background: linear-gradient(135deg, #00C250 0%, #00963C 100%) !important;
-        background-color: #00C250 !important;
+        background: var(--v-primary-base, #ff2300) !important;
         color: #FFFFFF !important;
-        border: 1.5px solid rgba(255, 255, 255, 0.25) !important;
-        box-shadow: 0 3px 14px rgba(0, 194, 80, 0.35) !important;
-        transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        border: none !important;
+        box-shadow: none !important;
+        transition: opacity 0.15s ease !important;
       }
 
       .v-application .bambu-ams-card .bambu-btn-load:hover:not(:disabled),
       .theme--dark.v-btn.bambu-btn-load:hover:not(:disabled),
       [layout-path="dashboard.mmu-card"] .bambu-btn-load:hover:not(:disabled),
       .mmu-card .bambu-btn-load:hover:not(:disabled) {
-        background: linear-gradient(135deg, #00E65E 0%, #00AE42 100%) !important;
-        background-color: #00E65E !important;
-        color: #FFFFFF !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 5px 18px rgba(0, 194, 80, 0.5) !important;
-        filter: brightness(1.06) !important;
+        opacity: 0.88 !important;
+        filter: none !important;
       }
 
-      /* LOAD Button when in standby / disabled: Sleek dark green indicator */
+      /* LOAD Button when in standby / disabled */
       .v-application .bambu-ams-card .bambu-btn-load.v-btn--disabled,
       .v-application .bambu-ams-card .bambu-btn-load:disabled,
       .theme--dark.v-btn.bambu-btn-load.v-btn--disabled,
@@ -1275,14 +1472,12 @@
       .bambu-btn-load.v-btn--disabled,
       [layout-path="dashboard.mmu-card"] .bambu-btn-load.v-btn--disabled,
       .mmu-card .bambu-btn-load.v-btn--disabled {
-        background: rgba(0, 174, 66, 0.22) !important;
-        background-color: rgba(0, 174, 66, 0.22) !important;
-        color: rgba(0, 230, 94, 0.85) !important;
-        border: 1.2px solid rgba(0, 174, 66, 0.45) !important;
-        opacity: 0.75 !important;
+        background: rgba(255, 255, 255, 0.12) !important;
+        color: rgba(255, 255, 255, 0.4) !important;
+        border: none !important;
+        opacity: 0.7 !important;
         cursor: not-allowed !important;
-        box-shadow: 0 0 10px rgba(0, 174, 66, 0.2) !important;
-        transform: none !important;
+        box-shadow: none !important;
       }
 
       /* Generic disabled button */
@@ -1295,7 +1490,182 @@
         box-shadow: none !important;
         transform: none !important;
       }
-    `;
+
+      /* =========================================================
+         KLIPPACE gate tiles: color swatches
+         ========================================================= */
+
+      /* Hide spool graphic + oversized filament diagram */
+      .v-application .bambu-ams-card .gate .clip-spool,
+      .bambu-ams-card .gate .clip-spool,
+      [layout-path="dashboard.mmu-card"] .gate .clip-spool,
+      .mmu-card .gate .clip-spool,
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel svg.svg-colors,
+      .bambu-ams-card .bambu-ams-toolhead-panel svg.svg-colors,
+      .v-application .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font,
+      .bambu-ams-card .bambu-ams-toolhead-panel .text--disabled.smaller-font {
+        display: none !important;
+      }
+
+      /* Gate becomes a swatch-first tile — bare .gate survives class patching */
+      .v-application .bambu-ams-card .gate,
+      .bambu-ams-card .gate,
+      [layout-path="dashboard.mmu-card"] .gate,
+      .mmu-card .gate,
+      .gate {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+        min-height: 86px !important;
+        transition: none !important;
+      }
+
+      /* Color swatch — bare selector survives Vue re-render; background must
+         NOT be !important or it overrides the inline MMU colour. */
+      .v-application .bambu-ams-card .klippace-swatch,
+      .bambu-ams-card .klippace-swatch,
+      [layout-path="dashboard.mmu-card"] .klippace-swatch,
+      .mmu-card .klippace-swatch,
+      .klippace-swatch {
+        width: 40px !important;
+        height: 40px !important;
+        border-radius: 50% !important;
+        border: 3px solid rgba(255, 255, 255, 0.28) !important;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 5px rgba(0, 0, 0, 0.45) !important;
+        flex: 0 0 auto !important;
+        background-color: #666666;
+        transition: none !important;
+        animation: none !important;
+      }
+
+      /* "No colour data" (all-zero sentinel) — neutral placeholder, not a black hole */
+      .v-application .bambu-ams-card .klippace-swatch[data-nocolor="true"],
+      .bambu-ams-card .klippace-swatch[data-nocolor="true"],
+      [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"],
+      .mmu-card .klippace-swatch[data-nocolor="true"],
+      .klippace-swatch[data-nocolor="true"] {
+        background-color: rgba(255, 255, 255, 0.06) !important;
+        border: 3px dashed rgba(255, 255, 255, 0.4) !important;
+        box-shadow: none !important;
+        position: relative !important;
+      }
+      .v-application .bambu-ams-card .klippace-swatch[data-nocolor="true"]::after,
+      .bambu-ams-card .klippace-swatch[data-nocolor="true"]::after,
+      [layout-path="dashboard.mmu-card"] .klippace-swatch[data-nocolor="true"]::after,
+      .mmu-card .klippace-swatch[data-nocolor="true"]::after,
+      .klippace-swatch[data-nocolor="true"]::after {
+        content: "" !important;
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        width: 16px !important;
+        height: 2px !important;
+        transform: translate(-50%, -50%) !important;
+        background: rgba(255, 255, 255, 0.4) !important;
+        border-radius: 1px !important;
+      }
+
+      /* Material label */
+      .v-application .bambu-ams-card .klippace-gate-material,
+      .bambu-ams-card .klippace-gate-material,
+      [layout-path="dashboard.mmu-card"] .klippace-gate-material,
+      .mmu-card .klippace-gate-material,
+      .klippace-gate-material {
+        font-size: 0.8rem !important;
+        font-weight: 700 !important;
+        color: #e2e5ea !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 100% !important;
+        line-height: 1.2 !important;
+        min-height: 1rem !important;
+      }
+      .v-application .bambu-ams-card .klippace-gate-material[data-unknown="true"],
+      .bambu-ams-card .klippace-gate-material[data-unknown="true"],
+      [layout-path="dashboard.mmu-card"] .klippace-gate-material[data-unknown="true"],
+      .mmu-card .klippace-gate-material[data-unknown="true"],
+      .klippace-gate-material[data-unknown="true"] {
+        color: rgba(226, 229, 234, 0.45) !important;
+        font-weight: 600 !important;
+        font-style: italic !important;
+      }
+
+      /* Active / loaded gate highlight */
+      .v-application .bambu-ams-card .gate.klippace-gate-active,
+      .bambu-ams-card .gate.klippace-gate-active,
+      [layout-path="dashboard.mmu-card"] .gate.klippace-gate-active,
+      .mmu-card .gate.klippace-gate-active {
+        border-color: var(--v-primary-base, #ff2300) !important;
+        background: rgba(255, 255, 255, 0.08) !important;
+      }
+
+      .v-application .bambu-ams-card .gate.klippace-gate-active .klippace-swatch,
+      .bambu-ams-card .gate.klippace-gate-active .klippace-swatch {
+        border-color: var(--v-primary-base, #ff2300) !important;
+        box-shadow: 0 0 0 3px rgba(255, 35, 0, 0.28), inset 0 0 0 1px rgba(0, 0, 0, 0.35) !important;
+      }
+
+      /* =========================================================
+         KLIPPACE full-width gate tiles + corner BYPASS badge
+         ========================================================= */
+
+      /* Gate unit column fills the row (bare selectors survive class patching) */
+      .v-application .bambu-ams-card .col:has(> .mmu-unit:not(.mmu-unit-clear)),
+      .bambu-ams-card .col:has(> .mmu-unit:not(.mmu-unit-clear)),
+      [layout-path="dashboard.mmu-card"] .col:has(> .mmu-unit:not(.mmu-unit-clear)),
+      .mmu-card .col:has(> .mmu-unit:not(.mmu-unit-clear)),
+      .col:has(> .mmu-unit:not(.mmu-unit-clear)) {
+        flex: 1 1 auto !important;
+        max-width: none !important;
+        width: auto !important;
+      }
+
+      .v-application .bambu-ams-card .mmu-unit:not(.mmu-unit-clear),
+      .bambu-ams-card .mmu-unit:not(.mmu-unit-clear),
+      [layout-path="dashboard.mmu-card"] .mmu-unit:not(.mmu-unit-clear),
+      .mmu-card .mmu-unit:not(.mmu-unit-clear),
+      .mmu-unit:not(.mmu-unit-clear) {
+        width: 100% !important;
+      }
+
+      /* BYPASS column: hidden entirely */
+      .v-application .bambu-ams-card .col:has(> .mmu-unit-clear),
+      .bambu-ams-card .col:has(> .mmu-unit-clear),
+      [layout-path="dashboard.mmu-card"] .col:has(> .mmu-unit-clear),
+      .mmu-card .col:has(> .mmu-unit-clear),
+      .col:has(> .mmu-unit-clear) {
+        display: none !important;
+      }
+
+      /* =========================================================
+         KLIPPACE clean header
+         ========================================================= */
+
+      /* Title: uppercase, light weight — scoped via :has(badge) so it is not
+         affected by the transient .bambu-ams-card class removal. */
+      .v-card__title:has(.bambu-ams-title-badge) .font-weight-light {
+        font-weight: 300 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.02em !important;
+      }
+
+      /* Badge sits next to the title (bare selector survives class patching) */
+      .v-application .bambu-ams-card .bambu-ams-title-badge,
+      .bambu-ams-card .bambu-ams-title-badge,
+      [layout-path="dashboard.mmu-card"] .bambu-ams-title-badge,
+      .mmu-card .bambu-ams-title-badge,
+      .text-no-wrap .bambu-ams-title-badge,
+      .bambu-ams-card .v-card__title .text-no-wrap .bambu-ams-title-badge {
+        margin-left: 10px !important;
+      }
+      `;
+      document.head.appendChild(style);
+    }
 
     // 2. Decorate card root
     card.classList.add('bambu-ams-card', 'mmu-card');
@@ -1319,10 +1689,18 @@
       if (footer) footer.classList.add('bambu-ams-footer');
     });
 
-    // 4. Decorate Filament Status & Toolhead Flow
+    // 3b. Build color-swatch gate tiles and apply live MMU data
+    buildGateTiles(card);
+    getCachedMmu().then((mmu) => applyGateData(card, mmu));
+
+    // 4. Decorate Filament Status & Toolhead Flow.
+    // The native filament-status SVG only exists once Fluidd has MMU data, so
+    // fall back to an already-decorated panel if it is not present yet — this
+    // keeps the ribbon from appearing "late" on a cold load.
     const filStatusSvg = card.querySelector('svg.svg-colors, [ref="filStatusSvg"]');
-    if (filStatusSvg) {
-      const filCol = filStatusSvg.closest('.v-col, .col');
+    const existingPanel = card.querySelector('.bambu-ams-toolhead-panel');
+    if (filStatusSvg || existingPanel) {
+      const filCol = filStatusSvg ? filStatusSvg.closest('.v-col, .col') : existingPanel;
       if (filCol) {
         filCol.classList.add('bambu-ams-toolhead-panel');
         filCol.style.width = '100%';
@@ -1345,37 +1723,40 @@
           });
         }
 
-        // Extract nozzle temperature or tool text if available
-        let nozzleTemp = '';
-        const allSvgTexts = filStatusSvg.querySelectorAll('text');
-        allSvgTexts.forEach((t) => {
-          const content = (t.textContent || '').trim();
-          if (content.includes('°C')) {
-            nozzleTemp = content;
-          }
-        });
-
-        // Determine active gate or loaded status
-        let statusText = 'Filament: Unloaded';
-        allSvgTexts.forEach((t) => {
-          const content = (t.textContent || '').trim();
-          if (/unloaded|loaded|printing/i.test(content)) {
-            statusText = content;
-          }
-        });
-
-        const activeBay = card.querySelector('.bambu-bay-active, .highlight-spool');
-        if (activeBay) {
-          const gText = activeBay.querySelector('text');
-          const gateNum = gText ? gText.textContent.trim() : '';
-          statusText = gateNum ? `Loaded: Gate ${gateNum}` : 'Filament: Loaded';
-        }
-
-        // Inject or update sleek HTML status ribbon
+        // Inject or update the status ribbon. To avoid a late pop-in we seed it
+        // IMMEDIATELY from the native filament-status SVG that is already in the
+        // DOM (same underlying MMU data), then refine it from live MMU state.
         let ribbon = filCol.querySelector('.bambu-status-ribbon');
         if (!ribbon) {
+          // Instant seed from the native SVG text (when available)
+          let seedText = '';
+          let seedTemp = '';
+          if (filStatusSvg) {
+            filStatusSvg.querySelectorAll('text').forEach((t) => {
+              const content = (t.textContent || '').trim();
+              if (content.includes('°C')) seedTemp = content;
+              if (/unloaded|loaded|printing|loading|unloading/i.test(content)) seedText = content;
+            });
+          }
+          let seedState = 'unloaded';
+          if (/printing|loaded/i.test(seedText)) seedState = 'loaded';
+          else if (/loading|unloading/i.test(seedText)) seedState = 'busy';
+          else if (/splitter|toolhead|bowden/i.test(seedText)) seedState = 'partial';
+          const seedLabel = seedText
+            ? seedText.replace(/^filament:\s*/i, '').trim()
+            : '';
+
           ribbon = document.createElement('div');
           ribbon.className = 'bambu-status-ribbon';
+          ribbon.innerHTML = `
+            <div class="bambu-status-left">
+              <span class="bambu-status-dot" data-state="${seedState}"></span>
+              <span class="bambu-status-title" data-state="${seedState}">${seedLabel}</span>
+            </div>
+            <div class="bambu-status-right">
+              <span class="bambu-temp-badge">${seedTemp}</span>
+            </div>
+          `;
           filCol.insertBefore(ribbon, filCol.firstChild);
         }
 
@@ -1386,15 +1767,13 @@
           openToolMapper();
         };
 
-        ribbon.innerHTML = `
-          <div class="bambu-status-left">
-            <span class="bambu-status-dot"></span>
-            <span class="bambu-status-title">${statusText}</span>
-          </div>
-          <div class="bambu-status-right">
-            <span class="bambu-temp-badge">${nozzleTemp || 'Nozzle: Ready'}</span>
-          </div>
-        `;
+        // Fill the ribbon from live MMU state (single source of truth). If we
+        // already have cached data, apply it synchronously for a no-flash paint.
+        if (cachedMmu) {
+          applyGateData(card, cachedMmu);
+        } else {
+          getCachedMmu().then((mmu) => applyGateData(card, mmu));
+        }
       }
     }
 
@@ -1415,17 +1794,18 @@
       gateSummary.style.display = 'none';
     }
 
-    // 6. Decorate Title with AMS Badge
+    // 6. Decorate Title with ACE Badge + clean header
     const titleEl = card.querySelector('.v-card__title');
     if (titleEl && !titleEl.querySelector('.bambu-ams-title-badge')) {
       const badge = document.createElement('span');
       badge.className = 'bambu-ams-title-badge';
-      badge.textContent = 'AMS';
+      badge.textContent = 'ACE';
       titleEl.appendChild(badge);
     }
+    decorateHeader(card);
 
-    // 7. Decorate Control Buttons
-    const btns = card.querySelectorAll('.v-btn');
+    // 7. Decorate Control Buttons (scope to mmu-controls only, not the header)
+    const btns = card.querySelectorAll('mmu-controls .v-btn');
     btns.forEach((btn) => {
       const txt = (btn.textContent || '').trim().toLowerCase();
       if (txt.includes('preload') || txt.includes('eject') || txt.includes('check gate') || txt.includes('recover') || txt.includes('unlock') || txt.includes('lock')) {
@@ -1477,21 +1857,46 @@
   // Initialize UI injection & Bambu AMS decoration immediately (do NOT wait for Vuex)
   function initDecorator() {
     console.log('[KLIPPACE] Initializing Bambu AMS decorator engine...');
-    injectButtons();
 
-    // Re-apply immediately when Vue mutates the DOM
-    let debounceTimer = null;
-    const observer = new MutationObserver(() => {
-      if (debounceTimer) return;
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null;
+    // Pre-warm the MMU state fetch so the status ribbon can paint with real data
+    // on the very first decoration (avoids a visible delay/fade-in on load).
+    getCachedMmu();
+
+    let scheduled = false;
+    let observer = null;
+
+    // Run the decorator with the observer disconnected, so the DOM mutations we
+    // make ourselves can never re-trigger the observer (which would cause an
+    // endless decorate -> mutate -> observe -> decorate loop and freeze the page).
+    const run = () => {
+      scheduled = false;
+      if (observer) observer.disconnect();
+      try {
         injectButtons();
-      }, 100);
-    });
+      } finally {
+        if (observer) {
+          observer.observe(document.body, { childList: true, subtree: true });
+        }
+      }
+    };
+
+    run();
+
+    // Coalesce a burst of mutations into a single microtask run (before paint),
+    // which also eliminates the flash of the undecorated "old card".
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      Promise.resolve().then(run);
+    };
+
+    observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // Periodic heartbeat fallback
-    setInterval(injectButtons, 1200);
+    // Frequent fallback so any decoration missed by the observer (e.g. content
+    // rendered while the observer was momentarily disconnected) is corrected
+    // quickly instead of after a visible delay.
+    setInterval(run, 300);
   }
 
   // Optional: Connect to Vuex store for auto-opening modal on mmu.dialog

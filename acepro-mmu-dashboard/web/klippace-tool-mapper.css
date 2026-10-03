@@ -26,8 +26,17 @@ svg.svg-colors {
   display: none !important;
 }
 
-/* BYPASS bracket (a mode, not a real spool) */
-.col:has(> .mmu-unit-clear) {
+/* BYPASS bracket (a mode, not a real spool).
+   Only hide the whole column when it holds the bypass unit and NOTHING else.
+   Fluidd gives bypass its own .col, so this is equivalent there. Mainsail
+   shares a single .col between the real unit(s) and the Bypass pseudo-unit,
+   where the unguarded form hid the entire MMU card. */
+.col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))) {
+  display: none !important;
+}
+
+/* Mainsail: bypass shares its column with a real unit — hide just the bracket */
+.col:has(> .mmu-unit:not(.mmu-unit-clear)) > .mmu-unit-clear {
   display: none !important;
 }
 
@@ -1363,12 +1372,14 @@ svg.svg-colors {
   width: 100% !important;
 }
 
-/* BYPASS column: hidden entirely */
-.v-application .bambu-ams-card .col:has(> .mmu-unit-clear),
-.bambu-ams-card .col:has(> .mmu-unit-clear),
-[layout-path="dashboard.mmu-card"] .col:has(> .mmu-unit-clear),
-.mmu-card .col:has(> .mmu-unit-clear),
-.col:has(> .mmu-unit-clear) {
+/* BYPASS column: hidden entirely, but only when it holds nothing but bypass.
+   See the note near the top of this file — Mainsail shares this column with
+   the real unit(s), so an unguarded rule blanks the whole card. */
+.v-application .bambu-ams-card .col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))),
+.bambu-ams-card .col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))),
+[layout-path="dashboard.mmu-card"] .col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))),
+.mmu-card .col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))),
+.col:has(> .mmu-unit-clear):not(:has(> .mmu-unit:not(.mmu-unit-clear))) {
   display: none !important;
 }
 

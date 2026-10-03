@@ -2407,20 +2407,28 @@
     getCachedMmu();
 
     let scheduled = false;
+    let running = false;
     let observer = null;
 
-    // Run the decorator with the observer disconnected, so the DOM mutations we
-    // make ourselves can never re-trigger the observer (which would cause an
-    // endless decorate -> mutate -> observe -> decorate loop and freeze the page).
+    // Run the decorator under a re-entrancy guard rather than disconnecting the
+    // observer. Disconnecting created a blind window: DOM that Vue rebuilt while
+    // we were mid-run was never seen, so it waited for the 300ms fallback tick.
+    // That is long enough for the card's expand animation to measure the
+    // still-undecorated layout — with the hidden action rows and full-size
+    // buttons still laid out — and animate to that taller height before the
+    // decoration shortened it, producing a visible overshoot and snap.
+    //
+    // Re-entrancy is safe: every write below is idempotent (element existence
+    // guards, dataset comparisons, and the fast path in decorateBambuMmuCard),
+    // so the decorate -> mutate -> observe cycle settles instead of looping.
     const run = () => {
       scheduled = false;
-      if (observer) observer.disconnect();
+      if (running) return;
+      running = true;
       try {
         injectButtons();
       } finally {
-        if (observer) {
-          observer.observe(document.body, { childList: true, subtree: true });
-        }
+        running = false;
       }
     };
 

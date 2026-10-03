@@ -1636,17 +1636,17 @@ svg.svg-colors {
    pins to the left of its row, so the right-hand ~40% of the card was empty
    next to gate tiles that span the full width. Auto margins on the row's only
    child centre the cluster instead. */
-.mmu-card .row > .col:has(button.base-btn) {
+.row > .col:has(button[data-klippace-action]) {
   margin-left: auto !important;
   margin-right: auto !important;
 }
 
-.mmu-card .row--dense:has(button.base-btn) {
+.row--dense:has(button[data-klippace-action]) {
   margin: 0 0 6px 0 !important;
   align-items: stretch !important;
 }
 
-.mmu-card .row--dense:has(button.base-btn) > [class*="col"] {
+.row--dense:has(button[data-klippace-action]) > [class*="col"] {
   padding: 0 3px !important;
   margin: 0 !important;
 }
@@ -1654,19 +1654,19 @@ svg.svg-colors {
 /* Preload and Eject are not honoured by the command shim (see
    MMU_ACTION_DEAD in klippace-tool-mapper.js), so drop the whole row rather
    than leaving a gap. */
-.mmu-card .row--dense:has(button[data-klippace-action="preload"]),
-.mmu-card .row--dense:has(button[data-klippace-action="eject"]) {
+.row--dense:has(button[data-klippace-action="preload"]),
+.row--dense:has(button[data-klippace-action="eject"]) {
   display: none !important;
 }
 
 /* Unlock is a no-op in the shim, and Fluidd only enables it in a paused+locked
    state this printer never enters. Hide the row while it is disabled. */
-.mmu-card .row--dense:has(button[data-klippace-action="unlock"][data-klippace-disabled="true"]) {
+.row--dense:has(button[data-klippace-action="unlock"][data-klippace-disabled="true"]) {
   display: none !important;
 }
 
 /* ---- Secondary actions: Check Gate, Recover ---- */
-.mmu-card button.base-btn:not(.wrap-text-btn) {
+button.base-btn[data-klippace-action]:not(.wrap-text-btn) {
   height: 32px !important;
   min-height: 32px !important;
   width: 100% !important;
@@ -1682,15 +1682,15 @@ svg.svg-colors {
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 
-.mmu-card button.base-btn:not(.wrap-text-btn):hover:not(:disabled) {
+button.base-btn[data-klippace-action]:not(.wrap-text-btn):hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.28) !important;
   color: #FFFFFF !important;
 }
 
-.mmu-card button.base-btn:not(.wrap-text-btn):disabled,
-.mmu-card button.base-btn:not(.wrap-text-btn).v-btn--disabled,
-.mmu-card .theme--dark.v-btn.base-btn.v-btn--has-bg:not(.wrap-text-btn).v-btn--disabled {
+button.base-btn[data-klippace-action]:not(.wrap-text-btn):disabled,
+button.base-btn[data-klippace-action]:not(.wrap-text-btn).v-btn--disabled,
+.theme--dark.v-btn.base-btn.v-btn--has-bg:not(.wrap-text-btn).v-btn--disabled {
   color: rgba(255, 255, 255, 0.28) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   background: transparent !important;
@@ -1698,13 +1698,13 @@ svg.svg-colors {
   opacity: 1 !important;
 }
 
-.mmu-card button.base-btn .v-icon {
+button.base-btn[data-klippace-action] .v-icon {
   font-size: 13px !important;
   margin-right: 5px !important;
 }
 
 /* ---- Primaries: Unload / Load ---- */
-.mmu-card button.wrap-text-btn {
+button.wrap-text-btn[data-klippace-action] {
   height: 44px !important;
   min-height: 44px !important;
   width: 100% !important;
@@ -1718,31 +1718,31 @@ svg.svg-colors {
 }
 
 /* Unload: outlined primary */
-.mmu-card button[data-klippace-action="unload"] {
+button[data-klippace-action="unload"] {
   background: transparent !important;
   border: 1px solid var(--v-primary-base, #ff2300) !important;
   color: var(--v-primary-base, #ff2300) !important;
 }
 
-.mmu-card button[data-klippace-action="unload"]:hover:not(:disabled) {
+button[data-klippace-action="unload"]:hover:not(:disabled) {
   background: rgba(255, 35, 0, 0.14) !important;
 }
 
 /* Load: filled primary */
-.mmu-card button[data-klippace-action="load"] {
+button[data-klippace-action="load"] {
   background: var(--v-primary-base, #ff2300) !important;
   border: 1px solid var(--v-primary-base, #ff2300) !important;
   color: #FFFFFF !important;
 }
 
-.mmu-card button[data-klippace-action="load"]:hover:not(:disabled) {
+button[data-klippace-action="load"]:hover:not(:disabled) {
   background: #ff4a2e !important;
   border-color: #ff4a2e !important;
 }
 
-.mmu-card button.wrap-text-btn:disabled,
-.mmu-card button.wrap-text-btn.v-btn--disabled,
-.mmu-card .theme--dark.v-btn.wrap-text-btn.v-btn--has-bg.v-btn--disabled {
+button.wrap-text-btn[data-klippace-action]:disabled,
+button.wrap-text-btn[data-klippace-action].v-btn--disabled,
+.theme--dark.v-btn.wrap-text-btn.v-btn--has-bg.v-btn--disabled {
   background: transparent !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   color: rgba(255, 255, 255, 0.28) !important;
@@ -1750,7 +1750,7 @@ svg.svg-colors {
   opacity: 1 !important;
 }
 
-.mmu-card button.wrap-text-btn .v-icon {
+button.wrap-text-btn[data-klippace-action] .v-icon {
   font-size: 15px !important;
   margin-right: 6px !important;
 }

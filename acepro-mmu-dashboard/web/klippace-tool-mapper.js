@@ -1189,8 +1189,64 @@
   }
 
   // --- Bambu Lab AMS Style Injection & Decoration ---
+  // ---------------------------------------------------------------------------
+  // Action-button classification
+  //
+  // Fluidd renders the card's action buttons from a localized label list and
+  // gives them no distinguishing class, so the only stable, locale-independent
+  // handle is the leading glyph of each button's inline SVG path. Matching on
+  // that lets CSS address individual actions (e.g. to hide the ones our shim
+  // does not implement) without depending on row order or the UI language.
+  // ---------------------------------------------------------------------------
+  const MMU_ACTION_ICONS = {
+    preload: 'M13,5V11H14.17L12,13.17L9.83,11H11V5H13M',
+    eject: 'M12,5L5.33,15H18.67M5,17H19V19H5V17Z',
+    'check-gate': 'M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L1',
+    recover: 'M7.5,5.6L5,7L6.4,4.5L5,2L7.5,3.4L10,2L8.',
+    unlock: 'M19 11V8H17V11H14V13H17V16H19V13H22V11M1',
+    unload: 'M9,16V10H5L12,3L19,10H15V16H9M5,20V18H19',
+    load: 'M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9',
+  };
+
+  // Actions our command shim does not implement, so the card should not offer
+  // them: MMU_PRELOAD and MMU_UNLOCK only print a message, and MMU_EJECT runs
+  // the identical UNLOAD path. CSS hides these rows.
+  const MMU_ACTION_DEAD = ['preload', 'eject'];
+
+  function classifyActionButton(button) {
+    const path = button.querySelector('svg.v-icon__svg path');
+    if (!path) return null;
+    const d = path.getAttribute('d') || '';
+    for (const [action, marker] of Object.entries(MMU_ACTION_ICONS)) {
+      if (d.startsWith(marker)) return action;
+    }
+    return null;
+  }
+
+  function decorateActionButtons(card) {
+    card.querySelectorAll('button.base-btn').forEach((button) => {
+      const action = classifyActionButton(button);
+      if (!action) return;
+
+      // Idempotent writes only — assigning an unchanged attribute on every pass
+      // would emit mutations and re-trigger our own MutationObserver.
+      if (button.dataset.klippaceAction !== action) {
+        button.dataset.klippaceAction = action;
+      }
+      const disabled = (button.disabled || button.classList.contains('v-btn--disabled'))
+        ? 'true' : 'false';
+      if (button.dataset.klippaceDisabled !== disabled) {
+        button.dataset.klippaceDisabled = disabled;
+      }
+    });
+  }
+
   function decorateBambuMmuCard(card) {
     if (!card || card.closest('#klippace-tool-mapper-overlay')) return;
+
+    // Buttons need re-checking on every pass: their disabled state is driven by
+    // live MMU state, so this must run before the fast path returns.
+    decorateActionButtons(card);
 
     // Fast path: if the card is already fully decorated, skip ALL structural DOM
     // work and only refresh live data. This makes repeated calls cheap and, more

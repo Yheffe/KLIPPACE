@@ -1050,16 +1050,6 @@ svg.svg-colors {
 .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > .v-col:nth-child(2),
 .bambu-ams-card .v-card__text > .container > .v-row:nth-of-type(2) > [class*="v-col"]:has(mmu-controls),
 [layout-path="dashboard.mmu-card"] .v-card__text > .container > [class*="v-col"]:has(mmu-controls),
-.mmu-card .v-card__text > .container > [class*="v-col"]:has(mmu-controls) {
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 1 100% !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  gap: 6px !important;
-}
 
 /* Hide the clunky stock SVG wire diagram, TTG schematic, and gate summary in card */
 .v-application .bambu-ams-card .bambu-ams-toolhead-panel svg[ref="filStatusSvg"],
@@ -1163,10 +1153,6 @@ svg.svg-colors {
       .v-application .bambu-ams-card mmu-controls,
       .bambu-ams-card mmu-controls,
       [layout-path="dashboard.mmu-card"] mmu-controls,
-      .mmu-card mmu-controls {
-        width: 100% !important;
-        margin-top: 0 !important;
-      }
 
       .v-application .bambu-ams-card mmu-controls > .container,
       .v-application .bambu-ams-card mmu-controls .mmu-controls-container,
@@ -1175,15 +1161,6 @@ svg.svg-colors {
       [layout-path="dashboard.mmu-card"] mmu-controls > .container,
       [layout-path="dashboard.mmu-card"] mmu-controls .mmu-controls-container,
       .mmu-card mmu-controls > .container,
-      .mmu-card mmu-controls .mmu-controls-container {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        gap: 4px !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        width: 100% !important;
-      }
 
       /* Secondary Tools Row: Unwrap rows 0, 1, 2 into a single unified flex row */
       .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child),
@@ -1193,9 +1170,6 @@ svg.svg-colors {
       [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child),
       [layout-path="dashboard.mmu-card"] mmu-controls .row:not(:last-child),
       .mmu-card mmu-controls .v-row:not(:last-child),
-      .mmu-card mmu-controls .row:not(:last-child) {
-        display: contents !important;
-      }
 
       /* All 5 Secondary Utility Buttons Cols sit in ONE single horizontal row (order: 1) */
       .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) > .v-col,
@@ -1207,16 +1181,6 @@ svg.svg-colors {
       .bambu-ams-card mmu-controls .row:not(:last-child) > .col,
       .bambu-ams-card mmu-controls .row:not(:last-child) > [class*="col"],
       [layout-path="dashboard.mmu-card"] mmu-controls .v-row:not(:last-child) > [class*="v-col"],
-      .mmu-card mmu-controls .v-row:not(:last-child) > [class*="v-col"] {
-        display: flex !important;
-        flex: 1 1 0 !important;
-        min-width: 0 !important;
-        max-width: none !important;
-        width: auto !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        order: 1 !important;
-      }
 
       /* Compact Mini-Pill Style for Secondary Buttons */
       .v-application .bambu-ams-card .bambu-btn-secondary,
@@ -1226,50 +1190,16 @@ svg.svg-colors {
       .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn,
       [layout-path="dashboard.mmu-card"] .bambu-btn-secondary,
       .mmu-card .bambu-btn-secondary,
-      .mmu-card mmu-controls .v-row:not(:last-child) .v-btn {
-        height: 28px !important;
-        min-height: 28px !important;
-        max-height: 28px !important;
-        padding: 0 4px !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 4px !important;
-        font-weight: 600 !important;
-        font-size: 0.65rem !important;
-        letter-spacing: 0.02em !important;
-        white-space: nowrap !important;
-        text-overflow: ellipsis !important;
-        overflow: hidden !important;
-        box-shadow: none !important;
-        transition: background 0.15s ease, border-color 0.15s ease !important;
-        width: 100% !important;
-      }
 
       .v-application .bambu-ams-card .bambu-btn-secondary .v-btn__content,
-      .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn .v-btn__content {
-        font-size: 0.65rem !important;
-        letter-spacing: 0.01em !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        white-space: nowrap !important;
-        padding: 0 2px !important;
-      }
 
       .v-application .bambu-ams-card .bambu-btn-secondary .v-icon,
       .theme--dark.v-btn.bambu-btn-secondary .v-icon,
-      .mmu-card mmu-controls .v-row:not(:last-child) .v-btn .v-icon {
-        font-size: 11px !important;
-        margin-right: 2px !important;
-      }
 
       .v-application .bambu-ams-card .bambu-btn-secondary:hover:not(:disabled),
       .v-application .bambu-ams-card mmu-controls .v-row:not(:last-child) .v-btn:hover:not(:disabled),
       .theme--dark.v-btn.bambu-btn-secondary:hover:not(:disabled),
       [layout-path="dashboard.mmu-card"] .bambu-btn-secondary:hover:not(:disabled),
-      .mmu-card .bambu-btn-secondary:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(255, 255, 255, 0.22) !important;
-      }
 
       /* Primary Action Bar: Big Bold UNLOAD & LOAD Buttons (order: 2, breaks onto next row) */
       .v-application .bambu-ams-card mmu-controls .v-row:last-child,
@@ -1279,14 +1209,6 @@ svg.svg-colors {
       [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child,
       [layout-path="dashboard.mmu-card"] mmu-controls .row:last-child,
       .mmu-card mmu-controls .v-row:last-child,
-      .mmu-card mmu-controls .row:last-child {
-        margin: 4px 0 0 0 !important;
-        display: flex !important;
-        flex: 1 1 100% !important;
-        width: 100% !important;
-        order: 2 !important;
-        gap: 6px !important;
-      }
 
       .v-application .bambu-ams-card mmu-controls .v-row:last-child > .v-col,
       .v-application .bambu-ams-card mmu-controls .v-row:last-child > [class*="v-col"],
@@ -1297,41 +1219,16 @@ svg.svg-colors {
       .bambu-ams-card mmu-controls .row:last-child > .col,
       .bambu-ams-card mmu-controls .row:last-child > [class*="col"],
       [layout-path="dashboard.mmu-card"] mmu-controls .v-row:last-child > [class*="v-col"],
-      .mmu-card mmu-controls .v-row:last-child > [class*="v-col"] {
-        padding: 0 !important;
-        margin: 0 !important;
-        flex: 1 1 0 !important;
-        max-width: none !important;
-      }
 
 /* UNLOAD Button: primary-toned outline */
 .v-application .bambu-ams-card .bambu-btn-unload,
 .theme--dark.v-btn.bambu-btn-unload,
 .bambu-btn-unload,
 [layout-path="dashboard.mmu-card"] .bambu-btn-unload,
-.mmu-card .bambu-btn-unload {
-  height: 36px !important;
-  min-height: 36px !important;
-  width: 100% !important;
-  border-radius: 4px !important;
-  font-weight: 700 !important;
-  font-size: 0.85rem !important;
-  letter-spacing: 0.05em !important;
-  text-transform: uppercase !important;
-  background: transparent !important;
-  color: var(--v-primary-base, #ff2300) !important;
-  border: 1px solid var(--v-primary-base, #ff2300) !important;
-  box-shadow: none !important;
-  transition: background 0.15s ease !important;
-}
 
 .v-application .bambu-ams-card .bambu-btn-unload:hover:not(:disabled),
 .theme--dark.v-btn.bambu-btn-unload:hover:not(:disabled),
 [layout-path="dashboard.mmu-card"] .bambu-btn-unload:hover:not(:disabled),
-.mmu-card .bambu-btn-unload:hover:not(:disabled) {
-  background: var(--v-primary-base, #ff2300) !important;
-  color: #FFFFFF !important;
-}
 
 /* UNLOAD Button when disabled/standby */
 .v-application .bambu-ams-card .bambu-btn-unload.v-btn--disabled,
@@ -1340,43 +1237,16 @@ svg.svg-colors {
 .theme--dark.v-btn.bambu-btn-unload.v-btn--disabled.v-btn--has-bg,
 .bambu-btn-unload.v-btn--disabled,
 [layout-path="dashboard.mmu-card"] .bambu-btn-unload.v-btn--disabled,
-.mmu-card .bambu-btn-unload.v-btn--disabled {
-  background: transparent !important;
-  color: rgba(255, 255, 255, 0.35) !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  opacity: 0.6 !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-}
 
 /* LOAD Button: filled primary */
 .v-application .bambu-ams-card .bambu-btn-load,
 .theme--dark.v-btn.bambu-btn-load,
 .bambu-btn-load,
 [layout-path="dashboard.mmu-card"] .bambu-btn-load,
-.mmu-card .bambu-btn-load {
-  height: 36px !important;
-  min-height: 36px !important;
-  width: 100% !important;
-  border-radius: 4px !important;
-  font-weight: 700 !important;
-  font-size: 0.85rem !important;
-  letter-spacing: 0.05em !important;
-  text-transform: uppercase !important;
-  background: var(--v-primary-base, #ff2300) !important;
-  color: #FFFFFF !important;
-  border: none !important;
-  box-shadow: none !important;
-  transition: opacity 0.15s ease !important;
-}
 
 .v-application .bambu-ams-card .bambu-btn-load:hover:not(:disabled),
 .theme--dark.v-btn.bambu-btn-load:hover:not(:disabled),
 [layout-path="dashboard.mmu-card"] .bambu-btn-load:hover:not(:disabled),
-.mmu-card .bambu-btn-load:hover:not(:disabled) {
-  opacity: 0.88 !important;
-  filter: none !important;
-}
 
 /* LOAD Button when in standby / disabled */
 .v-application .bambu-ams-card .bambu-btn-load.v-btn--disabled,
@@ -1385,25 +1255,11 @@ svg.svg-colors {
 .theme--dark.v-btn.bambu-btn-load.v-btn--disabled.v-btn--has-bg,
 .bambu-btn-load.v-btn--disabled,
 [layout-path="dashboard.mmu-card"] .bambu-btn-load.v-btn--disabled,
-.mmu-card .bambu-btn-load.v-btn--disabled {
-  background: rgba(255, 255, 255, 0.12) !important;
-  color: rgba(255, 255, 255, 0.4) !important;
-  border: none !important;
-  opacity: 0.7 !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-}
 
 /* Generic disabled button */
 .v-application .bambu-ams-card .bambu-btn-secondary:disabled,
 .theme--dark.v-btn.bambu-btn-secondary:disabled,
 [layout-path="dashboard.mmu-card"] .bambu-btn-secondary:disabled,
-.mmu-card .bambu-btn-secondary:disabled {
-  opacity: 0.4 !important;
-  cursor: not-allowed !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
 
 /* =========================================================
    KLIPPACE gate tiles: color swatches
@@ -1760,3 +1616,131 @@ svg.svg-colors {
   border-color: #FFFFFF;
 }
 
+
+/* =========================================================
+   KLIPPACE — MMU card action dock
+   ---------------------------------------------------------
+   Fluidd renders these buttons with only two useful hooks:
+   `base-btn` (small) and `wrap-text-btn` (the large Load/Unload pair).
+   Everything here targets those, plus the data-klippace-action /
+   data-klippace-disabled attributes the decorator adds.
+
+   The previous button styles targeted `mmu-controls`, `bambu-btn-secondary`,
+   `bambu-btn-unload` and `bambu-btn-load`, none of which exist in the DOM, so
+   they never applied.
+   ========================================================= */
+
+/* ---- Rows ---- */
+.mmu-card .row--dense:has(button.base-btn) {
+  margin: 0 0 6px 0 !important;
+  align-items: stretch !important;
+}
+
+.mmu-card .row--dense:has(button.base-btn) > [class*="col"] {
+  padding: 0 3px !important;
+  margin: 0 !important;
+}
+
+/* Preload and Eject are not honoured by the command shim (see
+   MMU_ACTION_DEAD in klippace-tool-mapper.js), so drop the whole row rather
+   than leaving a gap. */
+.mmu-card .row--dense:has(button[data-klippace-action="preload"]),
+.mmu-card .row--dense:has(button[data-klippace-action="eject"]) {
+  display: none !important;
+}
+
+/* Unlock is a no-op in the shim, and Fluidd only enables it in a paused+locked
+   state this printer never enters. Hide the row while it is disabled. */
+.mmu-card .row--dense:has(button[data-klippace-action="unlock"][data-klippace-disabled="true"]) {
+  display: none !important;
+}
+
+/* ---- Secondary actions: Check Gate, Recover ---- */
+.mmu-card button.base-btn:not(.wrap-text-btn) {
+  height: 32px !important;
+  min-height: 32px !important;
+  width: 100% !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: #C7CBD1 !important;
+  font-size: 0.68rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+
+.mmu-card button.base-btn:not(.wrap-text-btn):hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  color: #FFFFFF !important;
+}
+
+.mmu-card button.base-btn:not(.wrap-text-btn):disabled,
+.mmu-card button.base-btn:not(.wrap-text-btn).v-btn--disabled,
+.mmu-card .theme--dark.v-btn.base-btn.v-btn--has-bg:not(.wrap-text-btn).v-btn--disabled {
+  color: rgba(255, 255, 255, 0.28) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+.mmu-card button.base-btn .v-icon {
+  font-size: 13px !important;
+  margin-right: 5px !important;
+}
+
+/* ---- Primaries: Unload / Load ---- */
+.mmu-card button.wrap-text-btn {
+  height: 44px !important;
+  min-height: 44px !important;
+  width: 100% !important;
+  border-radius: 4px !important;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.07em !important;
+  text-transform: uppercase !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+
+/* Unload: outlined primary */
+.mmu-card button[data-klippace-action="unload"] {
+  background: transparent !important;
+  border: 1px solid var(--v-primary-base, #ff2300) !important;
+  color: var(--v-primary-base, #ff2300) !important;
+}
+
+.mmu-card button[data-klippace-action="unload"]:hover:not(:disabled) {
+  background: rgba(255, 35, 0, 0.14) !important;
+}
+
+/* Load: filled primary */
+.mmu-card button[data-klippace-action="load"] {
+  background: var(--v-primary-base, #ff2300) !important;
+  border: 1px solid var(--v-primary-base, #ff2300) !important;
+  color: #FFFFFF !important;
+}
+
+.mmu-card button[data-klippace-action="load"]:hover:not(:disabled) {
+  background: #ff4a2e !important;
+  border-color: #ff4a2e !important;
+}
+
+.mmu-card button.wrap-text-btn:disabled,
+.mmu-card button.wrap-text-btn.v-btn--disabled,
+.mmu-card .theme--dark.v-btn.wrap-text-btn.v-btn--has-bg.v-btn--disabled {
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+.mmu-card button.wrap-text-btn .v-icon {
+  font-size: 15px !important;
+  margin-right: 6px !important;
+}

@@ -360,8 +360,52 @@ class MmuShim:
         else:
             gcmd.respond_info("!! MMU_SELECT: TOOL or GATE parameter is required")
 
+    def _extruder_only_length(self):
+        """Filament travel between the toolhead entry sensor and the nozzle.
+
+        Used for Happy Hare's ``EXTRUDER_ONLY`` semantics, where the spool is
+        already threaded to the extruder and only the short segment into the
+        nozzle (or back out of it) should move.
+        """
+        for inst in getattr(self.manager, "instances", []):
+            try:
+                length = float(getattr(inst, "max_entry_to_nozzle_length", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if length > 0:
+                return length
+        return 80.0
+
+    def _active_gate_index(self):
+        """Global gate index of the currently loaded spool, or -1."""
+        try:
+            return int(self.manager.state.get("ace_current_index", -1))
+        except (TypeError, ValueError):
+            return -1
+
     def cmd_MMU_LOAD(self, gcmd):
-        """Load filament into toolhead/nozzle."""
+        """Load filament into toolhead/nozzle.
+
+        ``EXTRUDER_ONLY=1`` moves just the segment between the toolhead entry
+        sensor and the nozzle, for when the spool is already threaded up to the
+        extruder. Otherwise a full select-and-load runs.
+        """
+        if gcmd.get_int("EXTRUDER_ONLY", 0) == 1:
+            gate = self._active_gate_index()
+            if gate < 0:
+                gcmd.respond_info(
+                    "!! MMU_LOAD EXTRUDER_ONLY: no spool is currently loaded"
+                )
+                return
+            length = int(self._extruder_only_length())
+            gcmd.respond_info(
+                f"MMU: Loading extruder only (gate {gate}, {length}mm)"
+            )
+            self.gcode.run_script_from_command(
+                f"ACE_FEED T={gate} LENGTH={length}"
+            )
+            return
+
         tool = gcmd.get_int("TOOL", None)
         gate = gcmd.get_int("GATE", None)
         if tool is not None:
@@ -371,13 +415,33 @@ class MmuShim:
             gcmd.respond_info(f"MMU: Loading gate {gate}")
             self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL GATE={gate}")
         else:
-            cur = self.manager.state.get("ace_current_index", 0)
+            cur = self._active_gate_index()
             target = cur if cur >= 0 else 0
             gcmd.respond_info(f"MMU: Loading gate {target}")
             self.gcode.run_script_from_command(f"ACE_CHANGE_TOOL GATE={target}")
 
     def cmd_MMU_UNLOAD(self, gcmd):
-        """Unload filament from nozzle."""
+        """Unload filament from nozzle.
+
+        ``EXTRUDER_ONLY=1`` retracts just the segment between the nozzle and
+        the toolhead entry sensor, leaving the spool threaded to the extruder.
+        """
+        if gcmd.get_int("EXTRUDER_ONLY", 0) == 1:
+            gate = self._active_gate_index()
+            if gate < 0:
+                gcmd.respond_info(
+                    "!! MMU_UNLOAD EXTRUDER_ONLY: no spool is currently loaded"
+                )
+                return
+            length = int(self._extruder_only_length())
+            gcmd.respond_info(
+                f"MMU: Unloading extruder only (gate {gate}, {length}mm)"
+            )
+            self.gcode.run_script_from_command(
+                f"ACE_RETRACT T={gate} LENGTH={length}"
+            )
+            return
+
         gcmd.respond_info("MMU: Unloading active tool from nozzle")
         # Run UNLOAD_TOOL macro if defined, else ACE_SMART_UNLOAD
         if self.printer.lookup_object("gcode_macro UNLOAD_TOOL", None):

@@ -1,6 +1,6 @@
 # /// script
 # name = "KLIPPACE ACE Pro Sync"
-# version = "1.1.0"
+# version = "1.2.0"
 # description = "One-click filament and color sync from Anycubic ACE Pro via Moonraker"
 # ///
 
@@ -11,12 +11,18 @@ Dynamically retrieves printer network connection parameters (host, port, API key
 directly from the active OrcaSlicer printer profile (or OrcaSlicer configuration),
 then queries Moonraker to synchronize ACE Pro filaments, colors, temperatures,
 and RFID tags into OrcaSlicer user profiles.
+
+Slots that carry a custom preset name (set via ``ACE_SET_SLOT
+FILAMENT_SETTINGS_ID=`` and surfaced by ``moonraker_lane_sync`` as
+``filament_settings_id``) are written under that name instead of the generated
+``ACE T<slot> - <material> <colour>`` default.
 """
 
 import json
 import logging
 import os
 import platform
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -30,6 +36,15 @@ except ImportError:
 
 DEFAULT_PRINTER_HOST = "192.168.1.168"
 DEFAULT_PRINTER_PORT = 7125
+
+# An ACE Pro unit exposes four filament lanes.
+MAX_SLOTS = 4
+
+# Tracks the preset files this plugin wrote so that renaming a slot (or giving it
+# a custom preset name) removes the previous filename. Without it, a rename would
+# leave an orphaned preset behind, because a custom name carries no slot marker.
+MANIFEST_VERSION = 1
+MANIFEST_FILENAME = "klippace_ace_sync_manifest.json"
 
 COLOR_THRESHOLD_WHITE = 35
 COLOR_THRESHOLD_BLACK = 30
@@ -154,84 +169,223 @@ def get_color_name(hex_code, sku="", vendor=""):
     return name
 
 
-def clean_stale_slot_presets(filament_dirs, slot_idx, current_preset_name):
-    """
-    Clean up any legacy or stale presets for this specific slot index.
-    e.g. if current is 'ACE T2 - PLA White', deletes 'ACE T2 - PLA Black.json',
-    'ACE T2 - PLA #EFF0F1.json', and corresponding .info files.
-    """
-    slot_prefix = f"ACE T{slot_idx} - "
-    target_json = f"{current_preset_name}.json"
-    target_info = f"{current_preset_name}.info"
-    cleaned = []
-    for fdir in filament_dirs:
-        fpath = Path(fdir)
-        if not fpath.exists():
-            continue
-        for item in fpath.glob(f"{slot_prefix}*"):
-            if item.name not in (target_json, target_info) and item.suffix in (".json", ".info"):
-                try:
-                    item.unlink()
-                    cleaned.append(str(item))
-                    logging.info("Cleaned stale preset: %s", item)
-                except OSError as e:
-                    logging.warning("Failed to remove stale preset %s: %s", item, e)
+def sanitize_preset_name(name):
+    """Make *name* safe to use as a filename on every supported platform."""
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "-", str(name or ""))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
     return cleaned
 
 
-def update_orcaslicer_conf(synced_items, printer_name=None):
+def filament_slot_key(slot_idx):
+    """OrcaSlicer's key for a filament slot: T0 is 'filament', T1+ is 'filament_NN'."""
+    return "filament" if slot_idx == 0 else f"filament_{slot_idx:02d}"
+
+
+def get_manifest_path():
+    return get_orca_app_dir() / MANIFEST_FILENAME
+
+
+def load_manifest():
+    """Read the record of presets written by previous syncs.
+
+    Returns ``{"version": int, "machine": str, "slots": {slot: [paths]}}``. An
+    unreadable or corrupt manifest is treated as empty rather than fatal.
     """
-    Safely update OrcaSlicer.conf to map synced slot presets and colors
-    to the active machine profile in orca_presets.
+    manifest = {"version": MANIFEST_VERSION, "machine": "", "slots": {}}
+    path = get_manifest_path()
+    if not path.exists():
+        return manifest
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("manifest root is not an object")
+        slots = data.get("slots")
+        manifest["slots"] = slots if isinstance(slots, dict) else {}
+        machine = data.get("machine")
+        manifest["machine"] = str(machine) if machine else ""
+        return manifest
+    except Exception as e:
+        logging.warning("Ignoring unreadable manifest %s: %s", path, e)
+        return manifest
+
+
+def save_manifest(manifest):
+    path = get_manifest_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        tmp_path.replace(path)
+        return True
+    except Exception as e:
+        logging.error("Failed to write manifest %s: %s", path, e)
+        return False
+
+
+def clean_slot_presets(filament_dirs, slot_idx, keep_paths, previous_paths):
+    """
+    Remove presets that a previous sync wrote for *slot_idx* but that are no
+    longer current.
+
+    Two sources are swept:
+      * files recorded for this slot in the manifest (handles custom names)
+      * legacy ``ACE T<slot> - *`` presets from syncs predating the manifest
+
+    Anything in *keep_paths* is spared.
+    """
+    keep = {str(Path(p).resolve()) for p in keep_paths if p}
+    candidates = []
+
+    for recorded in previous_paths or []:
+        candidates.append(Path(recorded))
+
+    slot_prefix = f"ACE T{slot_idx} - "
+    for fdir in filament_dirs:
+        directory = Path(fdir)
+        if not directory.exists():
+            continue
+        for item in directory.glob(f"{slot_prefix}*"):
+            if item.suffix in (".json", ".info"):
+                candidates.append(item)
+
+    cleaned = []
+    for item in candidates:
+        try:
+            if str(item.resolve()) in keep:
+                continue
+            if item.exists():
+                item.unlink()
+                cleaned.append(str(item))
+                logging.info("Cleaned stale preset: %s", item)
+        except OSError as e:
+            logging.warning("Failed to remove stale preset %s: %s", item, e)
+    return cleaned
+
+
+def _split_list(value):
+    """Parse an OrcaSlicer comma-separated field into a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value]
+    raw = str(value)
+    if not raw.strip():
+        return []
+    return [part.strip() for part in raw.split(",")]
+
+
+def _preset_slot_count(preset):
+    """How many filament slots this orca_presets bundle actually defines.
+
+    Taken from the keys Orca itself wrote (``filament`` plus ``filament_NN``)
+    rather than assumed to be MAX_SLOTS, so a single-extruder machine is not
+    handed four colours.
+    """
+    count = 1 if "filament" in preset else 0
+    for key in preset:
+        if key.startswith("filament_") and key[9:].isdigit():
+            count = max(count, int(key[9:]) + 1)
+    return count
+
+
+def _is_managed_machine(preset, printer_name, last_machine=""):
+    """True when this orca_presets bundle belongs to the printer being synced."""
+    machine = str(preset.get("machine") or "")
+    if printer_name and machine == printer_name:
+        return True
+    if last_machine and machine == last_machine:
+        return True
+    # Last resort for an unresolvable active machine: recognise a bundle whose
+    # filament slots we generated. Custom preset names defeat this, which is why
+    # the machine is also recorded in the manifest.
+    for key in ("filament", "filament_01", "filament_02", "filament_03"):
+        if str(preset.get(key) or "").startswith("ACE T"):
+            return True
+    return False
+
+
+def _apply_slot_presets(preset, items_by_slot, slot_count):
+    """Map synced presets/colours onto one orca_presets bundle. Returns True if changed."""
+    colors = _split_list(preset.get("filament_colors"))
+    while len(colors) < slot_count:
+        colors.append("#000000")
+
+    changed = False
+    for slot in range(slot_count):
+        item = items_by_slot.get(slot)
+        if not item:
+            continue
+        key = filament_slot_key(slot)
+        if str(preset.get(key) or "") != item["name"]:
+            preset[key] = item["name"]
+            changed = True
+        # Only the colour list is index-aligned; never write a preset name into it.
+        if colors[slot] != item["color"]:
+            colors[slot] = item["color"]
+            changed = True
+
+    if not changed:
+        return False
+
+    color_str = ",".join(colors)
+    preset["filament_colors"] = color_str
+    # filament_multi_colors is only maintained by Orca on machines that support
+    # mixed filaments; it is "" elsewhere and must stay that way.
+    if str(preset.get("filament_multi_colors") or "").strip():
+        preset["filament_multi_colors"] = color_str
+    return True
+
+
+def update_orcaslicer_conf(synced_items, printer_name=None, last_machine=""):
+    """
+    Map synced slot presets and colours onto the matching machine profile in
+    ``orca_presets``.
+
+    Returns the list of machine names that were updated (empty when nothing
+    matched or nothing changed).
     """
     app_dir = get_orca_app_dir()
     conf_path = app_dir / "OrcaSlicer.conf"
     if not conf_path.exists():
-        return False
+        return []
 
     try:
         with open(conf_path, "r", encoding="utf-8") as f:
             conf = json.load(f)
 
-        items_by_slot = {it["slot"]: it for it in synced_items}
-        orca_presets = conf.get("orca_presets", [])
-        updated = False
+        items_by_slot = {int(it["slot"]): it for it in synced_items}
+        orca_presets = conf.get("orca_presets")
+        if not isinstance(orca_presets, list):
+            logging.warning("OrcaSlicer.conf has no orca_presets list; skipping.")
+            return []
 
+        updated_machines = []
         for p in orca_presets:
             if not isinstance(p, dict):
                 continue
-            p_machine = p.get("machine", "")
-            is_match = False
-            if printer_name and p_machine == printer_name:
-                is_match = True
-            elif any(str(p.get(k, "")).startswith("ACE T") for k in ("filament", "filament_01", "filament_02", "filament_03")):
-                is_match = True
+            if not _is_managed_machine(p, printer_name, last_machine):
+                continue
+            slot_count = _preset_slot_count(p)
+            if slot_count < 1:
+                continue
+            if _apply_slot_presets(p, items_by_slot, slot_count):
+                updated_machines.append(str(p.get("machine") or ""))
 
-            if is_match:
-                colors = []
-                for i in range(4):
-                    key = "filament" if i == 0 else f"filament_{i:02d}"
-                    if i in items_by_slot:
-                        p[key] = items_by_slot[i]["name"]
-                        colors.append(items_by_slot[i]["color"])
-                    else:
-                        colors.append(p.get(key, "#000000"))
-
-                color_str = ",".join(colors)
-                p["filament_colors"] = color_str
-                p["filament_multi_colors"] = color_str
-                updated = True
-
-        if updated:
+        if updated_machines:
             tmp_path = conf_path.with_suffix(".tmp")
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(conf, f, indent=4)
             tmp_path.replace(conf_path)
-            logging.info("Successfully updated OrcaSlicer.conf machine presets.")
-            return True
+            logging.info(
+                "Updated OrcaSlicer.conf machine preset(s): %s",
+                ", ".join(m for m in updated_machines if m) or "(unnamed)",
+            )
+        return updated_machines
     except Exception as e:
         logging.error("Failed to update OrcaSlicer.conf: %s", e)
-    return False
+    return []
 
 
 def get_orca_app_dir():
@@ -444,13 +598,13 @@ def fetch_moonraker_ace_data(net_info=None):
     results["raw_mmu"] = printer_objects.get("mmu", {})
     results["raw_ace"] = printer_objects.get("ace_instance_0", {})
 
-    # Extract 4 slots
+    # Extract one entry per ACE lane
     ace_slots = results["raw_ace"].get("slots", [])
-    mmu_colors = results["raw_mmu"].get("gate_color", ["", "", "", ""])
-    mmu_materials = results["raw_mmu"].get("gate_material", ["", "", "", ""])
-    mmu_status = results["raw_mmu"].get("gate_status", [0, 0, 0, 0])
+    mmu_colors = results["raw_mmu"].get("gate_color") or []
+    mmu_materials = results["raw_mmu"].get("gate_material") or []
+    mmu_status = results["raw_mmu"].get("gate_status") or []
 
-    for i in range(4):
+    for i in range(MAX_SLOTS):
         slot_data = {
             "index": i,
             "tool": i,
@@ -463,6 +617,7 @@ def fetch_moonraker_ace_data(net_info=None):
             "vendor": "Anycubic",
             "sku": "",
             "rfid": False,
+            "custom_name": "",
         }
 
         # Priority 1: ace_instance_0 data
@@ -479,6 +634,9 @@ def fetch_moonraker_ace_data(net_info=None):
                 slot_data["vendor"] = raw_s.get("brand")
             if raw_s.get("sku"):
                 slot_data["sku"] = raw_s.get("sku")
+            # User-supplied preset name (ACE_SET_SLOT FILAMENT_SETTINGS_ID=)
+            if raw_s.get("custom_name"):
+                slot_data["custom_name"] = str(raw_s["custom_name"]).strip()
 
             rgb = raw_s.get("color")
             if rgb and len(rgb) >= 3 and any(c > 0 for c in rgb[:3]):
@@ -506,6 +664,10 @@ def fetch_moonraker_ace_data(net_info=None):
                 slot_data["vendor"] = ld.get("vendor")
             if ld.get("sku"):
                 slot_data["sku"] = ld.get("sku")
+            # moonraker_lane_sync publishes the custom preset name under the
+            # Happy Hare compatible key filament_settings_id.
+            if ld.get("filament_settings_id"):
+                slot_data["custom_name"] = str(ld["filament_settings_id"]).strip()
 
         # Fallback to MMU shim gate attributes if present
         if i < len(mmu_colors) and mmu_colors[i]:
@@ -556,6 +718,9 @@ def sync_filaments_to_orcaslicer(host=None):
     Dynamically queries Moonraker using network info from OrcaSlicer printer profile,
     builds universal filament presets for ready slots, cleans stale presets,
     updates OrcaSlicer configuration, and writes to OrcaSlicer user profiles.
+
+    A slot with a custom preset name is written under that name; otherwise the
+    generated ``ACE T<slot> - <material> <colour>`` name is used.
     """
     net_info = resolve_printer_network_info(override_host=host)
     ace_info = fetch_moonraker_ace_data(net_info=net_info)
@@ -569,7 +734,11 @@ def sync_filaments_to_orcaslicer(host=None):
             "synced": [],
         }
 
+    manifest = load_manifest()
+    manifest_slots = manifest.get("slots") or {}
+
     synced_items = []
+    new_manifest_slots = {}
     for s in slots:
         if s["status"] != "ready":
             continue
@@ -591,7 +760,11 @@ def sync_filaments_to_orcaslicer(host=None):
         vendor = s.get("vendor") or "Anycubic"
         sku = s.get("sku", "")
 
-        preset_name = f"ACE T{slot_idx} - {mat} {col_name}".strip()
+        # A user-supplied preset name wins, so a named spool lands in Orca under
+        # the name the user chose on the printer.
+        custom_name = sanitize_preset_name(s.get("custom_name"))
+        generated_name = sanitize_preset_name(f"ACE T{slot_idx} - {mat} {col_name}")
+        preset_name = custom_name or generated_name
         inherits_map = {
             "PLA": "Generic PLA @System",
             "PETG": "Generic PETG @System",
@@ -621,17 +794,27 @@ def sync_filaments_to_orcaslicer(host=None):
             "version": "2.4.0.0",
         }
 
-        # Clean stale presets for this slot index before writing new one
-        clean_stale_slot_presets(filament_dirs, slot_idx, preset_name)
-
-        # Write to all discovered user directories
+        # Write to all discovered user directories, tracking exactly what we
+        # produced so a later rename can be cleaned up.
+        written_paths = []
         for fdir in filament_dirs:
             out_path = os.path.join(fdir, f"{preset_name}.json")
             try:
                 with open(out_path, "w", encoding="utf-8") as f:
                     json.dump(preset_payload, f, indent=4)
+                written_paths.append(out_path)
             except Exception as e:
                 logging.error("Failed writing preset %s: %s", out_path, e)
+
+        # Drop anything a previous sync wrote for this slot that is no longer
+        # current (renames, material/colour changes, legacy naming).
+        clean_slot_presets(
+            filament_dirs,
+            slot_idx,
+            keep_paths=written_paths,
+            previous_paths=manifest_slots.get(str(slot_idx)),
+        )
+        new_manifest_slots[str(slot_idx)] = written_paths
 
         synced_items.append({
             "slot": slot_idx,
@@ -640,16 +823,39 @@ def sync_filaments_to_orcaslicer(host=None):
             "color": col,
             "temp": temp,
             "sku": sku,
+            "custom_name": custom_name,
+            "files": written_paths,
         })
 
-    # Update OrcaSlicer.conf active presets
-    update_orcaslicer_conf(synced_items, printer_name=net_info.get("printer_name"))
+    # Update OrcaSlicer.conf active presets, then remember which machine we
+    # touched so a later sync can still find it if the active machine cannot be
+    # resolved and the slots carry custom names.
+    updated_machines = update_orcaslicer_conf(
+        synced_items,
+        printer_name=net_info.get("printer_name"),
+        last_machine=manifest.get("machine", ""),
+    )
+
+    manifest["version"] = MANIFEST_VERSION
+    manifest["slots"] = new_manifest_slots
+    for machine in updated_machines:
+        if machine:
+            manifest["machine"] = machine
+            break
+    save_manifest(manifest)
 
     printer_label = f"{net_info['printer_name']} ({net_info['base_url']})"
     msg_lines = [f"Synced {len(synced_items)} slots from ACE Pro on {printer_label}:"]
     for it in synced_items:
         sku_str = f" [{it['sku']}]" if it["sku"] else ""
-        msg_lines.append(f"• T{it['slot']}: {it['material']} ({it['color']}) @ {it['temp']}°C{sku_str}")
+        named_str = " (custom preset name)" if it.get("custom_name") else ""
+        msg_lines.append(
+            f"• T{it['slot']}: {it['name']} — {it['material']} ({it['color']}) "
+            f"@ {it['temp']}°C{sku_str}{named_str}"
+        )
+
+    if not synced_items:
+        msg_lines.append("• No slots with filament were reported as ready.")
 
     summary_text = "\n".join(msg_lines)
 
@@ -687,6 +893,16 @@ def render_html_page(slots, net_info):
         sku = s.get("sku") or (s.get("vendor") if status == "ready" else "No Spool")
         is_ready = status == "ready"
 
+        # Show the preset name this slot will land under, so a custom name is
+        # visible before syncing.
+        custom = str(s.get("custom_name") or "").strip()
+        if custom:
+            preset_label = f"{custom} (custom)"
+        elif is_ready:
+            preset_label = f"ACE T{idx} - {mat} {s.get('color_name') or color}"
+        else:
+            preset_label = "---"
+
         badge_class = "badge-ready" if is_ready else "badge-empty"
         badge_text = "READY" if is_ready else "EMPTY"
 
@@ -704,6 +920,7 @@ def render_html_page(slots, net_info):
                 <div class="detail-row"><span class="detail-label">Color:</span> <span class="detail-val">{color}</span></div>
                 <div class="detail-row"><span class="detail-label">Nozzle / Bed:</span> <span class="detail-val">{temp} / {bed}</span></div>
                 <div class="detail-row"><span class="detail-label">Spool Info:</span> <span class="detail-val">{sku}</span></div>
+                <div class="detail-row"><span class="detail-label">Preset:</span> <span class="detail-val">{preset_label}</span></div>
             </div>
         </div>
         """

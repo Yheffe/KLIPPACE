@@ -181,12 +181,20 @@ The KLIPPACE ACE Pro Sync plugin enables one-click synchronization of your ACE P
 - **Dynamic Printer Network Resolution**: Automatically extracts target printer network parameters (`print_host`, `printhost_port`, `printhost_apikey`) directly from the active OrcaSlicer printer profile (or `OrcaSlicer.conf`). Works seamlessly without hardcoded IP addresses.
 - **Universal Filament Presets**: Generates presets with `"compatible_printers": []`, ensuring synced ACE Pro spools are instantly visible and selectable across all printer models, bed sizes, and nozzle diameters.
 - **Cross-Platform Compatibility**: Works across macOS (`~/Library/Application Support/OrcaSlicer`), Windows (`%APPDATA%/OrcaSlicer`), and Linux (`~/.config/OrcaSlicer`).
-- **Interactive Embedded Web Page UI**: An embedded dark-mode "ACE Pro" tab directly inside OrcaSlicer displaying live slot swatches, materials, target temperatures, and spool metadata with a one-click **"Sync Filaments to Slicer"** action.
+- **Interactive Embedded Web Page UI**: An embedded dark-mode "ACE Pro" tab directly inside OrcaSlicer displaying live slot swatches, materials, target temperatures, spool metadata and the preset name each slot will sync under, with a one-click **"Sync Filaments to Slicer"** action.
+- **Custom Preset Names**: A slot given a name on the printer (the slot editor's *Preset name* field, or `ACE_SET_SLOT ... FILAMENT_SETTINGS_ID="..."`) is synced into Orca under that name instead of the generated `ACE T<n> - <material> <colour>` label. Renaming a spool replaces the previous preset rather than leaving an orphan.
 - **Script Capability & Standalone CLI**: Trigger sync directly via OrcaSlicer's **File > Plugins / Run** or execute via terminal:
   ```bash
-  python3 scripts/sync_ace_to_orca.py
+  python3 scripts/sync_ace_to_orca.py          # summary
+  python3 scripts/sync_ace_to_orca.py --json   # full result payload
+  python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
   ```
+  `scripts/sync_ace_to_orca.py` is a thin launcher that imports the plugin, so the sync logic exists in exactly one place: `plugins/orcaslicer/klippace_ace_sync.py`.
 - **Smart Non-RFID Mapping**: Automatically maps generic or manual spools cleanly to standard PLA and default temperatures (210°C / 60°C) so all 4 slots are consistently synchronized.
+
+#### Why custom preset names are tracked
+
+A generated `ACE T<n> - ...` filename identifies its slot, so stale presets can be found by prefix. A custom name carries no such marker. The plugin therefore records the files it wrote in `klippace_ace_sync_manifest.json` (in the OrcaSlicer application directory) and uses that record to clean up on rename or removal. Legacy `ACE T<n> - *` presets are still swept by prefix, so upgrading needs no manual cleanup.
 
 #### Plugin Installation:
 

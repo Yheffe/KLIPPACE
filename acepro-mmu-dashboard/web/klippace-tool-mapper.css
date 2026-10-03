@@ -376,7 +376,7 @@ svg.svg-colors {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   transition: all 0.2s ease;
 }
 
@@ -390,7 +390,7 @@ svg.svg-colors {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-width: 250px;
+  min-width: 205px;
 }
 
 .klippace-tool-badge {
@@ -466,19 +466,21 @@ svg.svg-colors {
 .klippace-slots-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .klippace-slot-pill {
   background: rgba(255, 255, 255, 0.04);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  padding: 10px 14px;
-  min-width: 114px;
+  padding: 8px 11px;
+  min-width: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   color: #D4D4D8;
   position: relative;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
@@ -514,19 +516,21 @@ svg.svg-colors {
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
+  min-width: 0;
 }
 
 .klippace-slot-num {
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.15;
 }
 
 .klippace-slot-mat {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #A1A1AA;
   line-height: 1.15;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .klippace-slot-pill.active .klippace-slot-mat {

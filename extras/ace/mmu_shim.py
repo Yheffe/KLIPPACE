@@ -10,6 +10,36 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+# Material -> suggested nozzle temp, lazily sourced from AceInstance so the
+# material/temp table has a single owner in the backend.
+_MATERIAL_TEMP_DEFAULTS: Optional[Dict[str, int]] = None
+
+
+def _material_temp_defaults() -> Dict[str, int]:
+    global _MATERIAL_TEMP_DEFAULTS
+    if _MATERIAL_TEMP_DEFAULTS is None:
+        try:
+            from .instance import AceInstance
+            defaults = getattr(AceInstance, "MATERIAL_TEMPS", {}) or {}
+        except Exception:
+            defaults = {}
+        # Key by upper-case material so RFID/UI spellings always resolve.
+        _MATERIAL_TEMP_DEFAULTS = {
+            str(k).strip().upper(): int(v) for k, v in defaults.items()
+        }
+    return _MATERIAL_TEMP_DEFAULTS
+
+
+def _resolve_gate_temp(slot: Dict[str, Any], material: str) -> int:
+    """Nozzle temp for a gate: ACE inventory value, else the material default."""
+    try:
+        temp = int(slot.get("temp", 0) or 0)
+    except (TypeError, ValueError):
+        temp = 0
+    if temp > 0:
+        return temp
+    return _material_temp_defaults().get((material or "").upper(), 0)
+
 
 class MmuShim:
     """
@@ -105,6 +135,7 @@ class MmuShim:
             gate_material = []
             gate_spool_id = []
             gate_speed = []
+            gate_temp = []
             units_list = []
 
             instances = getattr(self.manager, "instances", [])
@@ -154,6 +185,7 @@ class MmuShim:
                     spool_id = slot.get("spool_id")
                     gate_spool_id.append(int(spool_id) if spool_id is not None else -1)
                     gate_speed.append(100.0)
+                    gate_temp.append(_resolve_gate_temp(slot, mat))
 
             # Active tool & filament location
             active_gate = self.manager.state.get("ace_current_index", -1)
@@ -195,12 +227,13 @@ class MmuShim:
                 c = gate_color[g_idx] if g_idx < len(gate_color) else "#ffffff"
                 m = gate_material[g_idx] if g_idx < len(gate_material) else "PLA"
                 spool_id = gate_spool_id[g_idx] if g_idx < len(gate_spool_id) else -1
+                t = gate_temp[g_idx] if g_idx < len(gate_temp) else 0
                 slicer_tools.append({
                     "tool": t_idx,
                     "name": f"Tool {t_idx} (Gate {g_idx})",
                     "material": m,
                     "color": c,
-                    "temp": 220,
+                    "temp": t,
                     "in_use": True,
                     "spool_id": spool_id,
                 })
@@ -222,6 +255,7 @@ class MmuShim:
                 "gate_filament_name": list(gate_material),
                 "gate_spool_id": gate_spool_id,
                 "gate_speed": gate_speed,
+                "gate_temp": gate_temp,
                 "gate_speed_override": [100.0] * num_gates,
                 "tool": tool,
                 "gate": gate,
@@ -255,6 +289,7 @@ class MmuShim:
                 "gate_filament_name": ["PLA", "PLA", "PLA", "PLA"],
                 "gate_spool_id": [-1, -1, -1, -1],
                 "gate_speed": [100.0, 100.0, 100.0, 100.0],
+                "gate_temp": [0, 0, 0, 0],
                 "gate_speed_override": [100.0, 100.0, 100.0, 100.0],
                 "tool": -1,
                 "gate": -1,

@@ -184,7 +184,7 @@
         <div id="klippace-toast" class="klippace-toast"></div>
 
         <div class="klippace-cols-header">
-          <span>Sliced Tool (Slicer Expects)</span>
+          <span id="klippace-col-header-left">Sliced Tool (Slicer Expects)</span>
           <span>Feed From Physical ACE Slot (Click to Map)</span>
         </div>
 
@@ -254,12 +254,16 @@
 
     container.innerHTML = '';
 
-    const displayTools = toolsData.length > 0 ? toolsData : [
-      { tool: 0, name: 'Tool 0', color: '#ff7f32', material: 'PLA', temp: 220, weight: '' },
-      { tool: 1, name: 'Tool 1', color: '#ff3a2f', material: 'PLA', temp: 220, weight: '' },
-      { tool: 2, name: 'Tool 2', color: '#eff0f1', material: 'PLA', temp: 220, weight: '' },
-      { tool: 3, name: 'Tool 3', color: '#000000', material: 'PLA', temp: 220, weight: '' },
-    ];
+    // Last-resort view when neither file metadata nor gate data is available:
+    // derive from the live ACE slots so we never invent a temperature.
+    const displayTools = toolsData.length > 0 ? toolsData : [0, 1, 2, 3].map((i) => ({
+      tool: i,
+      name: `Tool ${i}`,
+      color: gatesData[i]?.color || '#888888',
+      material: gatesData[i]?.material || 'PLA',
+      temp: gatesData[i]?.temp || 0,
+      weight: '',
+    }));
 
     displayTools.forEach((tool, tIdx) => {
       // Filter out unused tools if referenced_tools exists and showAllTools is false
@@ -271,20 +275,36 @@
       row.className = 'klippace-row';
       row.dataset.toolIndex = tIdx;
 
+      // With no print file loaded there is nothing for a slicer to expect, so the
+      // left card mirrors the live ACE slot this tool is currently mapped to.
+      let cardTool = tool;
+      if (!isPrintingAction) {
+        const gateIdx = currentMapping[tIdx] !== undefined ? currentMapping[tIdx] : tIdx;
+        const mappedGate = gatesData[gateIdx];
+        if (mappedGate) {
+          cardTool = {
+            ...tool,
+            color: mappedGate.color || tool.color,
+            material: mappedGate.material || tool.material,
+            temp: mappedGate.temp || 0,
+          };
+        }
+      }
+
       // Sliced Tool Card (Left)
       const leftCol = document.createElement('div');
       leftCol.className = 'klippace-tool-info';
       leftCol.innerHTML = `
         <div class="klippace-tool-badge">T${tIdx}</div>
         <div class="klippace-swatch-wrapper">
-          <div class="klippace-swatch" style="background-color: ${tool.color || '#888'};" title="${tool.color || ''}"></div>
+          <div class="klippace-swatch" style="background-color: ${cardTool.color || '#888'};" title="${cardTool.color || ''}"></div>
         </div>
         <div class="klippace-tool-meta">
-          <div class="klippace-tool-name">${tool.name || `Tool ${tIdx}`}</div>
+          <div class="klippace-tool-name">${cardTool.name || `Tool ${tIdx}`}</div>
           <div class="klippace-tool-submeta">
-            <span class="klippace-mat-tag">${tool.material || 'PLA'}</span>
-            ${tool.temp > 0 ? `<span class="klippace-temp-tag">${tool.temp}°C</span>` : ''}
-            ${tool.weight ? `<span class="klippace-weight-tag">${tool.weight}g</span>` : ''}
+            <span class="klippace-mat-tag">${cardTool.material || 'PLA'}</span>
+            ${cardTool.temp > 0 ? `<span class="klippace-temp-tag">${cardTool.temp}°C</span>` : ''}
+            ${cardTool.weight ? `<span class="klippace-weight-tag">${cardTool.weight}g</span>` : ''}
           </div>
         </div>
       `;
@@ -305,20 +325,20 @@
       const selectedSlot = currentMapping[tIdx] !== undefined ? currentMapping[tIdx] : tIdx;
 
       for (let sIdx = 0; sIdx < 4; sIdx++) {
-        const gate = gatesData[sIdx] || { color: '#888', material: 'PLA' };
+        const gate = gatesData[sIdx] || { color: '#888', material: 'PLA', temp: 0 };
         const isSelected = selectedSlot === sIdx;
 
         const pill = document.createElement('button');
         pill.type = 'button';
         pill.className = `klippace-slot-pill ${isSelected ? 'active' : ''}`;
         pill.dataset.slotIndex = sIdx;
-        pill.title = `Map Tool ${tIdx} to Slot ${sIdx} (${gate.material || 'PLA'})`;
+        pill.title = `Map Tool ${tIdx} to Slot ${sIdx} (${gate.material || 'PLA'}${gate.temp > 0 ? ` ${gate.temp}°C` : ''})`;
 
         pill.innerHTML = `
           <div class="klippace-slot-swatch" style="background-color: ${gate.color || '#888'};"></div>
           <div class="klippace-slot-texts">
             <div class="klippace-slot-num">Slot ${sIdx}</div>
-            <div class="klippace-slot-mat">${gate.material || 'PLA'}</div>
+            <div class="klippace-slot-mat">${gate.material || 'PLA'}${gate.temp > 0 ? ` · ${gate.temp}°C` : ''}</div>
           </div>
           <div class="klippace-slot-check">✓</div>
         `;
@@ -361,16 +381,29 @@
       commitIconEl.textContent = '💾';
     }
 
+    // Without a print file the left column mirrors the mapped ACE slot, so the
+    // "what the slicer expects" wording would be misleading.
+    const leftHeaderEl = document.getElementById('klippace-col-header-left');
+    if (leftHeaderEl) {
+      leftHeaderEl.textContent = filename
+        ? 'Sliced Tool (Slicer Expects)'
+        : 'Tool (Mapped ACE Slot)';
+    }
+
     // 1. Fetch live MMU State
     const mmu = await fetchMmuState();
     if (mmu) {
       gatesData = [];
       const numGates = mmu.num_gates || 4;
       for (let i = 0; i < numGates; i++) {
+        const mat = mmu.gate_material?.[i] || 'PLA';
         gatesData.push({
           index: i,
           color: mmu.gate_color?.[i] || '#888888',
-          material: mmu.gate_material?.[i] || 'PLA',
+          material: mat,
+          // Authoritative source is the ACE slot inventory. The material table is
+          // only a fallback for older shims / slots that store no temperature.
+          temp: mmu.gate_temp?.[i] || MATERIAL_TEMPS[mat] || 0,
           name: mmu.gate_filament_name?.[i] || `Gate ${i}`,
         });
       }
@@ -413,7 +446,8 @@
       }
     }
 
-    // Fallback if no file metadata
+    // Fallback if no file metadata — mirror the live ACE slot inventory so the
+    // tool cards show what is physically loaded, not a hardcoded default.
     if (toolsData.length === 0) {
       for (let i = 0; i < 4; i++) {
         toolsData.push({
@@ -421,7 +455,7 @@
           name: `Tool ${i}`,
           color: gatesData[i]?.color || '#ff7f32',
           material: gatesData[i]?.material || 'PLA',
-          temp: 220,
+          temp: gatesData[i]?.temp || 0,
           weight: '',
         });
       }
@@ -653,14 +687,16 @@
 
     const gateColor = mmu.gate_color?.[gateIndex];
     const gateMat = (mmu.gate_material?.[gateIndex] || '').trim();
-    const toolTemp = mmu.slicer_tool_map?.tools?.[gateIndex]?.temp;
+    const gateTemp = mmu.gate_temp?.[gateIndex] || 0;
     const isUnknown = (!gateMat || gateMat.toLowerCase() === 'unknown')
       || (gateColor || '').replace('#', '').toLowerCase() === '000000';
 
+    // Prefer the temperature recorded against the ACE slot; only fall back to a
+    // material suggestion when the slot itself stores no temperature.
     slotEditorState = {
       gateIndex,
       material: (!gateMat || gateMat.toLowerCase() === 'unknown') ? 'PLA' : gateMat,
-      temp: toolTemp || MATERIAL_TEMPS[gateMat] || 210,
+      temp: gateTemp || MATERIAL_TEMPS[gateMat] || 210,
       color: (!gateColor || (isUnknown && gateColor === '#000000')) ? '#ffffff' : gateColor,
       name: ''
     };

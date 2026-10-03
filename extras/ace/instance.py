@@ -36,24 +36,72 @@ class AceInstance:
     DEFAULT_COLOR = [0, 0, 0]
     DEFAULT_TEMP = 0
 
-    # Material temperature defaults (from RFID tags)
+    # Suggested nozzle temperature per material.
+    #
+    # Single source of truth for material temperatures: used as the RFID
+    # fallback when a tag reports no temperature range, and (via MmuShim) as
+    # the value reported for a slot that stores no temperature.
+    #
+    # Keep the names/temps aligned with SLOT_MATERIALS in the dashboard's
+    # acepro-mmu-dashboard/web/klippace-tool-mapper.js — that list is the
+    # editor's preset menu and should stay a subset of this table.
     MATERIAL_TEMPS = {
-        "PLA": 200,
-        "PLA+": 210,
-        "PLA Glow": 210,
-        "PLA High Speed": 215,
-        "PLA Marble": 205,
-        "PLA Matte": 205,
-        "PLA SE": 210,
+        # --- PLA family ---
+        "PLA": 210,
+        "PLA+": 215,
+        "PLA-CF": 220,
+        "PLA Matte": 210,
         "PLA Silk": 215,
-        "ABS": 240,
-        "ASA": 245,
-        "PETG": 235,
-        "TPU": 210,
-        "PVA": 185,
-        "HIPS": 230,
-        "PC": 260,
+        "PLA High Speed": 220,
+        # --- PETG family ---
+        "PETG": 240,
+        "PETG-CF": 250,
+        # --- Styrenics ---
+        "ABS": 250,
+        "ASA": 260,
+        "HIPS": 240,
+        # --- Flexible ---
+        "TPU": 230,
+        "TPE": 230,
+        # --- Soluble ---
+        "PVA": 200,
+        # --- Engineering ---
+        "PC": 270,
+        "PA": 260,
+        "PA-CF": 280,
+        "Nylon": 260,
+        "POM": 220,
+        "PP": 240,
+        "PPS": 300,
+        "PC-ABS": 265,
+        "PEEK": 380,
+        # --- Anycubic RFID tag names ---
+        # Not offered in the editor's preset list, but tags can report them,
+        # so keep entries here to avoid falling back to DEFAULT_TEMP.
+        "PLA Glow": 210,
+        "PLA Marble": 205,
+        "PLA SE": 210,
     }
+
+    @classmethod
+    def material_temp(cls, material, default=None):
+        """Suggested nozzle temperature for *material*.
+
+        Matches case-insensitively so RFID tag spellings ("pla", "PETG ")
+        resolve against the table.  Returns *default* (or ``DEFAULT_TEMP``)
+        when the material is unknown.
+        """
+        fallback = cls.DEFAULT_TEMP if default is None else default
+        if not material:
+            return fallback
+        key = str(material).strip()
+        if key in cls.MATERIAL_TEMPS:
+            return cls.MATERIAL_TEMPS[key]
+        lowered = key.lower()
+        for name, temp in cls.MATERIAL_TEMPS.items():
+            if name.lower() == lowered:
+                return temp
+        return fallback
 
     def __init__(
         self,
@@ -358,7 +406,7 @@ class AceInstance:
                 else:
                     rfid_temp = temp_min
             else:
-                rfid_temp = self.MATERIAL_TEMPS.get(material, self.DEFAULT_TEMP)
+                rfid_temp = self.material_temp(material)
 
             if 0 <= slot_idx < self.SLOT_COUNT:
                 inv = self.inventory[slot_idx]

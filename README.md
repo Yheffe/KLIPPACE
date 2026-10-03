@@ -18,7 +18,7 @@ A powerful, universal Klipper extension that brings the **Anycubic ACE Pro** mul
 
 KLIPPACE manages high-speed Bowden feeding, dual-sensor toolhead coordination, differential pressure feeding, filament tip cutting, Blobifier tray nozzle parking, purge management, nozzle scrubbing, endless spool failover, and Moonraker lane synchronization.
 
-Supports **multiple ACE Pro units** chained together (up to 12 tools across 3 units), configured via `ace_count`.
+Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit, tool numbers assigned in unit order). **Only single-unit configurations have been tested on hardware so far** — multi-unit support is implemented but unverified.
 
 ---
 
@@ -47,7 +47,7 @@ Supports **multiple ACE Pro units** chained together (up to 12 tools across 3 un
 
 ### Core Multi-Material Engine
 - **Universal Kinematics** – Seamlessly operates on CoreXY flying gantries (Voron 2.4), fixed gantry / bed-slingers (Kobra, Ender, Sovol), and dual-gantry setups.
-- **Multi-ACE Chaining** – Drives multiple ACE Pro units from a single manager, one `AceInstance` per unit, with tool numbers and gate indices assigned in unit order. Set the count with `ace_count` in `[ace]`; the code enforces no upper bound, and the shipped profiles default to 1–2 units (4–8 tools).
+- **Multi-ACE Chaining** – Drives multiple ACE Pro units from a single manager, one `AceInstance` per unit, with tool numbers and gate indices assigned in unit order. Set the count with `ace_count` in `[ace]`; the code enforces no upper bound, though the shipped profiles configure 1–2 units. **Only one connected unit has been tested on hardware** — treat multi-unit setups as unverified and check gate ordering before relying on them.
 - **Dual-Sensor Toolhead Coordination** – Coordinated entry and seating using both an upper entry sensor (`EBB:PD0`) and lower nozzle sensor (`EBB:PA15`).
 - **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
@@ -77,6 +77,11 @@ Supports **multiple ACE Pro units** chained together (up to 12 tools across 3 un
 - Klipper installed and running on Python 3.9+.
 - One or more Anycubic ACE Pro units connected via USB.
 - Moonraker and Mainsail or Fluidd installed.
+
+> [!IMPORTANT]
+> Development and testing have been done against a **single ACE Pro unit (4 slots)**.
+> Configuring `ace_count` above 1 is implemented but has not been verified on
+> hardware — check gate ordering before relying on a multi-unit setup.
 
 ### Interactive Setup & Installer
 
@@ -195,7 +200,7 @@ The KLIPPACE ACE Pro Sync plugin enables one-click synchronization of your ACE P
   python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
   ```
   `scripts/sync_ace_to_orca.py` is a thin launcher that imports the plugin, so the sync logic exists in exactly one place: `plugins/orcaslicer/klippace_ace_sync.py`.
-- **Multi-ACE Support**: ACE units are discovered from the MMU shim and every `ace_instance_N` is queried, so a second or third unit is synced rather than ignored.
+- **Multi-ACE Support**: ACE units are discovered from the MMU shim and every `ace_instance_N` is queried, so a second unit is synced rather than ignored. Untested with more than one unit connected.
 
 #### Why custom preset names are tracked
 

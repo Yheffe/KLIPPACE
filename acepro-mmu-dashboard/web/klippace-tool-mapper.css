@@ -416,6 +416,20 @@ svg.svg-colors {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* No usable colour data (the #000000 sentinel) — a solid black disc would
+   read as "black filament", so show a neutral placeholder instead. */
+.klippace-swatch--unknown,
+.klippace-slot-swatch--unknown {
+  background: repeating-linear-gradient(
+    45deg,
+    #3f3f46 0,
+    #3f3f46 4px,
+    #52525b 4px,
+    #52525b 8px
+  ) !important;
+  border-color: rgba(255, 179, 0, 0.55) !important;
+}
+
 .klippace-tool-meta {
   display: flex;
   flex-direction: column;

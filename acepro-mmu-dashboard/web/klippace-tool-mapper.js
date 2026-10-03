@@ -278,10 +278,12 @@
       // With no print file loaded there is nothing for a slicer to expect, so the
       // left card mirrors the live ACE slot this tool is currently mapped to.
       let cardTool = tool;
+      let cardUnknown = false;
       if (!isPrintingAction) {
         const gateIdx = currentMapping[tIdx] !== undefined ? currentMapping[tIdx] : tIdx;
         const mappedGate = gatesData[gateIdx];
         if (mappedGate) {
+          cardUnknown = isUnknownGate(mappedGate);
           cardTool = {
             ...tool,
             color: mappedGate.color || tool.color,
@@ -297,7 +299,7 @@
       leftCol.innerHTML = `
         <div class="klippace-tool-badge">T${tIdx}</div>
         <div class="klippace-swatch-wrapper">
-          <div class="klippace-swatch" style="background-color: ${cardTool.color || '#888'};" title="${cardTool.color || ''}"></div>
+          <div class="klippace-swatch${cardUnknown ? ' klippace-swatch--unknown' : ''}"${cardUnknown ? ' title="No colour data"' : ` style="background-color: ${cardTool.color || '#888'};" title="${cardTool.color || ''}"`}></div>
         </div>
         <div class="klippace-tool-meta">
           <div class="klippace-tool-name">${cardTool.name || `Tool ${tIdx}`}</div>
@@ -327,6 +329,7 @@
       for (let sIdx = 0; sIdx < 4; sIdx++) {
         const gate = gatesData[sIdx] || { color: '#888', material: 'PLA', temp: 0 };
         const isSelected = selectedSlot === sIdx;
+        const gateUnknown = isUnknownGate(gate);
 
         const pill = document.createElement('button');
         pill.type = 'button';
@@ -335,7 +338,7 @@
         pill.title = `Map Tool ${tIdx} to Slot ${sIdx} (${gate.material || 'PLA'}${gate.temp > 0 ? ` ${gate.temp}°C` : ''})`;
 
         pill.innerHTML = `
-          <div class="klippace-slot-swatch" style="background-color: ${gate.color || '#888'};"></div>
+          <div class="klippace-slot-swatch${gateUnknown ? ' klippace-slot-swatch--unknown' : ''}"${gateUnknown ? '' : ` style="background-color: ${gate.color || '#888'};"`}></div>
           <div class="klippace-slot-texts">
             <div class="klippace-slot-num">Slot ${sIdx}</div>
             <div class="klippace-slot-mat">${gate.material || 'PLA'}${gate.temp > 0 ? ` · ${gate.temp}°C` : ''}</div>
@@ -356,6 +359,16 @@
       row.appendChild(slotsGroup);
       container.appendChild(row);
     });
+  }
+
+  // A slot holding filament the ACE cannot identify reports the #000000
+  // sentinel with material "Unknown". Rendering that as a black disc would
+  // read as black filament, so flag it for the striped placeholder.
+  function isUnknownGate(gate) {
+    if (!gate) return false;
+    const hex = (gate.color || '').replace('#', '').toLowerCase();
+    const mat = (gate.material || '').trim().toLowerCase();
+    return (hex === '000000' || hex === '') && (mat === '' || mat === 'unknown');
   }
 
   // --- Open / Close Modal ---

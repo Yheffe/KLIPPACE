@@ -541,8 +541,15 @@
     const { drying, target, remain, on } = dryerState();
     if (!on) return 'Off';
     if (!drying) return `Standby · target ${target}°C`;
-    const mins = remain > 0 ? ` · ${remain} min left` : '';
-    return `Drying at ${target}°C${mins}`;
+    // `duration` is minutes but `remain_time` is SECONDS — an inconsistency in
+    // the device reports, not here. Confirmed against serial_manager.py (logs
+    // "remaining={n}s") and KlipperScreen/acepro.py (`remain_time // 3600`).
+    // Rendering it raw is what produced "2664 min left" for a 60-minute dry.
+    const mins = remain > 0 ? Math.round(remain / 60) : 0;
+    let left = '';
+    if (mins >= 1) left = ` · ${mins} min left`;
+    else if (remain > 0) left = ' · under a minute left';
+    return `Drying at ${target}°C${left}`;
   }
 
   function renderDryerModal() {
@@ -559,12 +566,6 @@
     if (startBtn) startBtn.disabled = drying;
     if (stopBtn) stopBtn.disabled = !on;
 
-    // Seed the inputs from live state the first time the modal is opened, so a
-    // running dryer shows its own target/duration rather than the defaults.
-    const tempInput = document.getElementById('klippace-dryer-temp');
-    if (tempInput && !tempInput.dataset.touched && target > 0) {
-      tempInput.value = target;
-    }
   }
 
   function createDryerModal() {
@@ -631,6 +632,9 @@
     el('klippace-dryer-temp').addEventListener('input', (e) => {
       e.target.dataset.touched = '1';
     });
+    el('klippace-dryer-duration').addEventListener('input', (e) => {
+      e.target.dataset.touched = '1';
+    });
     el('klippace-dryer-start').addEventListener('click', startDryer);
     el('klippace-dryer-stop').addEventListener('click', stopDryer);
 
@@ -646,8 +650,39 @@
     const overlay = createDryerModal();
     // Refresh first so the status line and inputs reflect the real dryer.
     await getCachedMmu().catch(() => null);
+    await seedDryerInputs();
     renderDryerModal();
     overlay.classList.add('active');
+  }
+
+  // The mmu shim's unit exposes the dryer target and remaining time but NOT the
+  // configured duration, so read it from the ACE instance. Without this the
+  // duration field always showed its default even while a shorter cycle ran.
+  async function seedDryerInputs() {
+    const el = (id) => document.getElementById(id);
+    const tempInput = el('klippace-dryer-temp');
+    const durInput = el('klippace-dryer-duration');
+    if (!tempInput || !durInput) return;
+
+    let duration = null;
+    let target = null;
+    try {
+      const res = await fetch('/printer/objects/query?ace_instance_0');
+      const data = await res.json();
+      const inst = (data.result && data.result.status && data.result.status.ace_instance_0) || {};
+      const dryer = inst.dryer_status || {};
+      duration = Number(dryer.duration) || null;
+      target = Number(dryer.target_temp) || null;
+    } catch (e) {
+      duration = null;
+    }
+
+    if (target && !tempInput.dataset.touched) tempInput.value = target;
+    // Only overwrite the duration when a cycle is actually configured, so an
+    // idle dryer leaves whatever the user last typed alone.
+    if (duration && duration > 0 && !durInput.dataset.touched) {
+      durInput.value = duration;
+    }
   }
 
   function closeDryerModal() {

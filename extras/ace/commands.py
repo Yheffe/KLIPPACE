@@ -263,7 +263,15 @@ def cmd_ACE_GET_STATUS(gcmd):
                     dryer_parts.append(f"duration={dryer['duration']}min")
                     dryer_handled.add('duration')
                 if 'remain_time' in dryer:
-                    dryer_parts.append(f"remain_time={dryer['remain_time']}min")
+                    # duration is minutes but remain_time is seconds (see the
+                    # "{n}s" log in serial_manager and KlipperScreen's
+                    # remain_time // 3600). Reporting it raw mislabelled seconds
+                    # as minutes.
+                    try:
+                        remain_min = int(dryer['remain_time']) // 60
+                    except (TypeError, ValueError):
+                        remain_min = 0
+                    dryer_parts.append(f"remain_time={remain_min}min")
                     dryer_handled.add('remain_time')
 
                 # Any unknown dryer fields

@@ -48,6 +48,27 @@ class TestColorResolution:
         # A clearly green hex that is not an exact map entry.
         assert orca_sync.get_color_name("#0AC83C") == "Green"
 
+    @pytest.mark.parametrize("raw,expected", [
+        # A real Anycubic spool (SKU AHPLLB-106). This is a muted tan, and used
+        # to resolve to "Pink" because squared RGB distance prefers a saturated
+        # pink over a washed-out beige. Pink still measures 4707 away; Beige is
+        # 321.
+        ("#D4B996", "Beige"),
+        # A darker beige/tan should also land on Beige, not Brown.
+        ("#C8A882", "Beige"),
+    ])
+    def test_muted_tan_is_beige_not_pink(self, orca_sync, raw, expected):
+        assert orca_sync.get_color_name(raw) == expected
+
+    def test_adding_beige_did_not_steal_brown(self, orca_sync):
+        # The other live spool (SKU AHPLKB-106) is a dark brown and must stay
+        # Brown: it is 3300 from Brown versus 25049 from Beige.
+        assert orca_sync.get_color_name("#975E3E") == "Brown"
+
+    def test_saturated_pink_still_resolves_to_pink(self, orca_sync):
+        # Guard the other direction: real pink must not be dragged to Beige.
+        assert orca_sync.get_color_name("#FFC0CB") == "Pink"
+
 
 # ---------------------------------------------------------------------------
 # Preset naming

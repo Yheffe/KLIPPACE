@@ -119,6 +119,13 @@ STANDARD_PALETTE = {
     "Pink": (255, 192, 203),
     "Gray": (128, 128, 128),
     "Brown": (165, 42, 42),
+    # Warm desaturated tan. Without this, muted beige/tan filament lands on
+    # "Pink", because squared RGB distance cannot tell a pale washed-out tan
+    # (#D4B996, an actual Anycubic spool) from a saturated pink: Pink measures
+    # 4707 away versus 321 from Beige, yet Pink was the nearest entry before
+    # this was added. Deliberately a tan beige rather than CSS `beige`
+    # (#F5F5DC), which is near-white and would steal the near-white snap.
+    "Beige": (222, 196, 160),
 }
 
 # ---------------------------------------------------------------------------

@@ -1214,6 +1214,129 @@ def sync_filaments_to_orcaslicer(host=None):
     }
 
 
+def build_page_payload(slots, net_info=None, live=False, error=""):
+    """The JSON view of the printer used by BOTH the page's first paint and its
+    live updates.
+
+    One builder for both directions means the tab cannot show a different preset
+    name from the one the sync actually writes -- it is computed here with
+    :func:`sanitize_preset_name` exactly as the sync computes it.
+
+    Malformed slot entries are tolerated rather than raising: a single bad
+    record should degrade one card, not blank the whole tab.
+    """
+    net_info = net_info or {}
+    view = []
+    for s in slots or []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            idx = int(s.get("index", 0))
+        except (TypeError, ValueError):
+            idx = 0
+        status = str(s.get("status") or "empty")
+        ready = status == "ready"
+        material = str(s.get("material") or "") if ready else ""
+        custom = str(s.get("custom_name") or "").strip()
+        if custom:
+            preset = custom
+        elif ready:
+            preset = sanitize_preset_name(f"ACE T{idx} - {material or 'PLA'}")
+        else:
+            preset = ""
+        view.append({
+            "index": idx,
+            "status": status,
+            "ready": ready,
+            "material": material or ("Empty" if not ready else "PLA"),
+            "color": str(s.get("color") or "#000000"),
+            "color_name": str(s.get("color_name") or ""),
+            "temp": s.get("temp") or 0,
+            "bed_temp": s.get("bed_temp") or 0,
+            "sku": str(s.get("sku") or ""),
+            "vendor": str(s.get("vendor") or ""),
+            "custom_name": custom,
+            "preset": preset,
+        })
+    return {
+        "live": bool(live),
+        "error": str(error or ""),
+        "printer": str(net_info.get("printer_name") or ""),
+        "base_url": str(net_info.get("base_url") or ""),
+        "slots": view,
+    }
+
+
+def _live_slots():
+    """Fetch the printer's current slots and refresh the page cache."""
+    net_info = resolve_printer_network_info()
+    ace_info = fetch_moonraker_ace_data(net_info=net_info)
+    slots = ace_info["slots"]
+    save_cached_snapshot(slots, net_info)
+    return slots, net_info
+
+
+def handle_page_action(action, post, fetch_slots=None, run_sync=None):
+    """Handle one message from the ACE Pro page and push the reply back to it.
+
+    *post* receives the payload to send to the page (the capability passes its
+    own ``post_message``). Returns a short string describing what happened, so
+    callers and tests can tell the paths apart.
+
+    This is deliberately module-level rather than a method: outside OrcaSlicer
+    ``import orca`` fails, so the capability classes are never defined and there
+    would be no way to test the page plumbing at all.
+
+    The page asks with ``{"action": "status"}`` for live spool data and
+    ``{"action": "sync"}`` to write presets. Both reply with
+    :func:`build_page_payload`, so an open tab updates without a restart --
+    which matters because the host API has no way to make Orca reload its
+    preset list (see :func:`refresh_orcaslicer_presets`).
+    """
+    action = str(action or "")
+    if action not in ("status", "sync"):
+        return "ignored"
+
+    # A failure to push must never mask the outcome of the work that was done,
+    # and must never escape: the host dispatches the message, so raising here
+    # would surface as an unexplained error with no hint of the cause. Note this
+    # is used instead of a bare post() inside the try blocks below -- calling
+    # post() in an except handler is how a bridge failure ended up propagating.
+    def safe_post(payload):
+        try:
+            post(payload)
+        except Exception as e:
+            logging.error("Could not push the ACE Pro page update: %s", e)
+
+    if action == "status":
+        fetch_slots = fetch_slots or _live_slots
+        try:
+            slots, net_info = fetch_slots()
+            safe_post(build_page_payload(slots, net_info, live=True))
+            return "status"
+        except Exception as e:
+            logging.error("ACE Pro live refresh failed: %s", e)
+            # Fall back to the last snapshot and SAY it is stale, rather than
+            # leaving the tab blank or silently pretending it is current.
+            slots, net_info = load_cached_snapshot()
+            safe_post(build_page_payload(slots, net_info, live=False, error=str(e)))
+            return "status-error"
+
+    run_sync = run_sync or sync_filaments_to_orcaslicer
+    try:
+        res = run_sync()
+        safe_post(build_page_payload(
+            res.get("slots") or [], res.get("network") or {},
+            live=True,
+            error="" if res.get("success") else str(res.get("message") or ""),
+        ))
+        return "sync"
+    except Exception as e:
+        logging.error("ACE Pro sync from the page failed: %s", e)
+        safe_post(build_page_payload([], {}, live=False, error=str(e)))
+        return "sync-error"
+
+
 def render_html_page(slots, net_info=None):
     """Render the dark-mode HTML page for the embedded OrcaSlicer tab."""
     net_info = net_info or {}
@@ -1229,48 +1352,11 @@ def render_html_page(slots, net_info=None):
         "to read the ACE Pro."
     )
 
-    slots_html = ""
-    for s in slots:
-        idx = s["index"]
-        status = s["status"]
-        color = s["color"]
-        mat = s["material"] if status == "ready" else "Empty"
-        temp = f"{s['temp']}°C" if status == "ready" else "---"
-        bed = f"{s['bed_temp']}°C" if status == "ready" else "---"
-        sku = s.get("sku") or (s.get("vendor") if status == "ready" else "No Spool")
-        is_ready = status == "ready"
-
-        # Show the preset name this slot will land under, so a custom name is
-        # visible before syncing.
-        custom = str(s.get("custom_name") or "").strip()
-        if custom:
-            preset_label = f"{custom} (custom)"
-        elif is_ready:
-            preset_label = f"ACE T{idx} - {mat} {s.get('color_name') or color}"
-        else:
-            preset_label = "---"
-
-        badge_class = "badge-ready" if is_ready else "badge-empty"
-        badge_text = "READY" if is_ready else "EMPTY"
-
-        slots_html += f"""
-        <div class="slot-card {'slot-active' if is_ready else 'slot-inactive'}">
-            <div class="slot-header">
-                <div class="slot-title">
-                    <span class="slot-swatch" style="background-color: {color};"></span>
-                    <span class="slot-name">Slot {idx} (T{idx})</span>
-                </div>
-                <span class="slot-badge {badge_class}">{badge_text}</span>
-            </div>
-            <div class="slot-details">
-                <div class="detail-row"><span class="detail-label">Material:</span> <span class="detail-val">{mat}</span></div>
-                <div class="detail-row"><span class="detail-label">Color:</span> <span class="detail-val">{color}</span></div>
-                <div class="detail-row"><span class="detail-label">Nozzle / Bed:</span> <span class="detail-val">{temp} / {bed}</span></div>
-                <div class="detail-row"><span class="detail-label">Spool Info:</span> <span class="detail-val">{sku}</span></div>
-                <div class="detail-row"><span class="detail-label">Preset:</span> <span class="detail-val">{preset_label}</span></div>
-            </div>
-        </div>
-        """
+    # The page renders its cards in JavaScript from this JSON, from one place.
+    # Python does not also emit card markup: two renderers would drift, and the
+    # live-update path would then show a different card from the first paint.
+    # ``</`` is escaped so a value can never close the surrounding <script>.
+    payload_json = json.dumps(build_page_payload(slots, net_info)).replace("</", "<\\/")
 
     return f"""<!DOCTYPE html>
 <html>
@@ -1296,6 +1382,19 @@ body {{
 }}
 .title-group h1 {{ font-size: 22px; font-weight: 700; color: #f43f5e; }}
 .title-group p {{ font-size: 13px; color: #a1a1aa; margin-top: 4px; }}
+.btn-row {{ display: flex; gap: 8px; flex-shrink: 0; }}
+.refresh-btn {{
+    background: #3f3f46;
+    color: #e4e4e7;
+    border: 1px solid #52525b;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}}
+.refresh-btn:hover {{ background: #52525b; }}
 .sync-btn {{
     background: #f43f5e;
     color: white;
@@ -1308,6 +1407,29 @@ body {{
     transition: background 0.15s ease;
 }}
 .sync-btn:hover {{ background: #e11d48; }}
+/* Where the data came from. Worth showing plainly: the host API cannot make
+   OrcaSlicer re-read preset files, so "live" only ever describes the spool
+   data, never the preset list. */
+.status-note {{
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    margin-bottom: 16px;
+    min-height: 16px;
+    color: #71717a;
+}}
+.status-live {{ color: #34d399; }}
+.status-stale {{ color: #fbbf24; }}
+.status-error {{ color: #f87171; }}
+.empty-note {{
+    grid-column: 1 / -1;
+    color: #a1a1aa;
+    font-size: 13px;
+    padding: 24px;
+    text-align: center;
+    border: 1px dashed #3f3f46;
+    border-radius: 10px;
+}}
 .slots-grid {{
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
@@ -1364,26 +1486,126 @@ body {{
             <h1>Anycubic ACE Pro Filament Sync</h1>
             <p>{subtitle}</p>
         </div>
-        <button class="sync-btn" onclick="syncNow()">🔄 Sync Filaments to Slicer</button>
+        <div class="btn-row">
+            <button class="refresh-btn" onclick="refreshNow()">&#x21bb; Refresh</button>
+            <button class="sync-btn" onclick="syncNow()">&#x1F504; Sync Filaments to Slicer</button>
+        </div>
     </div>
 
-    <div class="slots-grid">
-        {slots_html}
-    </div>
+    <div class="status-note" id="status-note"></div>
+
+    <div class="slots-grid" id="slots-grid"></div>
 
     <div class="footer-note">
-        Clicking 'Sync Filaments' generates universal OrcaSlicer presets compatible with all printer profiles.
+        <strong>Refresh</strong> reads the ACE Pro live. <strong>Sync</strong> also writes
+        universal OrcaSlicer presets. Preset files are picked up when OrcaSlicer
+        next loads them.
     </div>
 </div>
 
 <script>
-function syncNow() {{
-    if (window.orca && window.orca.postMessage) {{
-        window.orca.postMessage(JSON.stringify({{"action": "sync"}}));
+// The cached snapshot, so the tab paints instantly and still works if the host
+// bridge is unavailable.
+const INITIAL = {payload_json};
+
+function esc(v) {{
+    return String(v === null || v === undefined ? '' : v).replace(/[&<>"']/g, function (c) {{
+        return {{ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }}[c];
+    }});
+}}
+
+function detail(label, val) {{
+    return '<div class="detail-row"><span class="detail-label">' + esc(label) +
+           '</span> <span class="detail-val">' + esc(val) + '</span></div>';
+}}
+
+function buildSlot(s) {{
+    const badge = s.ready ? 'badge-ready' : 'badge-empty';
+    const sku = s.ready ? (s.sku || s.vendor || 'No Spool') : 'No Spool';
+    const temp = s.ready ? s.temp + '\u00b0C' : '---';
+    const bed = s.ready ? s.bed_temp + '\u00b0C' : '---';
+    const preset = s.preset ? (s.custom_name ? s.preset + ' (custom)' : s.preset) : '---';
+    return '<div class="slot-card ' + (s.ready ? 'slot-active' : 'slot-inactive') + '">' +
+        '<div class="slot-header"><div class="slot-title">' +
+            '<span class="slot-swatch" style="background-color: ' + esc(s.color) + ';"></span>' +
+            '<span class="slot-name">Slot ' + esc(s.index) + ' (T' + esc(s.index) + ')</span>' +
+        '</div><span class="slot-badge ' + badge + '">' +
+            (s.ready ? 'READY' : 'EMPTY') + '</span></div>' +
+        '<div class="slot-details">' +
+            detail('Material:', s.material) +
+            detail('Color:', s.color) +
+            detail('Nozzle / Bed:', temp + ' / ' + bed) +
+            detail('Spool Info:', sku) +
+            detail('Preset:', preset) +
+        '</div></div>';
+}}
+
+function render(payload) {{
+    if (!payload || typeof payload !== 'object') return;
+    const slots = payload.slots || [];
+    const grid = document.getElementById('slots-grid');
+    const note = document.getElementById('status-note');
+    grid.innerHTML = slots.length
+        ? slots.map(buildSlot).join('')
+        : '<div class="empty-note">No spools reported. Is the printer reachable?</div>';
+    if (payload.error) {{
+        note.className = 'status-note status-error';
+        note.textContent = 'Printer not read: ' + payload.error;
+    }} else if (payload.live) {{
+        note.className = 'status-note status-live';
+        note.textContent = 'Live' + (payload.printer ? ' \u2014 ' + payload.printer : '');
     }} else {{
-        alert("Syncing filaments with host...");
+        note.className = 'status-note status-stale';
+        note.textContent = 'Showing the last saved snapshot';
     }}
 }}
+
+function post(obj) {{
+    if (window.orca && typeof window.orca.postMessage === 'function') {{
+        window.orca.postMessage(JSON.stringify(obj));
+        return true;
+    }}
+    return false;
+}}
+
+function syncNow() {{
+    if (!post({{ action: 'sync' }})) alert('Sync needs the OrcaSlicer host bridge.');
+}}
+
+function refreshNow(silent) {{
+    if (!post({{ action: 'status' }})) {{
+        render(INITIAL);
+        if (!silent) alert('Refresh needs the OrcaSlicer host bridge.');
+    }}
+}}
+
+// Ask for live data, but only while the tab is actually on screen.
+//
+// The host builds Pages markup during startup, so an unconditional fetch here
+// would run a network call at launch -- which is exactly the situation that
+// produced a permission prompt on every start (the audit event carries no
+// target, so the grant can never be saved). Gating on visibility keeps startup
+// silent and still refreshes every time the user opens the tab.
+function autoRefresh() {{
+    if (document.visibilityState === 'visible') refreshNow(true);
+}}
+
+if (document.visibilityState === 'visible') {{
+    autoRefresh();
+}} else {{
+    document.addEventListener('visibilitychange', autoRefresh);
+}}
+
+// The host pushes replies here (Plugins page API, PagesPluginCapabilityBase
+// post_message -> window.orca.onMessage).
+if (window.orca && typeof window.orca.onMessage === 'function') {{
+    window.orca.onMessage(function (data) {{
+        try {{ render(typeof data === 'string' ? JSON.parse(data) : data); }}
+        catch (e) {{ /* leave the last good render in place */ }}
+    }});
+}}
+
+render(INITIAL);
 </script>
 </body>
 </html>"""
@@ -1413,34 +1635,69 @@ if orca:
 
     if _PAGE_BASE is not None:
         class AceSyncPage(_PAGE_BASE):
-            """Embedded interactive ACE Pro Page / Tab in OrcaSlicer."""
+            """Embedded interactive ACE Pro Page / Tab in OrcaSlicer.
+
+            Live updates work through the page API: the page posts an action and
+            this pushes the reply back with ``post_message``, which the host
+            delivers to the page's ``window.orca.onMessage`` handlers (see
+            "Registering orca.pages bindings" in the host). So the tab shows
+            current spool data without a restart.
+
+            What it deliberately does NOT do is pull network data inside
+            ``get_ui()``. OrcaSlicer builds Pages markup during startup, and a
+            network call there raises a "socket.__new__" permission prompt on
+            every launch whose audit event carries no target, so the grant can
+            never be persisted and the prompt would return forever. ``get_ui``
+            therefore renders the cached snapshot, and the page asks for live
+            data itself once it is open -- a user-initiated moment.
+            """
 
             def get_name(self):
                 return "ACE Pro"
 
             def get_ui(self):
-                # Render from the last synced snapshot only.
-                #
-                # OrcaSlicer builds Pages markup while it starts up, and this
-                # plugin's sandbox turns a network call here into a
-                # "socket.__new__" permission prompt on every launch. That
-                # audit event carries no target, so the grant can never be
-                # persisted and the prompt would return forever. Doing the work
-                # on the explicit Sync action instead keeps startup prompt-free.
                 slots, net_info = load_cached_snapshot()
                 return render_html_page(slots, net_info)
+
+            def _post_to_page(self, payload):
+                """Push a payload into the open page, if the host exposes it."""
+                fn = getattr(self, "post_message", None)
+                if not callable(fn):
+                    logging.info(
+                        "OrcaSlicer page bridge has no post_message(); the tab "
+                        "will not update live and needs reopening."
+                    )
+                    return
+                try:
+                    fn(payload)
+                except Exception as e:
+                    logging.error("Could not push to the ACE Pro page: %s", e)
+
+            def _notify(self, text):
+                if hasattr(orca, "host") and hasattr(orca.host, "ui"):
+                    msg_fn = getattr(orca.host.ui, "message", None)
+                    if callable(msg_fn):
+                        msg_fn(text, title="ACE Pro Sync", icon="info")
 
             def on_message(self, message):
                 try:
                     payload = json.loads(message) if isinstance(message, str) else message
-                    if payload.get("action") == "sync":
-                        res = sync_filaments_to_orcaslicer()
-                        if hasattr(orca, "host") and hasattr(orca.host, "ui"):
-                            msg_fn = getattr(orca.host.ui, "message", None)
-                            if callable(msg_fn):
-                                msg_fn(res["message"], title="ACE Pro Sync", icon="info")
-                except Exception as e:
-                    logging.error("ACE Pro Page message error: %s", e)
+                except (TypeError, ValueError):
+                    logging.info("ACE Pro page sent an unparseable message: %r", message)
+                    return
+                if not isinstance(payload, dict):
+                    return
+
+                def run_sync_and_notify():
+                    res = sync_filaments_to_orcaslicer()
+                    self._notify(res.get("message") or "")
+                    return res
+
+                handle_page_action(
+                    payload.get("action"),
+                    self._post_to_page,
+                    run_sync=run_sync_and_notify,
+                )
     else:
         AceSyncPage = None
 

@@ -430,7 +430,7 @@ class TestRenderHtmlPage:
         assert "Sync Filaments to Slicer" in html
         assert "No snapshot yet" in html
 
-    def test_slots_are_rendered_with_material_and_colour(self, orca_sync):
+    def test_slots_are_embedded_for_the_renderer(self, orca_sync):
         html = orca_sync.render_html_page(
             [{"index": 2, "status": "ready", "material": "PETG",
               "color": "#0AC83C", "color_name": "Green", "temp": 245,
@@ -439,7 +439,50 @@ class TestRenderHtmlPage:
         )
         assert "PETG" in html
         assert "#0AC83C" in html
-        assert "Slot 2" in html
+        # The cards are built in JS from the embedded payload, so the slot is
+        # identified by its index in that JSON rather than by rendered markup.
+        # There is only one renderer now; a second in Python would drift from
+        # the live-update path.
+        assert '"index": 2' in html
+        assert "buildSlot" in html
+
+    def test_page_can_ask_for_live_data(self, orca_sync):
+        """The tab must be able to refresh itself without a restart.
+
+        It posts an action and the host replies into window.orca.onMessage.
+        """
+        html = orca_sync.render_html_page([], {})
+        assert "window.orca.onMessage" in html
+        assert "action: 'status'" in html
+        assert "action: 'sync'" in html
+
+    def test_auto_refresh_waits_until_the_tab_is_visible(self, orca_sync):
+        """Startup must stay network-free.
+
+        OrcaSlicer builds Pages markup during startup, and a network call at that
+        point is what used to raise a permission prompt on every launch. The
+        page therefore only fetches once it is actually on screen.
+        """
+        html = orca_sync.render_html_page([], {})
+        assert "document.visibilityState" in html
+        assert "visibilitychange" in html
+        # refreshNow(true) appears once, inside the visibility-gated helper --
+        # not as a top-level statement.
+        assert html.count("refreshNow(true)") == 1
+        # The script's last statement is the initial paint, so nothing fetches
+        # during parse.
+        assert "render(INITIAL);\n</script>" in html
+
+    def test_embedded_payload_cannot_escape_the_script_tag(self, orca_sync):
+        """A spool value must not be able to close the surrounding <script>."""
+        html = orca_sync.render_html_page(
+            [{"index": 0, "status": "ready", "material": "</script><script>x",
+              "color": "#FFFFFF", "temp": 210, "bed_temp": 60, "sku": "",
+              "vendor": "", "custom_name": ""}],
+            {},
+        )
+        assert html.count("</script>") == 1
+        assert r"<\/script>" in html
 
     def test_custom_name_is_shown_as_the_preset(self, orca_sync):
         html = orca_sync.render_html_page(

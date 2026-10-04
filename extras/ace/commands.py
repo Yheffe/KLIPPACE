@@ -1577,6 +1577,24 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
         if ace_state and hasattr(ace_state, 'variables'):
             is_startup = ace_state.variables.get('startup_toolchange', 0) == 1
 
+        # Consume the flag.
+        #
+        # The calling macro clears it after ACE_CHANGE_TOOL returns, but when the
+        # startup path FAILS we abort (raise below) and the macro never reaches
+        # that clear. Leaving it set would make the next mid-print toolchange
+        # failure take the abort branch instead of the recoverable pause. Read it
+        # once here rather than relying on the macro to tidy up.
+        if is_startup:
+            try:
+                gcode.run_script_from_command(
+                    "SET_GCODE_VARIABLE MACRO=_ACE_STATE "
+                    "VARIABLE=startup_toolchange VALUE=0"
+                )
+            except Exception as clear_error:
+                gcode.respond_info(
+                    f"ACE: Could not clear startup_toolchange flag: {clear_error}"
+                )
+
         fallback_tool = current_tool if 'current_tool' in locals() else manager.state.get("ace_current_index", -1)
         filament_pos = None
         try:

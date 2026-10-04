@@ -157,6 +157,15 @@ class AceInstance:
         # Custom toolhead cutter & toolchange configuration
         self.cut_macro = ace_config.get("cut_macro", "CUT_TIP")
         self.cut_retract_length = float(ace_config.get("cut_retract_length", 0.0))
+        # Speed for the pre-cut extruder retraction.  Feeding speed is the wrong
+        # unit-of-intent for a retraction, so allow a dedicated value that falls
+        # back to the toolhead retraction speed, then to the configured feed speed.
+        self.cut_retract_speed = float(
+            ace_config.get(
+                "cut_retract_speed",
+                ace_config.get("toolhead_retraction_speed", self.extruder_feeding_speed),
+            )
+        )
         self.toolchange_macro = ace_config.get("toolchange_macro", "")
 
         self.rfid_inventory_sync_enabled = ace_config.get("rfid_inventory_sync_enabled", True)
@@ -977,7 +986,7 @@ class AceInstance:
         if not self.manager.get_entry_switch_state():
             self.gcode.respond_info(
                 f"ACE[{self.instance_num}]: Toolhead entry sensor not triggered after feed. "
-                f"Running extruder assist for up-to 60s..."
+                f"Enabling ACE feed-assist and waiting up to 60s for the sensor..."
             )
             self._enable_feed_assist(local_slot)
 
@@ -1387,7 +1396,8 @@ class AceInstance:
     # Alias for backward compatibility
     rmd_triggered_unload_slot = rdm_triggered_unload_slot
 
-    def _smart_unload_slot(self, slot, length=None, on_retract_started=None):
+    def _smart_unload_slot(self, slot, length=None, on_retract_started=None,
+                           skip_cut=False):
         """
         Unload slot with optional cutter macro and sensor validation.
 
@@ -1399,6 +1409,11 @@ class AceInstance:
             slot: Slot index to retract from
             length: Retraction length in mm (defaults to parkposition_to_toolhead_length if no RDM, else toolchange_load_length)
             on_retract_started: Optional callback after retract starts
+            skip_cut: True when the caller has ALREADY cut the filament (e.g.
+                _ACE_PREPARE_FOR_RETRACTION ran CUT_TIP).  Cutting a second time
+                while the severed stub is parked at the cutter re-engages the
+                blade on a detached filament and can shear a fragment into the
+                ACE hub, jamming it.
 
         Returns:
             bool: True if retraction completed successfully
@@ -1408,29 +1423,36 @@ class AceInstance:
         """
         has_rdm = self.manager.has_rdm_sensor()
 
-        # Optional cutter integration (e.g. CUT_TIP)
-        if self.cut_retract_length > 0:
+        # Optional cutter integration (e.g. CUT_TIP).  Skipped when the caller's
+        # retraction-prep hook has already cut the filament — see skip_cut.
+        if skip_cut:
             self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Retracting {self.cut_retract_length}mm before cutting"
+                f"ACE[{self.instance_num}]: Filament already cut by retraction-prep hook, "
+                f"skipping cutter sequence"
             )
-            self._extruder_move(
-                -self.cut_retract_length,
-                self.extruder_feeding_speed,
-                wait_for_move_end=True
-            )
-
-        if self.cut_macro:
-            self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Executing cutter macro '{self.cut_macro}'..."
-            )
-            try:
-                self.gcode.run_script_from_command(self.cut_macro)
-                toolhead = self.printer.lookup_object('toolhead')
-                toolhead.wait_moves()
-            except Exception as e:
+        else:
+            if self.cut_retract_length > 0:
                 self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Cutter macro '{self.cut_macro}' returned error: {e}"
+                    f"ACE[{self.instance_num}]: Retracting {self.cut_retract_length}mm before cutting"
                 )
+                self._extruder_move(
+                    -self.cut_retract_length,
+                    self.cut_retract_speed,
+                    wait_for_move_end=True
+                )
+
+            if self.cut_macro:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Executing cutter macro '{self.cut_macro}'..."
+                )
+                try:
+                    self.gcode.run_script_from_command(self.cut_macro)
+                    toolhead = self.printer.lookup_object('toolhead')
+                    toolhead.wait_moves()
+                except Exception as e:
+                    self.gcode.respond_info(
+                        f"ACE[{self.instance_num}]: Cutter macro '{self.cut_macro}' returned error: {e}"
+                    )
 
         # Compute retract distance if not explicitly provided
         if length is None or length <= 0:

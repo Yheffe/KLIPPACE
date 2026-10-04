@@ -856,9 +856,15 @@ class AceManager:
         self.gcode.respond_info(f"ACE: Smart unload tool {tool_index} (current: {current_tool_index})")
 
         tool_for_temp = tool_index if tool_index >= 0 else current_tool_index
+        # _ACE_PREPARE_FOR_RETRACTION already runs CUT_TIP, so remember whether it
+        # did.  _smart_unload_slot must not cut the filament a second time — see
+        # the skip_cut argument for why a double cut jams the ACE hub.
+        cut_already_done = False
         if prepare_toolhead:
             self.gcode.respond_info("ACE: Preparing toolhead")
-            self.prepare_toolhead_for_filament_retraction(tool_index=tool_for_temp)
+            cut_already_done = self.prepare_toolhead_for_filament_retraction(
+                tool_index=tool_for_temp
+            )
 
         retract_length = self.toolhead_retraction_length
         retract_speed = self.toolhead_retraction_speed
@@ -902,7 +908,9 @@ class AceManager:
                         f"ACE: Toolhead clear, RDM triggered - full retract of T{tool_index} ({retract_dist}mm)"
                     )
 
-                instance._smart_unload_slot(local_slot, length=retract_dist)
+                instance._smart_unload_slot(
+                    local_slot, length=retract_dist, skip_cut=cut_already_done
+                )
 
                 if self.is_filament_path_free_instant():
                     self.state.set("ace_filament_pos", FILAMENT_STATE_BOWDEN)
@@ -943,6 +951,7 @@ class AceManager:
                 unload_ok = instance._smart_unload_slot(
                     local_slot,
                     length=parkposition_to_toolhead_length + retract_length,
+                    skip_cut=cut_already_done,
                 )
 
                 # Wait for extruder to finish
@@ -999,7 +1008,8 @@ class AceManager:
                 retract_length,
                 retract_speed,
                 retract_speed_mmmin,
-                full_unload_length
+                full_unload_length,
+                cut_already_done=cut_already_done
             )
         else:
             self.gcode.respond_info(
@@ -1038,7 +1048,8 @@ class AceManager:
         retract_length,
         retract_speed,
         retract_speed_mmmin,
-        full_unload_length
+        full_unload_length,
+        cut_already_done=False
     ):
         """
         Identify loaded tool with three-case sensor strategy.
@@ -1075,7 +1086,8 @@ class AceManager:
                 retract_speed_mmmin,
                 full_unload_length,
                 sensor_name=SENSOR_TOOLHEAD,
-                use_extruder=True
+                use_extruder=True,
+                cut_already_done=cut_already_done
             )
 
         # CASE 3: RDM triggered but toolhead clear - monitor RDM during ACE-only retraction
@@ -1115,7 +1127,8 @@ class AceManager:
                 full_unload_length,
                 sensor_name=SENSOR_RDM,
                 use_extruder=False,
-                sensor_to_parking_length=parkposition_to_rdm_length
+                sensor_to_parking_length=parkposition_to_rdm_length,
+                cut_already_done=cut_already_done
             )
 
         # Should never reach here
@@ -1132,7 +1145,8 @@ class AceManager:
         full_unload_length,
         sensor_name,
         use_extruder,
-        sensor_to_parking_length=None
+        sensor_to_parking_length=None,
+        cut_already_done=False
     ):
         """
         Unified slot cycling with sensor monitoring.
@@ -1298,7 +1312,9 @@ class AceManager:
                     f"ACE[{instance_num}]: Completing unload of T{tool_num} "
                     f"(remaining: {remaining_length}mm)"
                 )
-                instance._smart_unload_slot(slot, length=remaining_length)
+                instance._smart_unload_slot(
+                    slot, length=remaining_length, skip_cut=cut_already_done
+                )
             except Exception as e:
                 self.gcode.respond_info(f"ACE[{instance_num}]: Error during full unload: {e}")
                 return False

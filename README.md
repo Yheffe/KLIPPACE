@@ -381,7 +381,11 @@ Run `ACE_GET_CONNECTION_STATUS` in the console to inspect per-instance link stat
 
 ### Web Dashboard (Mainsail & Fluidd)
 
-The included `acepro-mmu-dashboard` embeds interactive multi-material controls directly into Fluidd and Mainsail:
+The included `acepro-mmu-dashboard` replaces the stock MMU card with a compact, colour-first
+control panel: four gate tiles with live spool colours, a one-line status ribbon, and a
+four-button action dock. Slots the ACE cannot identify are flagged in amber.
+
+<img src="img/mmu-card.png" width="620" alt="KLIPPACE MMU card in Fluidd: four gate tiles with colour swatches, a status ribbon reading UNLOADED with chamber temperature and dryer state, and CHECK GATE / RECOVER / UNLOAD / LOAD buttons">
 
 > [!IMPORTANT]
 > **Mainsail v2.15.0 or newer is required.** Happy Hare / MMU support landed in that
@@ -392,6 +396,9 @@ The included `acepro-mmu-dashboard` embeds interactive multi-material controls d
 > nginx setup, where `/printer/` is proxied to port 7125). The card reads
 > `/printer/objects/query?mmu` with a relative URL, so serving the UI from a
 > different host or port than Moonraker leaves the card unpopulated.
+
+What it adds over the stock card:
+
 - **Real-Time Slot Indicators**: Slot status, active tool indicators, and temperatures.
 - **Click-To-Edit Slots**: Click any gate on the card to record the material, colour and nozzle temperature for a spool the ACE cannot identify. Slots holding filament with no data are flagged with an amber marker.
 - **1-Click Slot Selector**: Click any slot to immediately load, unload, or inspect that spool.
@@ -399,6 +406,26 @@ The included `acepro-mmu-dashboard` embeds interactive multi-material controls d
 - **Blobifier Bucket Monitoring**: Displays real-time status of the optional bucket sensor (`blobifier_bucket` on `PF4`), warning or pausing before waste bucket overflow causes carriage collisions.
 - **Spool Management**: Spool material and color assignment with Spoolman integration.
 - **Dryer Control**: Chamber temperature monitoring, target adjustment, and timer countdown.
+
+<p>
+<img src="img/mmu-slot-editor.png" width="360" align="top" alt="Edit Slot dialog for slot T3: filament preview, material dropdown, nozzle temperature, a 16-swatch colour palette, optional preset name, and manual feed/retract controls">
+</p>
+
+**Slot editor.** Clicking a gate opens this. It is how a spool the ACE cannot read gets a
+material, nozzle temperature and colour — and how a slot gets cleared or marked empty again.
+It is also what the amber marker on the card above points at: *filament is loaded, but we do
+not know what it is*.
+
+<p>
+<img src="img/mmu-tool-mapper.png" width="820" alt="Tool Mapping dialog listing tools T0 to T3 with their colour and material, each paired with the physical ACE slot it feeds from, plus Auto-Match, Reset (1:1) and Save Mapping">
+</p>
+
+**Tool Mapper.** Pairs slicer tool numbers with physical ACE slots, by hand or with one click
+of **Auto-Match** (which matches on colour and material). Reachable from the ⚡ button on the
+card.
+
+Screenshots are Fluidd; the card is the same in Mainsail (its header controls sit in the
+panel toolbar instead of the card title).
 
 > [!NOTE]
 > The card's CSS lives in `acepro-mmu-dashboard/web/klippace-tool-mapper.css`, linked into

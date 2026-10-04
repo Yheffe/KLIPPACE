@@ -952,6 +952,100 @@ def find_orcaslicer_user_filament_dirs():
     return dirs
 
 
+def _public_api(obj):
+    """Best-effort public attribute names of *obj*, for diagnostics."""
+    try:
+        return sorted(n for n in dir(obj) if not n.startswith("_"))
+    except Exception as e:  # pragma: no cover - defensive
+        return [f"<dir() failed: {e}>"]
+
+
+# Names worth trying on the exposed PresetBundle, most likely first.
+_PRESET_RELOAD_PROBES = ("load_presets", "update_presets", "reload", "refresh", "resync")
+
+# The API surface is only dumped once per process, to keep the log readable.
+_API_LOGGED = False
+
+
+def refresh_orcaslicer_presets():
+    """Ask OrcaSlicer to re-read its user presets after new files are written.
+
+    Returns a short note describing what happened, which the caller folds into
+    the sync summary so the user can tell whether the change is visible in the
+    running session or needs a restart.
+
+    This is deliberately defensive because the host API is genuinely small.
+    Dumping the pybind11 registration table from the shipped binary gives the
+    complete plugin-facing surface as exactly::
+
+        is_project_dirty, is_presets_dirty, inside_snapshot_capture,
+        preset_bundle, app_language
+
+    There is no reload entry point, and the ``reload_local_bundle`` this code
+    used to call **does not exist in the shipped build**. Because the old call
+    was wrapped in ``getattr(..., None)`` plus a bare ``except``, it silently
+    did nothing, which is exactly why synced presets only ever appeared after
+    restarting Orca.
+
+    So: reach the one exposed accessor (``preset_bundle``), probe the plausible
+    spellings on whatever it returns, then fall back to the dirty flag, and log
+    the real surface once so the correct call can be pinned down from a log
+    rather than guessed at again.
+    """
+    global _API_LOGGED
+
+    if not orca or not hasattr(orca, "host"):
+        return "OrcaSlicer host API unavailable; restart OrcaSlicer to see changes."
+
+    host = orca.host
+
+    if not _API_LOGGED:
+        _API_LOGGED = True
+        logging.info("OrcaSlicer host API as exposed to plugins: %s", _public_api(host))
+        bundle_attr = getattr(host, "preset_bundle", None)
+        logging.info(
+            "orca.host.preset_bundle is %s",
+            "callable" if callable(bundle_attr) else type(bundle_attr).__name__,
+        )
+        try:
+            bundle = bundle_attr() if callable(bundle_attr) else bundle_attr
+            if bundle is not None:
+                logging.info("PresetBundle API: %s", _public_api(bundle))
+        except Exception as e:
+            logging.info("Could not introspect preset_bundle: %s", e)
+
+    # 1. The exposed accessor, then any reload method it does expose.
+    try:
+        bundle_attr = getattr(host, "preset_bundle", None)
+        bundle = bundle_attr() if callable(bundle_attr) else bundle_attr
+        if bundle is not None:
+            for name in _PRESET_RELOAD_PROBES:
+                fn = getattr(bundle, name, None)
+                if callable(fn):
+                    fn()
+                    logging.info("Refreshed OrcaSlicer presets via preset_bundle.%s()", name)
+                    return f"Presets reloaded via preset_bundle.{name}()."
+    except Exception as e:
+        logging.info("preset_bundle reload probe raised: %s", e)
+
+    # 2. The dirty flag. It is part of the exposed API; if it is a writable
+    #    property, setting it is the intended "my presets changed" signal.
+    try:
+        if hasattr(host, "is_presets_dirty"):
+            host.is_presets_dirty = True
+            logging.info("Marked OrcaSlicer presets dirty via host.is_presets_dirty")
+            return "Preset list marked dirty; OrcaSlicer should resync it."
+    except Exception as e:
+        logging.info("is_presets_dirty is not writable: %s", e)
+
+    # 3. Nothing to call. Say so plainly rather than implying success.
+    logging.warning(
+        "No usable preset-reload entry point found on the OrcaSlicer host API; "
+        "presets were written but a restart is needed for Orca to list them."
+    )
+    return "Presets written. OrcaSlicer's plugin API has no reload call, so restart OrcaSlicer to list them."
+
+
 def sync_filaments_to_orcaslicer(host=None):
     """
     Main sync action.
@@ -961,7 +1055,8 @@ def sync_filaments_to_orcaslicer(host=None):
     a snapshot for the embedded page.
 
     A slot with a custom preset name is written under that name; otherwise the
-    generated ``ACE T<slot> - <material> <colour>`` name is used.
+    stable ``ACE T<slot> - <material>`` name is used (no colour in the filename
+    -- see the note where the name is built).
 
     ``OrcaSlicer.conf`` is deliberately left alone. The plugin sandbox denies
     that path unconditionally, so the previous attempt to map synced presets
@@ -1009,8 +1104,20 @@ def sync_filaments_to_orcaslicer(host=None):
 
         # A user-supplied preset name wins, so a named spool lands in Orca under
         # the name the user chose on the printer.
+        #
+        # Otherwise the name is deliberately ``ACE T<slot> - <material>`` with
+        # NO colour in it. Colour used to be part of the filename, which made
+        # the name change every time the colour or its resolved colour *name*
+        # drifted. A changed name means a new file, and clean_slot_presets then
+        # deletes the old one -- so Orca's own config was left pointing at
+        # presets that had just been removed (observed: config referenced
+        # "ACE T1 - PLA Red" while the file on disk had become
+        # "ACE T1 - PLA Brown"). Keeping the name stable removes that entire
+        # failure mode. The colour is still carried by the payload's
+        # ``default_filament_colour``, which is what Orca draws the swatch from,
+        # so it remains visible in the UI.
         custom_name = sanitize_preset_name(s.get("custom_name"))
-        generated_name = sanitize_preset_name(f"ACE T{slot_idx} - {mat} {col_name}")
+        generated_name = sanitize_preset_name(f"ACE T{slot_idx} - {mat}")
         preset_name = custom_name or generated_name
         inherits_name = resolve_inherits_name(mat)
 
@@ -1091,16 +1198,11 @@ def sync_filaments_to_orcaslicer(host=None):
     if not synced_items:
         msg_lines.append("• No slots with filament were reported as ready.")
 
+    # Ask Orca to pick the new files up. See refresh_orcaslicer_presets for why
+    # this is a probe rather than a single call.
+    refresh_note = refresh_orcaslicer_presets()
+    msg_lines.append(refresh_note)
     summary_text = "\n".join(msg_lines)
-
-    # Trigger OrcaSlicer preset bundle reload if available
-    if orca and hasattr(orca, "host"):
-        try:
-            reload_fn = getattr(orca.host, "reload_local_bundle", None)
-            if callable(reload_fn):
-                reload_fn()
-        except Exception:
-            pass
 
     return {
         "success": True,
@@ -1108,6 +1210,7 @@ def sync_filaments_to_orcaslicer(host=None):
         "synced": synced_items,
         "slots": slots,
         "network": net_info,
+        "refresh": refresh_note,
     }
 
 

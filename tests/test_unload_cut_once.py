@@ -173,17 +173,27 @@ class TestSmartUnloadPassesSkipCut:
     """The plumbing that decides whether to cut: AceManager.smart_unload."""
 
     @staticmethod
-    def _build_manager(monkeypatch, prep_cut_done: bool):
+    def _build_manager(monkeypatch, prep_cut_done: bool, toolhead_triggered: bool):
         from extras.ace import manager as mgr_mod
 
         class _State(dict):
             def set(self, key, value):
                 self[key] = value
 
+        class _Protocol:
+            @staticmethod
+            def feed_assist_causes_busy():
+                return False
+
         class _Instance:
             def __init__(self):
                 self.inventory = [{"status": "ready"} for _ in range(4)]
                 self.calls = []
+                self.protocol = _Protocol()
+                self._feed_assist_index = -1
+
+            def wait_ready(self):
+                pass
 
             def _smart_unload_slot(self, slot, length=None, skip_cut=False):
                 self.calls.append({"slot": slot, "length": length, "skip_cut": skip_cut})
@@ -198,26 +208,58 @@ class TestSmartUnloadPassesSkipCut:
         m.toolhead_retraction_speed = 15.0
         # The retraction-prep hook reports whether it performed the cut.
         m.prepare_toolhead_for_filament_retraction = lambda tool_index=-1: prep_cut_done
-        # Toolhead sensor already clear -> the "sensor clear" unload branch.
-        m.get_instant_switch_state = lambda sensor: False
+        # toolhead_triggered selects which unload branch runs.
+        m.get_instant_switch_state = lambda sensor: toolhead_triggered
+        m.get_entry_switch_state = lambda: toolhead_triggered
+        m.get_nozzle_switch_state = lambda: False
+        m.has_nozzle_sensor = lambda: False
         m.is_filament_path_free_instant = lambda: True
         m.has_rdm_sensor = lambda: False
         m._get_config_for_tool = lambda tool, param: 1050.0
+        m._wait_toolhead_move_finished = lambda: None
+        m._extruder_move = lambda *a, **kw: None
 
         monkeypatch.setattr(mgr_mod, "get_instance_from_tool", lambda tool: 0)
         monkeypatch.setattr(mgr_mod, "get_local_slot", lambda tool, instance_num: 1)
         return m, inst
 
     def test_prep_hook_cut_means_smart_unload_skips_the_cut(self, monkeypatch):
-        m, inst = self._build_manager(monkeypatch, prep_cut_done=True)
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=True, toolhead_triggered=True)
 
         assert m.smart_unload(1) is True
         assert inst.calls, "the instance unload must be invoked"
         assert inst.calls[-1]["skip_cut"] is True
 
     def test_no_prep_cut_means_smart_unload_performs_the_cut(self, monkeypatch):
-        m, inst = self._build_manager(monkeypatch, prep_cut_done=False)
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=False, toolhead_triggered=True)
 
         assert m.smart_unload(1) is True
         assert inst.calls, "the instance unload must be invoked"
         assert inst.calls[-1]["skip_cut"] is False
+
+    @pytest.mark.parametrize("prep_cut_done", [True, False])
+    def test_toolhead_clear_never_cuts(self, monkeypatch, prep_cut_done):
+        """With the toolhead sensor clear the filament end is still in the bowden.
+
+        There is nothing at the nozzle to cut, so the cutter must be skipped
+        regardless of whether the prep hook says it already cut.
+        """
+        m, inst = self._build_manager(
+            monkeypatch, prep_cut_done=prep_cut_done, toolhead_triggered=False
+        )
+
+        assert m.smart_unload(1) is True
+        assert inst.calls, "the instance unload must be invoked"
+        assert inst.calls[-1]["skip_cut"] is True
+
+    def test_toolhead_clear_retract_message_is_not_misleading(self, monkeypatch):
+        """A full park->toolhead pull must not be described as a 'short retract'."""
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=False, toolhead_triggered=False)
+
+        m.smart_unload(1)
+        messages = [e[1] for e in m.gcode.events if e[0] == "info"]
+        joined = " ".join(messages)
+        assert "short safety retract" not in joined, (
+            f"1050mm is the full bowden length, not a short retract: {messages}"
+        )
+        assert "1050" in joined, f"the pull distance should be reported: {messages}"

@@ -889,15 +889,16 @@ class AceManager:
             if not self.get_instant_switch_state(SENSOR_TOOLHEAD):
                 if self.is_filament_path_free_instant():
                     # All sensors clear: filament was likely manually removed.
-                    # A short safety retract is enough to pull back any tip sitting
-                    # just inside the ACE hub above the sensor boundary.
+                    # The ACE still has to pull the whole park->toolhead length so
+                    # any remainder is drawn clear of the bowden and back into the
+                    # hub, where the slot sensor can confirm it.
                     param = "parkposition_to_rdm_length" if self.has_rdm_sensor() \
                         else "parkposition_to_toolhead_length"
                     retract_dist = self._get_config_for_tool(tool_index, param)
                     self.gcode.respond_info(
                         f"ACE: Filament path fully free for T{tool_index} "
                         f"(filament may have been manually removed) - "
-                        f"short safety retract of {retract_dist}mm"
+                        f"pulling {retract_dist}mm to clear the bowden"
                     )
                 else:
                     # Toolhead clear but RDM still triggered: full retract needed.
@@ -908,8 +909,14 @@ class AceManager:
                         f"ACE: Toolhead clear, RDM triggered - full retract of T{tool_index} ({retract_dist}mm)"
                     )
 
+                # Nothing to cut: the toolhead sensor being clear means the filament
+                # end is still back in the bowden, not protruding from the nozzle.
+                # Running the cutter here only drives the toolhead to the cutter pin
+                # and cycles the blade on empty air.  Note this deliberately ignores
+                # cut_already_done - a cut already happened, or there is nothing to
+                # cut, and both mean "do not cut".
                 instance._smart_unload_slot(
-                    local_slot, length=retract_dist, skip_cut=cut_already_done
+                    local_slot, length=retract_dist, skip_cut=True
                 )
 
                 if self.is_filament_path_free_instant():

@@ -133,6 +133,10 @@ UNMANAGED_FILES=(
 # are deduped before use rather than processing the same directory twice.
 UI_DIRS="${KLIPPACE_UI_DIRS:-/home/pi/fluidd /home/pi/mainsail}"
 
+# Base URL used to confirm the card is actually served. Override with
+# KLIPPACE_WEB_BASE_URL if the UI is not on the default HTTP port.
+WEB_BASE_URL="${KLIPPACE_WEB_BASE_URL:-http://localhost}"
+
 # Runtime state (saved_variables.cfg and friends) is never touched: the sync list
 # above is a whitelist, so anything not named there is left alone by design.
 
@@ -402,6 +406,24 @@ else
     if refresh_klippace_cache_buster "${dir}" "$(basename "${dir}")"; then
       after="$(_klippace_card_version "${dir}")"
       [ "${before}" != "${after}" ] && WEB_BUSTED=1
+    fi
+
+    # Confirm the UI actually serves the card over HTTP, at the URL index.html
+    # asks for. A correct file on disk with a correct buster still renders
+    # nothing if the web server cannot reach it, and from the outside that looks
+    # identical to a stale browser cache - which is exactly how the colour fix
+    # appeared "not deployed" twice.
+    served_path="$(sed -n 's|.*\(\./[^"]*klippace-tool-mapper\.js[^"]*\).*|\1|p' "${dir}/index.html" 2>/dev/null | head -1)"
+    if [ -n "${served_path}" ]; then
+      url="${WEB_BASE_URL%/}/${served_path#./}"
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}" 2>/dev/null || echo 000)"
+      case "${code}" in
+        200) ok "card is served at ${served_path}" ;;
+        000) skip "could not reach ${WEB_BASE_URL} to confirm the card is served" ;;
+        *)   warn "card URL returns HTTP ${code}: ${url}"
+             say "         the UI cannot load the card from that path - check the"
+             say "         symlink in ${dir} and the web server's document root" ;;
+      esac
     fi
   done
 

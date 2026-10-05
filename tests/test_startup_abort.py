@@ -244,3 +244,39 @@ class TestWrapper:
         gcmd = _Gcmd({"GATE": 0}, responses, [])
         C.cmd_ACE_CHANGE_TOOL_WRAPPER(gcmd)   # must not raise
         assert any("ACE_CHANGE_TOOL error" in r for r in responses), responses
+
+
+class TestFailureSemanticsAreDeliberate:
+    """The two failure paths differ on purpose.  Changing either is a product call.
+
+    **Initial load failure -> the print is CANCELLED.**  `cmd_ACE_CHANGE_TOOL`
+    turns the heater off and raises ``StartupToolchangeAbort``, which propagates
+    out of the gcode command.  ``virtual_sdcard.work_handler`` catches
+    ``gcode.error``, runs ``on_error_gcode`` (mainsail.cfg sets it to
+    ``CANCEL_PRINT``) and breaks the print loop, so ``print_stats`` ends up
+    ``cancelled`` -- not ``error``, because ``CANCEL_PRINT`` nulls
+    ``print_start_time`` first and ``note_error`` then returns early.
+
+    That is right at print start: nothing has been printed, so restarting costs
+    only heat-up + QGL + bed mesh, and leaving the heaters off is the correct
+    unattended behaviour.
+
+    **Mid-print toolchange failure -> PAUSE, with a recovery dialog.**  Hours of
+    work are not thrown away.
+
+    Together these mean a transient feed hiccup at print start loses the whole
+    job.  That is the accepted trade -- printing a multi-hour job with no filament
+    is worse -- but it is a trade, so it is pinned here rather than left implicit.
+    """
+
+    def test_startup_failure_does_not_pause(self, monkeypatch):
+        """Pausing at print start would hold a hot bed all night."""
+        gcode, _, exc = _drive(monkeypatch, {"GATE": 0}, startup_toolchange=1)
+        assert isinstance(exc, StartupToolchangeAbort)
+        assert "PAUSE" not in gcode.scripts, gcode.scripts
+
+    def test_mid_print_failure_does_not_abort(self, monkeypatch):
+        """A mid-print failure must offer recovery, not discard the print."""
+        gcode, _, exc = _drive(monkeypatch, {"TOOL": 2}, startup_toolchange=0)
+        assert exc is None, exc
+        assert "PAUSE" in gcode.scripts

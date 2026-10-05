@@ -102,6 +102,10 @@ patch_klippace_index_html() {
 
     if grep -q "$KLIPPACE_INDEX_MARKER" "$index" 2>/dev/null; then
         print_success "Injected Tool Mapper into $ui_label index.html"
+        # Stamp a cache-buster on the lines just added. Without this the URLs
+        # would be bare, and a UI that caches by URL would keep serving the
+        # first card it ever loaded.
+        refresh_klippace_cache_buster "$ui_dir" "$ui_label" || true
         return 0
     fi
 
@@ -111,7 +115,102 @@ patch_klippace_index_html() {
     print_info "  <script type=\"module\" src=\"./klippace-tool-mapper.js\"></script>   (before </body>)"
     return 1
 }
+# _klippace_hash
+#
+# Short content fingerprint of stdin, used as the card's cache-buster value.
+# Ten characters is plenty to detect a change and keeps the URL readable.
+# md5sum is GNU/Linux, md5 is macOS; cksum is the universal fallback.
+_klippace_hash() {
+    if command -v md5sum >/dev/null 2>&1; then
+        md5sum | cut -c1-10
+    elif command -v md5 >/dev/null 2>&1; then
+        md5 -q | cut -c1-10
+    else
+        cksum | awk '{print $1}'
+    fi
+}
 
+# _klippace_card_version <ui_dir>
+#
+# Fingerprints the card files *as served*, i.e. read through the UI directory so
+# the symlinks resolve to whatever is actually live.
+#
+# Content, not mtime, on purpose: a `git checkout` rewrites mtime without
+# changing a single byte, so an mtime-based buster would invalidate every
+# client's cache on every pull that touches the repo for any reason.
+_klippace_card_version() {
+    local ui_dir="$1"
+    local file
+    for file in $KLIPPACE_CARD_FILES; do
+        cat "$ui_dir/$file" 2>/dev/null
+    done | _klippace_hash
+}
+
+# refresh_klippace_cache_buster <ui_dir> <ui_label>
+#
+# Re-stamps the ?v= query on the injected card lines so a browser picks up new
+# card code without a manual hard-reload.
+#
+# WHY THIS IS NEEDED
+#   index.html is the UI's own static file, so nothing regenerates those URLs.
+#   The buster was previously a one-off epoch baked in when the card was first
+#   injected, which meant it never changed again: after any card update the
+#   browser kept serving its cached copy and the change appeared not to have
+#   been deployed. Symptom: a fix that is provably live on disk (matching md5
+#   over HTTP) but invisible in the UI.
+#
+# Idempotent: re-running with unchanged content is a no-op, so it is safe to
+# call on every deploy rather than trying to detect whether the card changed.
+# Returns 0 when there is nothing to do (not patched, or no index.html).
+refresh_klippace_cache_buster() {
+    local ui_dir="$1"
+    local ui_label="$2"
+    local index="$ui_dir/index.html"
+
+    [ -f "$index" ] || return 0
+
+    # Only touch an index.html that actually loads the card. If the card has not
+    # been injected yet, patch_klippace_index_html will stamp it.
+    if ! grep -q "$KLIPPACE_INDEX_MARKER" "$index" 2>/dev/null; then
+        return 0
+    fi
+
+    local ver
+    ver="$(_klippace_card_version "$ui_dir")"
+    if [ -z "$ver" ]; then
+        print_warning "Could not fingerprint the card for $ui_label — cache-buster left alone"
+        return 1
+    fi
+
+    # Already current? Then leave the file untouched. Avoids rewriting the UI's
+    # index.html (and its mtime) on every single deploy.
+    if grep -q "klippace-tool-mapper\.js?v=${ver}" "$index" 2>/dev/null; then
+        return 0
+    fi
+
+    local file
+    for file in $KLIPPACE_CARD_FILES; do
+        # Strip any existing query first, then append the current one. Done as
+        # two plain BRE substitutions rather than one optional-group pattern,
+        # because `\?` on a group is a GNU/BSD extension and this runs under
+        # whatever sed the host provides.
+        #
+        # The `.` before the filename is escaped so foo-klippace-tool-mapper.js
+        # could never match, and the line is selected by the filename alone so a
+        # path prefix (./ or ./assets/) is irrelevant.
+        _klippace_sed_inplace "/klippace-tool-mapper\.${file##*.}/ s|\(klippace-tool-mapper\.${file##*.}\)?v=[^\"']*|\1|" "$index"
+        _klippace_sed_inplace "/klippace-tool-mapper\.${file##*.}/ s|\(klippace-tool-mapper\.${file##*.}\)|\1?v=${ver}|" "$index"
+    done
+
+    if grep -q "klippace-tool-mapper\.js?v=${ver}" "$index" 2>/dev/null; then
+        print_success "Card cache-buster for $ui_label refreshed (${ver})"
+        return 0
+    fi
+
+    print_warning "Could not refresh the card cache-buster in $ui_label index.html"
+    print_info "A browser hard-reload will still pick up card changes."
+    return 1
+}
 # --- Uninstall counterparts --------------------------------------------------
 
 # unlink_klippace_web_files <ui_dir>

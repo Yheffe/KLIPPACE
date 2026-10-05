@@ -88,6 +88,11 @@ UNMANAGED_FILES=(
   crowsnest.conf
 )
 
+# UIs whose injected card needs its cache-buster re-stamped after a web change.
+# Mainsail is frequently a symlink to Fluidd on this machine, so resolved paths
+# are deduped before use rather than processing the same directory twice.
+UI_DIRS="${KLIPPACE_UI_DIRS:-/home/pi/fluidd /home/pi/mainsail}"
+
 # Runtime state (saved_variables.cfg and friends) is never touched: the sync list
 # above is a whitelist, so anything not named there is left alone by design.
 
@@ -290,6 +295,58 @@ while IFS='|' read -r live_name repo_rel; do
 done <<< "${LINK_FILES}"
 
 # ---------------------------------------------------------------------------
+# Web assets
+#
+# The card is injected into the UI's own index.html, which nothing regenerates.
+# Its ?v= was originally a one-off epoch, so it never changed again and a browser
+# kept serving its cached copy after a card update - a fix that is provably live
+# on disk but invisible in the UI. Re-stamp it from a content fingerprint so the
+# URL changes exactly when the card does.
+# ---------------------------------------------------------------------------
+step "Web assets"
+WEB_LIB="${REPO_DIR}/acepro-mmu-dashboard/shared/web_install.sh"
+WEB_BUSTED=0
+
+if [ ! -f "${WEB_LIB}" ]; then
+  skip "shared web helper not found; card cache-buster not refreshed"
+else
+  # The shared library expects these from its caller. Point them at this
+  # script's own output helpers so its messages match everything else here.
+  print_info()    { say "   info  $*"; }
+  print_success() { ok "$*"; }
+  print_warning() { warn "$*"; }
+  print_error()   { bad "$*"; }
+  create_or_replace_symlink() { :; }
+  # shellcheck source=/dev/null
+  . "${WEB_LIB}"
+
+  SEEN_DIRS=""
+  for dir in ${UI_DIRS}; do
+    [ -f "${dir}/index.html" ] || continue
+    real="$(cd "${dir}" && pwd -P)"
+    case " ${SEEN_DIRS} " in
+      *" ${real} "*) continue ;;
+    esac
+    SEEN_DIRS="${SEEN_DIRS} ${real}"
+
+    before="$(_klippace_card_version "${dir}")"
+    if [ "${DRY_RUN}" -eq 1 ]; then
+      skip "would set ${dir} card cache-buster to ${before}"
+      continue
+    fi
+    # A no-op when the card is unchanged, so this runs on every deploy.
+    if refresh_klippace_cache_buster "${dir}" "$(basename "${dir}")"; then
+      after="$(_klippace_card_version "${dir}")"
+      [ "${before}" != "${after}" ] && WEB_BUSTED=1
+    fi
+  done
+
+  if [ -z "${SEEN_DIRS}" ]; then
+    skip "no UI directory with an index.html found"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Protected files: report drift, never overwrite
 # ---------------------------------------------------------------------------
 for name in "${PROTECTED_FILES[@]}"; do
@@ -338,6 +395,10 @@ fi
 
 if [ "${NEEDS_SERVICE}" -eq 0 ] && [ "${NEEDS_CONFIG}" -eq 0 ]; then
   ok "no restart needed"
+  if [ "${WEB_BUSTED}" -eq 1 ]; then
+    say ""
+    ok "card cache-buster refreshed - a normal browser reload picks it up"
+  fi
   say ""
   ok "up to date"
   exit 0

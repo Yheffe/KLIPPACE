@@ -30,6 +30,24 @@ from .config import (
 )
 
 
+class StartupToolchangeAbort(Exception):
+    """The initial tool load failed and PRINT_START must not continue.
+
+    ``cmd_ACE_CHANGE_TOOL`` raises this when a tool change fails while the
+    ``startup_toolchange`` flag is set.  ``cmd_ACE_CHANGE_TOOL_WRAPPER``
+    re-raises it untouched so it propagates out of the gcode command and aborts
+    the surrounding script.
+
+    Without this, the wrapper's blanket ``except Exception`` swallowed the
+    abort: PRINT_START carried straight on to its nozzle wipe and adaptive line
+    purge and extruded them with nothing loaded.  The log said "cancel print"
+    while the print was not cancelled.
+
+    Every other tool change failure is still logged and allowed to continue, so
+    only a failed initial load takes this path.
+    """
+
+
 def get_printer():
     """Get the Klipper printer object from the first AceManager."""
     if len(INSTANCE_MANAGERS) == 0:
@@ -1668,14 +1686,14 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
                 )
 
                 error_text = str(e).split('\n')[0].replace('"', '\\"')
-                prompt_text = f"Tool change to T{tool_index} failed! Error: {error_text}"
+                prompt_text = f"Tool change to T{target_tool} failed! Error: {error_text}"
 
                 gcode.run_script_from_command(
                     f'RESPOND TYPE=command MSG="action:prompt_text {prompt_text}"'
                 )
 
                 gcode.run_script_from_command(
-                    f'RESPOND TYPE=command MSG="action:prompt_button Retry T{tool_index}|T{tool_index}|primary"'
+                    f'RESPOND TYPE=command MSG="action:prompt_button Retry T{target_tool}|T{target_tool}|primary"'
                 )
 
                 gcode.run_script_from_command(
@@ -1706,7 +1724,9 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
             gcode.run_script_from_command("M104 S0")
             gcode.respond_info("ACE: Initial toolchange failed, cancel print and switching extruder heater off")
 
-            raise gcmd.error(f"Tool change to T{tool_index} failed during startup: {str(e)}")
+            raise StartupToolchangeAbort(
+                f"Tool change to T{target_tool} (Gate {target_gate}) failed during startup: {e}"
+            )
 
 
 def cmd_ACE_SET_RETRACT_SPEED(gcmd):
@@ -2047,6 +2067,11 @@ def cmd_ACE_CHANGE_TOOL_WRAPPER(gcmd):
             gcmd.respond_info("ACE_CHANGE_TOOL: Either TOOL=<index> or GATE=<index> is required")
             return
         cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=gate_index)
+    except StartupToolchangeAbort:
+        # A failed *initial* tool load.  This must propagate: it aborts the
+        # surrounding gcode (PRINT_START), so the machine does not carry on to
+        # the nozzle wipe and adaptive purge with nothing loaded.
+        raise
     except Exception as e:
         gcmd.respond_info(f"ACE_CHANGE_TOOL error: {e}")
 

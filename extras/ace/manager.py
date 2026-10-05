@@ -85,6 +85,34 @@ class FilamentTrackerAdapter:
         return None
 
 
+def filament_present_but_unaccounted(toolhead_sensor, rdm_sensor,
+                                      filament_pos, current_tool):
+    """True when a sensor sees filament but the tracked state cannot account for it.
+
+    Two situations qualify:
+
+    * the tracked position claims the filament is parked in the bowden while a
+      sensor sees it present, and
+    * a sensor sees filament while *no tool is recorded at all*.
+
+    The second case is the dangerous one.  A toolchange that fails after the load
+    has completed (for example the post-toolchange blobifier purge refusing to run
+    because QUAD_GANTRY_LEVEL has not been applied) leaves the filament sitting at
+    the nozzle with ``ace_current_index`` already reset to -1.  That state used to
+    pass this check untouched, and the next ``perform_tool_change`` would then run
+    ``_feed_filament_into_toolhead`` — which is called with
+    ``check_pre_condition=False`` and so skips its own "Cannot feed, filament in
+    nozzle or toolhead" guard — pushing a full feed length into an already-loaded
+    nozzle.
+
+    A triggered sensor together with ``current_tool < 0`` is always an
+    inconsistency, so it must be cleared before any further feed.
+    """
+    if not (toolhead_sensor or rdm_sensor):
+        return False
+    return filament_pos == FILAMENT_STATE_BOWDEN or current_tool < 0
+
+
 def toolchange_in_progress_guard(method):
     """
     Decorator: Increment/decrement toolchange depth counter.
@@ -1874,10 +1902,19 @@ class AceManager:
             f"State: filament_pos='{filament_pos}', current_tool=T{current_tool}"
         )
 
-        if (toolhead_sensor or rdm_sensor) and (filament_pos == FILAMENT_STATE_BOWDEN):
+        if filament_present_but_unaccounted(
+            toolhead_sensor, rdm_sensor, filament_pos, current_tool
+        ):
+            if current_tool < 0:
+                reason = (
+                    "sensors show filament present but no tool is recorded "
+                    "(previous toolchange likely failed after loading)"
+                )
+            else:
+                reason = f"sensors show filament present but state='{filament_pos}'"
             self.gcode.respond_info(
-                f"ACE: PLAUSIBILITY MISMATCH - Sensors show filament present "
-                f"but state='{filament_pos}'. Performing smart_unload to clear path. May help or not..."
+                f"ACE: PLAUSIBILITY MISMATCH - {reason}. "
+                f"Performing smart_unload to clear path. May help or not..."
             )
 
             success = self.smart_unload(tool_index=current_tool if current_tool >= 0 else -1)

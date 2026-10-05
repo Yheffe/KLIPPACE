@@ -20,6 +20,14 @@
 #   ./scripts/deploy.sh --dry-run       # show what would change, touch nothing
 #   ./scripts/deploy.sh --restart       # ...then perform the restart
 #   ./scripts/deploy.sh --branch main   # deploy a different branch
+#   ./scripts/deploy.sh --no-pull       # sync only, use what is already checked out
+#
+# SELF-UPDATE
+#   A pull can replace this script while it is running. Bash reads a script
+#   incrementally, so the old copy would keep executing and any step added by the
+#   commit being deployed would be skipped - a green run that did none of the new
+#   work. The script therefore re-execs itself (once) when the pull changes it.
+#   `--_reexec` is that internal flag; it is not needed by hand.
 #
 # USAGE (from your laptop, over SSH)
 #   ssh pi@192.168.1.168 'cd /home/pi/KLIPPACE && ./scripts/deploy.sh --restart'
@@ -44,7 +52,39 @@ DO_PULL=1
 DO_RESTART=0
 DRY_RUN=0
 FORCE=0
+REEXECED=0
 MOONRAKER="http://localhost:7125"
+
+# Absolute path to this script, captured before any `cd`.
+#
+# This script pulls the repo, which REPLACES THIS FILE part way through. A
+# running bash reads its script incrementally, so without care the old inode
+# keeps being executed and any step added by the commit being deployed is
+# silently skipped - the deploy reports success while having done none of the new
+# work. That actually happened: the run that introduced the "Web assets" step
+# pulled it in and then never ran it.
+#
+# So the path is resolved (and hashed, below) up front, and the script re-execs
+# itself when the pull changes it.
+_self_path() {
+  case "${BASH_SOURCE[0]}" in
+    /*) printf '%s' "${BASH_SOURCE[0]}" ;;
+    *)  printf '%s/%s' "$(pwd)" "${BASH_SOURCE[0]}" ;;
+  esac
+}
+SELF="$(_self_path)"
+SELF_HASH_BEFORE=""
+
+# Portable content hash of a file. Used for the self-update check.
+_file_hash() {
+  if command -v md5sum >/dev/null 2>&1; then
+    md5sum "$1" 2>/dev/null | cut -d' ' -f1
+  elif command -v md5 >/dev/null 2>&1; then
+    md5 -q "$1" 2>/dev/null
+  else
+    cksum "$1" 2>/dev/null | awk '{print $1"-"$2}'
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # File maps, as "live-name|repo-path" pairs.
@@ -124,6 +164,7 @@ while [ $# -gt 0 ]; do
     --force)     FORCE=1 ;;
     --no-pull)   DO_PULL=0 ;;
     --branch)    BRANCH="${2:-}"; [ -n "$BRANCH" ] || { bad "--branch needs a value"; exit 1; }; shift ;;
+    --_reexec)   REEXECED=1 ;;
     -h|--help)   usage ;;
     *)           bad "unknown option: $1"; usage ;;
   esac
@@ -147,6 +188,9 @@ ok "live   ${LIVE_DIR}"
 [ "$DRY_RUN" -eq 1 ] && say "   MODE  DRY RUN - nothing will be modified"
 
 cd "${REPO_DIR}"
+
+# Fingerprint this script now, before the pull can replace it.
+SELF_HASH_BEFORE="$(_file_hash "${SELF}")"
 
 # Files we manage must be clean, or a pull could clobber local work.
 DIRTY=""
@@ -198,6 +242,26 @@ else
 fi
 
 CHANGED="$(git diff --name-only "${BEFORE}" "${AFTER}" 2>/dev/null || true)"
+
+# Did the pull just replace this script? If so, the version now running is stale
+# and every step it does not know about has been skipped. Re-exec the new one
+# rather than reporting success for work that did not happen.
+#
+# Guarded by --_reexec: the second run pulls nothing new, so this cannot loop.
+if [ "${REEXECED}" -eq 0 ] && [ -n "${SELF_HASH_BEFORE}" ]; then
+  SELF_HASH_AFTER="$(_file_hash "${SELF}")"
+  if [ -n "${SELF_HASH_AFTER}" ] && [ "${SELF_HASH_AFTER}" != "${SELF_HASH_BEFORE}" ]; then
+    say ""
+    warn "deploy.sh itself changed in this pull"
+    say "         restarting it with the new version so no step is skipped"
+    say ""
+    if [ "${DRY_RUN}" -eq 1 ]; then
+      skip "(dry run: would re-exec the updated ${SELF})"
+    else
+      exec "${SELF}" "$@" --_reexec
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Which restart does this need?

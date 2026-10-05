@@ -296,6 +296,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 SYNCED=0
 UNCHANGED=0
+# Live filenames actually rewritten this run, so the restart-needed exit can name
+# exactly what is on disk but not yet active.
+LIVE_CHANGED=""
 
 while IFS='|' read -r live_name repo_rel; do
   [ -n "${live_name}" ] || continue
@@ -313,6 +316,7 @@ while IFS='|' read -r live_name repo_rel; do
       cp -a "${repo_path}" "${live_path}"
     fi
     SYNCED=$((SYNCED + 1))
+    LIVE_CHANGED="${LIVE_CHANGED} ${live_name}"
     continue
   fi
   if cmp -s "${live_path}" "${repo_path}"; then
@@ -331,6 +335,7 @@ while IFS='|' read -r live_name repo_rel; do
     cp -a "${live_path}" "${BACKUP_DIR}/${live_name}"
     cp -f "${repo_path}" "${live_path}"
     ok "${live_name}: updated (backup in $(basename "${BACKUP_DIR}"))"
+    LIVE_CHANGED="${LIVE_CHANGED} ${live_name}"
   fi
   SYNCED=$((SYNCED + 1))
 done <<< "${SYNC_FILES}"
@@ -531,6 +536,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 if [ "$DO_RESTART" -eq 0 ]; then
+  # The live files are already rewritten at this point, so the printer is running
+  # older config than is on disk. Say so plainly: a half-applied deploy is easy to
+  # walk away from, and the symptom later is a fix that "did not work".
+  if [ -n "${LIVE_CHANGED}" ]; then
+    warn "config on disk is now NEWER than what the printer is running:"
+    say "         ${LIVE_CHANGED# }"
+  fi
   if [ "${kind}" = "service" ]; then
     say "         run: curl -X POST ${MOONRAKER}/machine/services/restart?service=klipper"
   else

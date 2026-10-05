@@ -916,7 +916,8 @@ class AceManager:
                 # cut_already_done - a cut already happened, or there is nothing to
                 # cut, and both mean "do not cut".
                 instance._smart_unload_slot(
-                    local_slot, length=retract_dist, skip_cut=True
+                    local_slot, length=retract_dist, skip_cut=True,
+                    skip_cut_reason="no filament at the nozzle to cut",
                 )
 
                 if self.is_filament_path_free_instant():
@@ -959,6 +960,10 @@ class AceManager:
                     local_slot,
                     length=parkposition_to_toolhead_length + retract_length,
                     skip_cut=cut_already_done,
+                    skip_cut_reason=(
+                        "already cut by the retraction-prep hook"
+                        if cut_already_done else ""
+                    ),
                 )
 
                 # Wait for extruder to finish
@@ -1320,7 +1325,11 @@ class AceManager:
                     f"(remaining: {remaining_length}mm)"
                 )
                 instance._smart_unload_slot(
-                    slot, length=remaining_length, skip_cut=cut_already_done
+                    slot, length=remaining_length, skip_cut=cut_already_done,
+                    skip_cut_reason=(
+                        "already cut by the retraction-prep hook"
+                        if cut_already_done else ""
+                    ),
                 )
             except Exception as e:
                 self.gcode.respond_info(f"ACE[{instance_num}]: Error during full unload: {e}")

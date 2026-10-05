@@ -1397,7 +1397,7 @@ class AceInstance:
     rmd_triggered_unload_slot = rdm_triggered_unload_slot
 
     def _smart_unload_slot(self, slot, length=None, on_retract_started=None,
-                           skip_cut=False):
+                           skip_cut=False, skip_cut_reason=""):
         """
         Unload slot with optional cutter macro and sensor validation.
 
@@ -1410,10 +1410,11 @@ class AceInstance:
             length: Retraction length in mm (defaults to parkposition_to_toolhead_length if no RDM, else toolchange_load_length)
             on_retract_started: Optional callback after retract starts
             skip_cut: True when the caller has ALREADY cut the filament (e.g.
-                _ACE_PREPARE_FOR_RETRACTION ran CUT_TIP).  Cutting a second time
-                while the severed stub is parked at the cutter re-engages the
+                _ACE_PREPARE_FOR_RETRACTION ran CUT_TIP), or when there is no
+                filament at the nozzle to cut.  Cutting again re-engages the
                 blade on a detached filament and can shear a fragment into the
                 ACE hub, jamming it.
+            skip_cut_reason: Short explanation of why the cut was skipped, for the log.
 
         Returns:
             bool: True if retraction completed successfully
@@ -1424,11 +1425,12 @@ class AceInstance:
         has_rdm = self.manager.has_rdm_sensor()
 
         # Optional cutter integration (e.g. CUT_TIP).  Skipped when the caller's
-        # retraction-prep hook has already cut the filament — see skip_cut.
+        # retraction-prep hook has already cut the filament, or when there is
+        # nothing at the nozzle to cut -- see skip_cut.
         if skip_cut:
+            reason = f" ({skip_cut_reason})" if skip_cut_reason else ""
             self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Filament already cut by retraction-prep hook, "
-                f"skipping cutter sequence"
+                f"ACE[{self.instance_num}]: Skipping cutter sequence{reason}"
             )
         else:
             if self.cut_retract_length > 0:

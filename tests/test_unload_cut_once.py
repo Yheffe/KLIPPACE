@@ -139,6 +139,22 @@ class TestSmartUnloadSlotCutOnce:
         # The actual ACE pull-back must still happen.
         assert any(e[0] == "retract" for e in unload_self.events)
 
+    def test_skip_cut_logs_the_reason_it_was_given(self, unload_self):
+        from extras.ace.instance import AceInstance
+
+        AceInstance._smart_unload_slot(
+            unload_self, slot=2, length=1075.0, skip_cut=True,
+            skip_cut_reason="no filament at the nozzle to cut",
+        )
+
+        msgs = [e[1] for e in unload_self.gcode.events if e[0] == "info"]
+        assert any("Skipping cutter sequence" in m for m in msgs), msgs
+        assert any("no filament at the nozzle to cut" in m for m in msgs), (
+            f"the caller's reason must reach the log: {msgs}"
+        )
+        # It must not invent a reason the caller did not give.
+        assert not any("already cut" in m for m in msgs), msgs
+
     def test_without_skip_cut_the_cutter_runs(self, unload_self):
         from extras.ace.instance import AceInstance
 
@@ -195,8 +211,12 @@ class TestSmartUnloadPassesSkipCut:
             def wait_ready(self):
                 pass
 
-            def _smart_unload_slot(self, slot, length=None, skip_cut=False):
-                self.calls.append({"slot": slot, "length": length, "skip_cut": skip_cut})
+            def _smart_unload_slot(self, slot, length=None, skip_cut=False,
+                                   skip_cut_reason=""):
+                self.calls.append({
+                    "slot": slot, "length": length, "skip_cut": skip_cut,
+                    "skip_cut_reason": skip_cut_reason,
+                })
                 return True
 
         m = mgr_mod.AceManager.__new__(mgr_mod.AceManager)
@@ -263,3 +283,27 @@ class TestSmartUnloadPassesSkipCut:
             f"1050mm is the full bowden length, not a short retract: {messages}"
         )
         assert "1050" in joined, f"the pull distance should be reported: {messages}"
+
+    def test_skip_reason_is_honest_on_the_toolhead_clear_path(self, monkeypatch):
+        """The prep hook reported 'no filament at toolhead', so the log must not
+        claim it cut."""
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=False, toolhead_triggered=False)
+
+        m.smart_unload(1)
+        reason = inst.calls[-1]["skip_cut_reason"]
+        assert "no filament" in reason.lower(), reason
+        assert "already cut" not in reason.lower(), reason
+
+    def test_skip_reason_is_honest_when_the_prep_hook_cut(self, monkeypatch):
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=True, toolhead_triggered=True)
+
+        m.smart_unload(1)
+        reason = inst.calls[-1]["skip_cut_reason"].lower()
+        assert "already cut" in reason, reason
+
+    def test_no_reason_given_when_nothing_is_skipped(self, monkeypatch):
+        m, inst = self._build_manager(monkeypatch, prep_cut_done=False, toolhead_triggered=True)
+
+        m.smart_unload(1)
+        assert inst.calls[-1]["skip_cut"] is False
+        assert inst.calls[-1]["skip_cut_reason"] == ""

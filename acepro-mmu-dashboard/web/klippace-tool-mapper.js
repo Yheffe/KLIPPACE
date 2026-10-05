@@ -1026,8 +1026,15 @@
     const gateColor = mmu.gate_color?.[gateIndex];
     const gateMat = (mmu.gate_material?.[gateIndex] || '').trim();
     const gateTemp = mmu.gate_temp?.[gateIndex] || 0;
-    const isUnknown = (!gateMat || gateMat.toLowerCase() === 'unknown')
-      || (gateColor || '').replace('#', '').toLowerCase() === '000000';
+
+    // Reuse the card swatch's predicate rather than deriving a second one.
+    //
+    // These used to disagree. isUnknownGate() requires no colour AND no material;
+    // the editor tested `no material OR colour === #000000`, so a genuinely black
+    // spool (colour #000000 with a real material) counted as "unknown" and the
+    // editor opened on white while the swatch correctly showed black. Two
+    // definitions of the same idea will drift again, so there is now only one.
+    const gateIsUnknown = isUnknownGate({ color: gateColor, material: gateMat });
 
     // Prefer the temperature recorded against the ACE slot; only fall back to a
     // material suggestion when the slot itself stores no temperature.
@@ -1035,10 +1042,14 @@
       gateIndex,
       material: (!gateMat || gateMat.toLowerCase() === 'unknown') ? 'PLA' : gateMat,
       temp: gateTemp || lookupMaterialTemp(gateMat) || 210,
-      color: (!gateColor || (isUnknown && gateColor === '#000000')) ? '#ffffff' : gateColor,
+      // A real colour is used as-is, black included, so the picker always matches
+      // the swatch. Only a genuinely unknown slot gets an editable starting point.
+      // The grey fallback mirrors the card swatch's own `color || '#888'`, spelled
+      // out to 6 digits because <input type=color> rejects the 3-digit form and
+      // would silently snap to #000000.
+      color: gateIsUnknown ? '#ffffff' : (gateColor || '#888888'),
       name: ''
     };
-
     el('klippace-editor-chip').textContent = `T${gateIndex}`;
     el('klippace-editor-material').value = slotEditorState.material;
     el('klippace-editor-temp').value = slotEditorState.temp;

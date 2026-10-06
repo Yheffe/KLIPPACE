@@ -205,17 +205,49 @@ sensor to the nozzle sensor. A sensible starting point is `4 ×` the largest fig
 Phase 2 ever reported before (18mm × 4 ≈ 72mm, so try 150 and reduce once the real
 distance is known from a successful run's reported value).
 
-### Why the change is still very likely right
+### What this change does and does not fix — correcting an earlier claim
 
-Feeding 1200mm along a 1050mm route means the ACE pushed roughly 150mm against a
-filament path that had nowhere left to go. That is a plausible cause of the
-recurring feed failures — three of those feeds ended in
-`Feed timeout for 1200.0mm` / `Toolhead entry sensor not triggered`, which is what
-a filament buckling in the hub looks like. Stopping at the sensor removes the
-over-feed entirely, so a *reduction* in failures is the expected outcome.
+An earlier draft of this file said the over-feed was "a plausible cause of the
+recurring feed failures". **The logs do not support that, and the claim is
+withdrawn.** All three failures share one signature:
 
-If loads become *less* reliable rather than more, that reasoning is wrong and the
-change should be reverted.
+```
+feed_filament_with_wait_for_response() completed -> length=1200.0mm, result_code=0
+Feed timeout for 1200.0mm after 40.0 seconds
+Toolhead entry sensor not triggered after feed
+```
+
+The ACE reported the full 1200mm fed, **yet a sensor only 1050mm away never
+triggered**. Had the filament actually moved 1200mm it would have passed the sensor
+long before. So in those failures the filament barely moved at all: the ACE's feed
+rollers were slipping or not gripping, most likely a mis-seated spool or filament
+stuck on the reel.
+
+**This change does not address that.** Expect those failures to continue if the
+cause recurs. What the change does fix:
+
+- genuine over-feed (~150mm) when the filament *is* gripped — it now stops at the
+  sensor instead of running past it
+- the unknown filament position left behind by any failed feed, which is what made
+  a retry unsafe
+- one specific pointless motion: refusing to feed at all when the sensor is
+  already satisfied
+
+So judge the change on *how far a successful load over-feeds* (the feed should
+stop at the sensor), not on the disappearance of jam-shaped failures.
+
+### If it does go wrong
+
+Two ways to know, both in the log:
+
+1. `Filament failed to reach nozzle sensor after 80.0mm` — Phase 2's cap. Not a
+   jam; raise `max_entry_to_nozzle_length` in `[ace]`. See above.
+2. A load that took about the full timeout and still did not trigger the sensor —
+   the old slipping behaviour, unchanged by this work.
+
+If loads become *less* reliable rather than more, revert: the change is meant to be
+strictly a reduction in movement, so extra failures mean the reasoning is wrong.
+
 
 ## If the sensor never triggers
 

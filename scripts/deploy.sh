@@ -19,7 +19,7 @@
 #   ./scripts/deploy.sh                 # pull + sync, report restart needed
 #   ./scripts/deploy.sh --dry-run       # show what would change, touch nothing
 #   ./scripts/deploy.sh --restart       # ...then perform the restart
-#   ./scripts/deploy.sh --branch main   # deploy a different branch
+#   ./scripts/deploy.sh --branch feed-closed-loop   # test a branch
 #   ./scripts/deploy.sh --no-pull       # sync only, use what is already checked out
 #
 # SELF-UPDATE
@@ -222,6 +222,30 @@ AFTER="${BEFORE}"
 
 if [ "$DO_PULL" -eq 1 ]; then
   step "Pull origin/${BRANCH}"
+
+  # --branch means "be on this branch", not "merge this branch into whatever is
+  # checked out". A bare `git pull origin <branch>` merges it into the current
+  # branch, so asking to test a branch would have quietly put that code onto dev
+  # - the exact opposite of keeping an unverified change isolated.
+  if [ "${BRANCH}" != "$(git rev-parse --abbrev-ref HEAD)" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
+      skip "would switch to branch ${BRANCH}"
+    else
+        # Fetch first: `git checkout <name>` can only create a tracking branch
+        # from a remote that has actually been fetched. `git ls-remote` queries
+        # without fetching, so without this a branch that exists only on origin
+        # would be reported as missing.
+        git fetch origin --prune 2>&1 | sed 's/^/   /' || true
+
+        if ! git show-ref --verify --quiet "refs/heads/${BRANCH}" \
+           && ! git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+        bad "could not check out ${BRANCH} - uncommitted changes in the way?"
+        exit 2
+      fi
+      ok "on branch ${BRANCH}"
+    fi
+  fi
+
   if [ "$DRY_RUN" -eq 1 ]; then
     skip "would run: git pull --ff-only origin ${BRANCH}"
   else

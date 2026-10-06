@@ -70,6 +70,11 @@ class _Harness:
         self._feed_response = feed_response
         self._sensor = False
 
+        # Settle the sensor against the starting clock. Without this an
+        # "already triggered at t=0" setup would not be visible until the first
+        # dwell(), so the pre-check would miss it.
+        self._tick()
+
         # _feed() is called by the helper; capture it and emulate the callback.
         self.feed_calls = []
 
@@ -189,6 +194,25 @@ class TestClosedLoopFeed:
             "at a jam"
         )
 
+    def test_already_triggered_issues_no_feed_at_all(self, feed_harness):
+        """An already-satisfied sensor must not be fed into.
+
+        The toolchange path passes check_pre_condition=False, so nothing upstream
+        rejects an already-loaded toolhead. Feeding here would push filament with
+        nowhere to go - the same over-feed the closed loop exists to prevent.
+        """
+        h = feed_harness(sensor_after_seconds=1000.0)   # triggered from the start
+        out = _run_feed(h)
+
+        assert out["triggered"] is True
+        assert out["reason"] == "already-triggered"
+        assert h.feed_calls == [], (
+            f"no feed command may be issued when the sensor is already set: {h.feed_calls}"
+        )
+        assert "stop_feed" not in h.events, (
+            "nothing was started, so there is nothing to stop"
+        )
+
 
 # --------------------------------------------------------------------------
 # success must not hinge on the ACE's response code
@@ -256,11 +280,31 @@ class TestResponseCodeIsNotAuthoritative:
 
 class TestFeedRefusals:
     def test_forbidden_is_retried(self, feed_harness):
-        h = feed_harness(sensor_after_seconds=1001.0, forbidden_times=1)
+        # The sensor must trip well after the 1s retry backoff, otherwise the
+        # retry's pre-check correctly notices filament has arrived and skips the
+        # second feed - which is right, but not what this test is measuring.
+        h = feed_harness(sensor_after_seconds=1005.0, forbidden_times=1)
         out = _run_feed(h)
         assert out["triggered"] is True, out
         assert len(h.feed_calls) == 2, (
             f"FORBIDDEN should be retried, got {len(h.feed_calls)} feed(s)"
+        )
+
+    def test_retry_skips_the_feed_if_filament_arrives_during_the_backoff(
+        self, feed_harness
+    ):
+        """FORBIDDEN means "busy", so filament may land while we wait.
+
+        Re-commanding a feed then would push filament that has nowhere to go, so
+        the pre-check must win over the retry.
+        """
+        h = feed_harness(sensor_after_seconds=1000.5, forbidden_times=1)
+        out = _run_feed(h)
+
+        assert out["triggered"] is True
+        assert out["reason"] == "already-triggered", out
+        assert len(h.feed_calls) == 1, (
+            f"the retry must not re-feed once the sensor is satisfied: {h.feed_calls}"
         )
 
     def test_forbidden_is_the_only_retried_code(self, feed_harness):
@@ -330,3 +374,53 @@ class TestPhaseOneUsesClosedLoop:
         """Phase 2's restart path feeds into a sensor-bounded region, so the
         blocking helper is still the right tool there."""
         assert "execute_feed_with_retries" in self._src()
+
+
+class TestPhaseTwoDiagnosability:
+    """The cap message must name the likely cause, which this change altered.
+
+    Before the closed loop, Phase 1 over-fed and Phase 2 only nudged the filament
+    the last 14-18mm, so `max_entry_to_nozzle_length` was never reached (0
+    occurrences across the logs). Phase 2 now does the real entry-to-nozzle move,
+    so the cap can legitimately bind on a healthy path - and the old message
+    ("Check for jam, alignment, or obstruction") would send the reader hunting for
+    a blockage that is not there.
+    """
+
+    @classmethod
+    def _cap_message(cls):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        marker = "Filament failed to reach nozzle sensor after"
+        start = src.index(marker)
+        return src[start:start + 700]
+
+    def test_message_names_the_config_remedy(self):
+        msg = self._cap_message()
+        assert "max_entry_to_nozzle_length" in msg, (
+            f"the cap message must name the setting to raise: {msg}"
+        )
+
+    def test_message_does_not_claim_a_jam_is_the_only_cause(self):
+        msg = self._cap_message()
+        assert "Either" in msg or "or " in msg, (
+            f"the message should present both causes, not assert a jam: {msg}"
+        )
+
+    def test_cap_still_stops_the_feed_before_raising(self):
+        """Whatever the cause, an over-long assist must not keep pushing."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        start = src.index("if accumulated_extruded >= self.max_entry_to_nozzle_length:")
+        # Bounded at the next loop rather than a fixed character count: the
+        # explanatory comment above the raise already outgrew a 400-char window.
+        end = src.index("self._extruder_move(step_chunk", start)
+        window = src[start:end]
+        assert "_stop_feed" in window, window
+        assert "raise ValueError" in window, window
+        assert window.index("_stop_feed") < window.index("raise ValueError"), (
+            "the feed must be stopped before raising, or it keeps pushing "
+            "at whatever is blocking it"
+        )

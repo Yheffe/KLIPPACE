@@ -739,6 +739,20 @@ class AceInstance:
         for attempt in range(1, MAX_RETRIES + 1):
             self.wait_ready()
 
+            # If the sensor is already satisfied, do not issue a feed at all.
+            #
+            # The toolchange path calls in with check_pre_condition=False, so
+            # unlike the guarded callers there is nothing upstream to reject an
+            # already-loaded toolhead. Commanding a feed here would push filament
+            # that has nowhere to go - which is the same over-feed this whole
+            # change exists to prevent, just at a different point.
+            if sensor_fn():
+                return {
+                    "triggered": True,
+                    "reason": "already-triggered",
+                    "elapsed": 0.0,
+                }
+
             feed_response = {"response": None}
 
             def _capture(response, _sink=feed_response):
@@ -1165,10 +1179,20 @@ class AceInstance:
                 if accumulated_extruded >= self.max_entry_to_nozzle_length:
                     self._stop_feed(local_slot)
                     self.wait_ready()
+                    # Two quite different causes, so name both rather than
+                    # implying a jam is the only possibility.
+                    #
+                    # Phase 1 now stops at the entry sensor instead of over-feeding
+                    # past it, so since that change this cap is doing real work for
+                    # the first time: it is the limit on how far the extruder will
+                    # assist the move from the entry sensor to the nozzle. If the
+                    # real entry-to-nozzle distance exceeds it, this fires on a
+                    # perfectly healthy filament path.
                     raise ValueError(
                         f"ACE[{self.instance_num}]: Filament failed to reach nozzle sensor after "
                         f"{accumulated_extruded:.1f}mm (safety limit: {self.max_entry_to_nozzle_length}mm). "
-                        f"Check for jam, alignment, or obstruction."
+                        f"Either the path is obstructed, or max_entry_to_nozzle_length is smaller "
+                        f"than the real entry-sensor-to-nozzle distance - raise it in [ace] and retry."
                     )
                 self._extruder_move(step_chunk, step_speed, wait_for_move_end=True)
                 accumulated_extruded += step_chunk

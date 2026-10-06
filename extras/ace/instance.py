@@ -657,6 +657,113 @@ class AceInstance:
         request = self.protocol.build_stop_feed_filament_request(slot)
         self.send_high_prio_request(request, callback)
 
+    def _poll_feed_until_sensor(self, local_slot, sensor_fn, timeout_s,
+                                start_time, feed_response):
+        """Watch a running feed; return an outcome dict, or None to retry.
+
+        Returns a dict when the feed is finished with, ``None`` when the ACE
+        answered FORBIDDEN and the caller should start another attempt, and
+        raises ValueError for any other refusal.
+
+        Deliberately does NOT treat an unrecognised response code as fatal. Two
+        reasons:
+
+        * Nothing in this codebase had ever interrupted a feed before, so what
+          the firmware reports for an intentionally halted feed is unknown.
+          Treating an unfamiliar code as a hard failure would report a perfectly
+          good feed as broken.
+        * Only FORBIDDEN has a defined meaning here (the ACE is busy), and that
+          is handled explicitly.
+
+        So our own sensor reading decides success, and the timeout decides
+        failure. An unexpected code is surfaced once for diagnosis and then left
+        to the timeout path, which already reports the reason.
+        """
+        unexpected = [None]
+
+        while True:
+            if sensor_fn():
+                self._stop_feed(local_slot)
+                self.wait_ready()
+                return {
+                    "triggered": True,
+                    "reason": "sensor",
+                    "elapsed": time.time() - start_time,
+                }
+
+            response = feed_response["response"]
+            if response is not None and response.get("code", 0) != 0:
+                msg = str(response.get("msg", "unknown"))
+                if msg.upper() == "FORBIDDEN":
+                    return None          # caller retries
+                if unexpected[0] is None:
+                    unexpected[0] = msg
+                    self.gcode.respond_info(
+                        f"ACE[{self.instance_num}]: Feed reported '{msg}' - cannot be "
+                        f"told apart from a stopped feed, so continuing to watch the "
+                        f"sensor until the timeout"
+                    )
+
+            if time.time() - start_time > timeout_s:
+                self._stop_feed(local_slot)
+                self.wait_ready()
+                return {
+                    "triggered": False,
+                    "reason": "timeout",
+                    "elapsed": time.time() - start_time,
+                    "response": unexpected[0],
+                }
+
+            self.dwell(0.1)
+
+    def _feed_until_sensor(self, local_slot, feed_length, feed_speed, sensor_fn,
+                           timeout_s):
+        """Feed, stopping as soon as ``sensor_fn()`` reports filament.
+
+        The closed-loop counterpart to feed_filament_with_wait_for_response(),
+        which blocks until the ACE has run the *entire* commanded length before
+        anything looks at a sensor. That is why a 1200mm feed can finish before
+        the toolhead sensor is consulted, and why a failure used to leave the
+        filament at an unknown point in a 1050mm bowden.
+
+        Stopping on the sensor means the filament ends up at a *known* place, so
+        a retry needs no park first.
+
+        Returns:
+            dict: {"triggered": bool, "reason": str, "elapsed": float}
+
+        Raises:
+            ValueError: If the ACE refuses the feed, or answers FORBIDDEN on
+                every attempt.
+        """
+        for attempt in range(1, MAX_RETRIES + 1):
+            self.wait_ready()
+
+            feed_response = {"response": None}
+
+            def _capture(response, _sink=feed_response):
+                _sink["response"] = response
+
+            # _feed() only queues the request; it does not wait for completion.
+            self._feed(local_slot, feed_length, feed_speed, callback=_capture)
+
+            outcome = self._poll_feed_until_sensor(
+                local_slot, sensor_fn, timeout_s, time.time(), feed_response
+            )
+            if outcome is not None:
+                return outcome
+
+            if attempt < MAX_RETRIES:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Feed FORBIDDEN, waiting 1s before retry "
+                    f"(attempt {attempt}/{MAX_RETRIES})..."
+                )
+                self.dwell(1.0)
+
+        raise ValueError(
+            f"ACE[{self.instance_num}]: Feed forbidden after {MAX_RETRIES} attempts"
+        )
+
     def _make_sensor_trigger_monitor(self, sensor_type):
         """
         Create a sensor trigger time monitor callback.
@@ -965,27 +1072,42 @@ class AceInstance:
             ValueError: If feed command fails or sensor times out
         """
         self._disable_feed_assist(local_slot)
-        self.execute_feed_with_retries(local_slot, feed_length, feed_speed)
 
         expected_time = feed_length / feed_speed
         timeout_s = expected_time * self.timeout_multiplier
 
-        # Poll entry sensor during ACE feed
-        start_time = time.time()
+        # Feed to the toolhead sensor in a closed loop: when
+        # feed_filament_with_wait_for_response() was used here it blocked until
+        # the ACE had run the whole commanded length, so the sensor was only
+        # consulted afterwards. A 1200mm command returns in about 20s, which is
+        # how the log could show result_code=0 followed by "Feed timeout" - the
+        # feed had already finished before anyone looked, and a failure left the
+        # filament somewhere unknown in the bowden.
+        #
+        # _feed_until_sensor() stops the moment the sensor trips, so the filament
+        # ends up at a known point and no over-feed is possible.
+        self.gcode.respond_info(
+            f"ACE[{self.instance_num}]: Feeding {feed_length}mm at {feed_speed}mm/s, "
+            f"stopping on the toolhead entry sensor (timeout {timeout_s:.0f}s)..."
+        )
+        outcome = self._feed_until_sensor(
+            local_slot, feed_length, feed_speed,
+            self.manager.get_entry_switch_state, timeout_s,
+        )
 
-        while not self.manager.get_entry_switch_state():
-            now = time.time()
-            if now - start_time > timeout_s:
-                self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Feed timeout for {feed_length}mm after {timeout_s} seconds"
-                )
-                break
-            self.dwell(0.1)
+        if outcome["triggered"]:
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Toolhead entry sensor triggered after "
+                f"{outcome['elapsed']:.1f}s of feeding - feed stopped"
+            )
 
         # Final sanity check for entry sensor
         if not self.manager.get_entry_switch_state():
+            reported = outcome.get("response")
+            detail = f", feed reported '{reported}'" if reported else ""
             self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Toolhead entry sensor not triggered after feed. "
+                f"ACE[{self.instance_num}]: Toolhead entry sensor not triggered after feed "
+                f"({outcome['elapsed']:.1f}s, reason={outcome['reason']}{detail}). "
                 f"Enabling ACE feed-assist and waiting up to 60s for the sensor..."
             )
             self._enable_feed_assist(local_slot)

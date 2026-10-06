@@ -159,7 +159,65 @@ codebase ever interrupted one before — so it is logged once and the sensor rea
 decides. If a genuinely stuck feed is ever reported as `Feed reported ...` followed
 by the 60s feed-assist fallback, that is the intended behaviour, not a fault.
 
-### If the sensor never triggers
+### The Phase 2 interaction — read this before testing
+
+Phase 1 and Phase 2 share one function and now behave differently from before, so
+this is the part most likely to surprise.
+
+**What the old flow actually did.** Phase 1 commanded **1200mm** for a route whose
+sensor sits at **1050mm** (`parkposition_to_toolhead_length`), so it over-fed by
+about 150mm *before* looking at anything. Evidence from the logs:
+
+| event | count |
+|---|---|
+| Phase 2 reached (`Entry sensor reached. Building forward pressure`) | 9 |
+| `Change feed speed not confirmed, restarting feed` | 0 |
+| `failed to reach nozzle sensor after Nmm` (Phase 2's cap) | 0 |
+| nozzle sensor reached at | 14mm ×6, 16mm, 18mm, **0.0mm** |
+
+The `0.0mm` is the giveaway: on that run the nozzle sensor was **already**
+triggered when Phase 2 began. Phase 2 was not doing the real work — the over-feed
+had already pushed filament most of the way, and Phase 2 only nudged it the last
+14–18mm.
+
+**Consequence for this change.** Phase 1 now stops at the entry sensor, so the
+filament starts Phase 2 *earlier* than before, and Phase 2 has more to do. Its work
+is bounded by `max_entry_to_nozzle_length` (**80** on this machine), a limit that
+was never exercised because over-feed had already covered the distance.
+
+### If Phase 2 now fails, this is what it looks like
+
+```
+ACE[0]: Filament failed to reach nozzle sensor after 80.0mm (safety limit: 80mm).
+        Check for jam, alignment, or obstruction.
+```
+
+If that appears, it is **not** a jam — it is the old cap being too small now that
+Phase 2 does the real move. The remedy is configuration, not code:
+
+```ini
+[ace]
+max_entry_to_nozzle_length: 150
+```
+
+Measure first: the value to set is the actual distance from the toolhead entry
+sensor to the nozzle sensor. A sensible starting point is `4 ×` the largest figure
+Phase 2 ever reported before (18mm × 4 ≈ 72mm, so try 150 and reduce once the real
+distance is known from a successful run's reported value).
+
+### Why the change is still very likely right
+
+Feeding 1200mm along a 1050mm route means the ACE pushed roughly 150mm against a
+filament path that had nowhere left to go. That is a plausible cause of the
+recurring feed failures — three of those feeds ended in
+`Feed timeout for 1200.0mm` / `Toolhead entry sensor not triggered`, which is what
+a filament buckling in the hub looks like. Stopping at the sensor removes the
+over-feed entirely, so a *reduction* in failures is the expected outcome.
+
+If loads become *less* reliable rather than more, that reasoning is wrong and the
+change should be reverted.
+
+## If the sensor never triggers
 
 The flow falls through to the existing 60-second feed-assist window, then raises.
 That path is unchanged and is what produced the observed pumpkin-print behaviour.

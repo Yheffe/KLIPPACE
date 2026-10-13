@@ -359,7 +359,8 @@ def clean_slot_presets(filament_dirs, slot_idx, keep_paths, previous_paths):
 
     Two sources are swept:
       * files recorded for this slot in the manifest (handles custom names)
-      * legacy ``ACE T<slot> - *`` presets from syncs predating the manifest
+      * the slot's own name, both the current stable ``ACE T<n>`` and any legacy
+        ``ACE T<n> - <material>`` left by an earlier version
 
     Anything in *keep_paths* is spared.
     """
@@ -369,14 +370,18 @@ def clean_slot_presets(filament_dirs, slot_idx, keep_paths, previous_paths):
     for recorded in previous_paths or []:
         candidates.append(Path(recorded))
 
-    slot_prefix = f"ACE T{slot_idx} - "
+    # ``ACE T0.*`` matches the current name and cannot match ``ACE T00``; the
+    # legacy pattern is kept so a profile synced by an older plugin is cleaned
+    # on the first run of this one.
+    patterns = (f"ACE T{slot_idx}.*", f"ACE T{slot_idx} - *")
     for fdir in filament_dirs:
         directory = Path(fdir)
         if not directory.exists():
             continue
-        for item in directory.glob(f"{slot_prefix}*"):
-            if item.suffix in (".json", ".info"):
-                candidates.append(item)
+        for pattern in patterns:
+            for item in directory.glob(pattern):
+                if item.suffix in (".json", ".info"):
+                    candidates.append(item)
 
     cleaned = []
     for item in candidates:
@@ -1102,23 +1107,33 @@ def sync_filaments_to_orcaslicer(host=None):
         vendor = s.get("vendor") or "Anycubic"
         sku = s.get("sku", "")
 
-        # A user-supplied preset name wins, so a named spool lands in Orca under
-        # the name the user chose on the printer.
+        # The preset name depends ONLY on the slot. Nothing the user can edit,
+        # and nothing the ACE can report, appears in it.
         #
-        # Otherwise the name is deliberately ``ACE T<slot> - <material>`` with
-        # NO colour in it. Colour used to be part of the filename, which made
-        # the name change every time the colour or its resolved colour *name*
-        # drifted. A changed name means a new file, and clean_slot_presets then
-        # deletes the old one -- so Orca's own config was left pointing at
-        # presets that had just been removed (observed: config referenced
-        # "ACE T1 - PLA Red" while the file on disk had become
-        # "ACE T1 - PLA Brown"). Keeping the name stable removes that entire
-        # failure mode. The colour is still carried by the payload's
-        # ``default_filament_colour``, which is what Orca draws the swatch from,
-        # so it remains visible in the UI.
+        # This is deliberate and hard-won. OrcaSlicer names a preset file after
+        # the preset's own ``name`` -- across every profile on this machine there
+        # were zero files whose filename disagreed with their internal name -- so
+        # ANY change to the name is a rename: a new file is created and the old
+        # one deleted. And a deleted file does not stay deleted, because Orca
+        # rewrites presets it already holds in memory. Observed on 2026-10-13:
+        #
+        #   16:48:52  sync writes "Protopasta Mango Melody" (custom name) and
+        #             clean_slot_presets deletes the old "ACE T0 - PLA"
+        #   16:49:13  Orca re-creates "ACE T0 - PLA", in its own format, with
+        #             the OLD colour (#FFFFFF) taken from its in-memory copy
+        #
+        # The result was two presets for slot 0 - one orange (correct) and one
+        # white (stale) - and the user reasonably concluded the colour had not
+        # synced. Material was a latent trap of the same kind: editing a slot's
+        # material would have renamed the file and resurrected the old one.
+        #
+        # So the name is now just ``ACE T<slot>``. Colour, material, temperature
+        # and the spool's custom name all live in the payload, and the colour
+        # swatch is what distinguishes the four slots in Orca's list. A stable
+        # name means no rename, no delete, and therefore nothing for Orca to
+        # resurrect.
+        preset_name = f"ACE T{slot_idx}"
         custom_name = sanitize_preset_name(s.get("custom_name"))
-        generated_name = sanitize_preset_name(f"ACE T{slot_idx} - {mat}")
-        preset_name = custom_name or generated_name
         inherits_name = resolve_inherits_name(mat)
 
         # Empty compatible_printers means universal compatibility in OrcaSlicer
@@ -1189,7 +1204,9 @@ def sync_filaments_to_orcaslicer(host=None):
     msg_lines = [f"Synced {len(synced_items)} slots from ACE Pro on {printer_label}:"]
     for it in synced_items:
         sku_str = f" [{it['sku']}]" if it["sku"] else ""
-        named_str = " (custom preset name)" if it.get("custom_name") else ""
+        # The preset name is now always the stable ``ACE T<slot>``, so the spool's
+        # custom name is reported as a label rather than as the preset name.
+        named_str = f" (spool: {it['custom_name']})" if it.get("custom_name") else ""
         msg_lines.append(
             f"• T{it['slot']}: {it['name']} — {it['material']} ({it['color']}) "
             f"@ {it['temp']}°C{sku_str}{named_str}"
@@ -1244,12 +1261,10 @@ def build_page_payload(slots, net_info=None, live=False, error="", notice=""):
         ready = status == "ready"
         material = str(s.get("material") or "") if ready else ""
         custom = str(s.get("custom_name") or "").strip()
-        if custom:
-            preset = custom
-        elif ready:
-            preset = sanitize_preset_name(f"ACE T{idx} - {material or 'PLA'}")
-        else:
-            preset = ""
+        # Must mirror what the sync writes, or the tab would name a preset that
+        # does not exist. The spool's custom name is carried separately in
+        # ``custom_name`` for display.
+        preset = f"ACE T{idx}" if ready else ""
         view.append({
             "index": idx,
             "status": status,

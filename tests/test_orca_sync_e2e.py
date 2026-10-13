@@ -80,17 +80,27 @@ def _written_presets(filament_dirs):
 
 
 class TestGeneratedPresetName:
-    """Naming must be stable and must not encode the colour."""
+    """The preset name must depend on nothing but the slot.
 
-    def test_name_is_slot_and_material_only(self, orca_sync, stub_printer,
-                                            orca_app_dir, user_filament_dirs, monkeypatch):
+    OrcaSlicer names a preset file after the preset's own ``name``, so any change
+    to the name is a rename: a new file appears and the old one is deleted. Orca
+    then rewrites presets it holds in memory, so the deleted file comes back with
+    its old contents - observed on 2026-10-13 as two presets for slot 0, one
+    orange (correct) and one white (stale).
+
+    Keeping the name a pure function of the slot means no rename, no delete, and
+    therefore nothing for Orca to resurrect.
+    """
+
+    def test_name_is_the_slot_only(self, orca_sync, stub_printer,
+                                  orca_app_dir, user_filament_dirs, monkeypatch):
         monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
                             lambda: [str(d) for d in user_filament_dirs])
         result = orca_sync.sync_filaments_to_orcaslicer()
 
         assert result["success"] is True
-        assert _written_presets(user_filament_dirs) == {"ACE T0 - PLA.json"}
-        assert result["synced"][0]["name"] == "ACE T0 - PLA"
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
+        assert result["synced"][0]["name"] == "ACE T0"
 
     def test_colour_is_absent_from_the_filename(self, orca_sync, stub_printer,
                                                 orca_app_dir, user_filament_dirs, monkeypatch):
@@ -103,35 +113,134 @@ class TestGeneratedPresetName:
             for colour_word in ("Orange", "White", "Pink", "Brown", "Black"):
                 assert colour_word not in name
 
+    def test_material_is_absent_from_the_filename(self, orca_sync, stub_printer,
+                                                  orca_app_dir, user_filament_dirs, monkeypatch):
+        """Material is user-editable, so it must not be able to rename a preset."""
+        stub_printer["slots"] = [_slot(0, material="PETG")]
+        monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
+                            lambda: [str(d) for d in user_filament_dirs])
+        orca_sync.sync_filaments_to_orcaslicer()
+
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
+
     def test_colour_still_reaches_the_preset_payload(self, orca_sync, stub_printer,
                                                      orca_app_dir, user_filament_dirs, monkeypatch):
         """Dropping colour from the name must not lose it from the preset.
 
         Orca draws the filament swatch from ``default_filament_colour``, so this
         is what keeps the colour visible in the UI without naming the file after
-        it.
+        it - and the swatch is now the only thing distinguishing the slots.
         """
         monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
                             lambda: [str(d) for d in user_filament_dirs])
         orca_sync.sync_filaments_to_orcaslicer()
 
         payload = json.loads(
-            (user_filament_dirs[0] / "ACE T0 - PLA.json").read_text(encoding="utf-8")
+            (user_filament_dirs[0] / "ACE T0.json").read_text(encoding="utf-8")
         )
         assert payload["default_filament_colour"] == ["#FF7F32"]
-        assert payload["name"] == "ACE T0 - PLA"
+        assert payload["name"] == "ACE T0"
 
-    def test_custom_name_still_wins(self, orca_sync, stub_printer,
-                                    orca_app_dir, user_filament_dirs, monkeypatch):
+    def test_custom_name_does_not_change_the_preset_name(self, orca_sync, stub_printer,
+                                                         orca_app_dir, user_filament_dirs,
+                                                         monkeypatch):
+        """A custom name is a label, not the preset identity.
+
+        It used to become the filename, which made every custom name a rename -
+        and the rename is what resurrected the stale preset.
+        """
         stub_printer["slots"] = [_slot(0, custom_name="Prusament Galaxy Black")]
         monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
                             lambda: [str(d) for d in user_filament_dirs])
         result = orca_sync.sync_filaments_to_orcaslicer()
 
-        assert result["synced"][0]["name"] == "Prusament Galaxy Black"
-        # The custom name is the file; no generated ACE T* preset is left.
-        assert (user_filament_dirs[0] / "Prusament Galaxy Black.json").exists()
-        assert _written_presets(user_filament_dirs) == set()
+        assert result["synced"][0]["name"] == "ACE T0"
+        assert not (user_filament_dirs[0] / "Prusament Galaxy Black.json").exists()
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
+        # The label is still carried, for the tab and the summary.
+        assert result["synced"][0]["custom_name"] == "Prusament Galaxy Black"
+
+
+class TestNameIsImmutable:
+    """The filename must not depend on anything the user can edit.
+
+    This is the whole guarantee behind the design. Orca names a preset file after
+    its internal ``name``, so any name change is a rename - and Orca rewrites
+    presets it holds in memory, so the deleted file comes back with its old
+    contents. No rename means no delete, and no delete means nothing to resurrect.
+
+    Colour, material and the spool's custom name were all previously part of the
+    name. Each is editable, so each was a way to trigger the bug.
+    """
+
+    # Every field the printer or the user can change, with a value deliberately
+    # different from the default so the name would once have moved.
+    EDITABLE = [
+        ("colour -> white", {"color": "#FFFFFF"}),
+        ("colour -> black", {"color": "#000000"}),
+        ("material -> PETG", {"material": "PETG"}),
+        ("custom name added", {"custom_name": "Prusament Galaxy Black"}),
+        ("custom name cleared", {"custom_name": ""}),
+        ("temperature", {"temp": 275}),
+        ("vendor", {"vendor": "Somebody Else"}),
+        ("sku", {"sku": "XYZ-1"}),
+    ]
+
+    @pytest.mark.parametrize("label,changes", EDITABLE, ids=[e[0] for e in EDITABLE])
+    def test_field_cannot_change_the_filename(
+        self, label, changes, orca_sync, stub_printer, orca_app_dir,
+        user_filament_dirs, monkeypatch
+    ):
+        monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
+                            lambda: [str(d) for d in user_filament_dirs])
+
+        slot = _slot(0)
+        slot.update(changes)
+        stub_printer["slots"] = [slot]
+        orca_sync.sync_filaments_to_orcaslicer()
+
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}, (
+            f"changing {label} renamed the preset; a rename is what lets Orca "
+            f"resurrect the deleted file"
+        )
+
+    def test_a_full_sweep_never_leaves_a_second_file(
+        self, orca_sync, stub_printer, orca_app_dir, user_filament_dirs, monkeypatch
+    ):
+        """Walk through every variant in sequence and check nothing accumulates.
+
+        This is the scenario that produced the visible bug: a stale white preset
+        sitting alongside the correct orange one for the same slot.
+        """
+        monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
+                            lambda: [str(d) for d in user_filament_dirs])
+
+        for label, changes in self.EDITABLE:
+            slot = _slot(0)
+            slot.update(changes)
+            stub_printer["slots"] = [slot]
+            orca_sync.sync_filaments_to_orcaslicer()
+            assert _written_presets(user_filament_dirs) == {"ACE T0.json"}, (
+                f"after {label}: {sorted(_written_presets(user_filament_dirs))}"
+            )
+
+    def test_legacy_material_name_is_cleaned_on_first_run(
+        self, orca_sync, stub_printer, orca_app_dir, user_filament_dirs, monkeypatch
+    ):
+        """A profile synced by the previous version must migrate cleanly.
+
+        Older plugins wrote ``ACE T0 - PLA.json``, so the first run of this one
+        has to sweep that name too or the profile ends up with both.
+        """
+        stale = user_filament_dirs[0] / "ACE T0 - PLA.json"
+        stale.write_text("{}", encoding="utf-8")
+
+        monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
+                            lambda: [str(d) for d in user_filament_dirs])
+        orca_sync.sync_filaments_to_orcaslicer()
+
+        assert not stale.exists(), "the legacy name must be swept, not left beside the new one"
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
 
 
 class TestResyncStability:
@@ -156,13 +265,14 @@ class TestResyncStability:
         orca_sync.sync_filaments_to_orcaslicer()
         second = _written_presets(user_filament_dirs)
 
-        assert first == second == {"ACE T0 - PLA.json"}
+        assert first == second == {"ACE T0.json"}
 
-    def test_colour_change_updates_content_in_place(self, orca_sync, stub_printer,
-                                                    orca_app_dir, user_filament_dirs, monkeypatch):
+    def test_colour_change_updates_content_in_place(
+        self, orca_sync, stub_printer, orca_app_dir, user_filament_dirs, monkeypatch
+    ):
         monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
                             lambda: [str(d) for d in user_filament_dirs])
-        path = user_filament_dirs[0] / "ACE T0 - PLA.json"
+        path = user_filament_dirs[0] / "ACE T0.json"
 
         stub_printer["slots"] = [_slot(0, color="#FF7F32")]
         orca_sync.sync_filaments_to_orcaslicer()
@@ -172,14 +282,13 @@ class TestResyncStability:
         orca_sync.sync_filaments_to_orcaslicer()
         assert json.loads(path.read_text(encoding="utf-8"))["default_filament_colour"] == ["#FFFFFF"]
 
-    def test_material_change_renames_and_cleans_up(
+    def test_material_change_does_not_rename_the_preset(
         self, orca_sync, stub_printer, orca_app_dir, user_filament_dirs, monkeypatch
     ):
-        """A material swap legitimately changes the name; the old one is removed.
+        """Material is user-editable too, so it must not rename a preset either.
 
-        The material is part of the name because it is what the user reads in
-        Orca's list. This case is rare, unlike colour drift, so the churn is
-        acceptable -- but the stale file must not be left behind.
+        It used to be part of the name, which made a material swap a rename - and
+        a rename is what lets Orca resurrect the deleted file.
         """
         monkeypatch.setattr(orca_sync, "find_orcaslicer_user_filament_dirs",
                             lambda: [str(d) for d in user_filament_dirs])
@@ -190,7 +299,7 @@ class TestResyncStability:
         stub_printer["slots"] = [_slot(0, material="PETG")]
         orca_sync.sync_filaments_to_orcaslicer()
 
-        assert _written_presets(user_filament_dirs) == {"ACE T0 - PETG.json"}
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
 
     def test_sync_is_idempotent(self, orca_sync, stub_printer, orca_app_dir,
                                 user_filament_dirs, monkeypatch):
@@ -267,7 +376,7 @@ class TestRefreshOrcaslicerPresets:
         result = orca_sync.sync_filaments_to_orcaslicer()
 
         assert result["success"] is True
-        assert _written_presets(user_filament_dirs) == {"ACE T0 - PLA.json"}
+        assert _written_presets(user_filament_dirs) == {"ACE T0.json"}
 
     def test_api_surface_is_logged_once(self, orca_sync, monkeypatch, caplog):
         """The API dump is diagnostic, so it must not repeat every sync."""

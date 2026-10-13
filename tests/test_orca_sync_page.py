@@ -49,19 +49,24 @@ class Collector:
 
 class TestBuildPagePayload:
     def test_preset_label_matches_what_the_sync_writes(self, orca_sync):
-        """The label and the filename must not diverge.
+        """The tab must name the preset the sync actually creates.
 
-        The label used to include the colour, so a synced file named
-        'ACE T0 - PLA' was described in the tab as 'ACE T0 - PLA White'.
+        If they diverge the tab is naming a file that does not exist. The name is
+        now a pure function of the slot, so material and colour must not appear.
         """
         payload = orca_sync.build_page_payload(
             [_slot(0, material="PETG", color="#0AC83C")], PRINTER)
-        assert payload["slots"][0]["preset"] == "ACE T0 - PETG"
+        assert payload["slots"][0]["preset"] == "ACE T0"
 
-    def test_custom_name_wins(self, orca_sync):
+    def test_custom_name_is_a_label_not_the_preset_name(self, orca_sync):
+        """A custom name is shown, but does not become the preset's identity.
+
+        It used to name the file, which made every custom name a rename - and a
+        rename is what let Orca resurrect the deleted preset.
+        """
         payload = orca_sync.build_page_payload(
             [_slot(3, custom_name="Galaxy Black")], PRINTER)
-        assert payload["slots"][0]["preset"] == "Galaxy Black"
+        assert payload["slots"][0]["preset"] == "ACE T3"
         assert payload["slots"][0]["custom_name"] == "Galaxy Black"
 
     def test_empty_slot_has_no_preset_and_is_not_ready(self, orca_sync):

@@ -1214,13 +1214,19 @@ def sync_filaments_to_orcaslicer(host=None):
     }
 
 
-def build_page_payload(slots, net_info=None, live=False, error=""):
+def build_page_payload(slots, net_info=None, live=False, error="", notice=""):
     """The JSON view of the printer used by BOTH the page's first paint and its
     live updates.
 
     One builder for both directions means the tab cannot show a different preset
     name from the one the sync actually writes -- it is computed here with
     :func:`sanitize_preset_name` exactly as the sync computes it.
+
+    ``error`` means the read failed.  ``notice`` is separate and is for things the
+    user needs to know about a SUCCESSFUL sync - currently that OrcaSlicer cannot
+    re-read its preset files, so the new presets only appear after a restart.
+    Folding that into ``error`` was why a working sync looked like it had done
+    nothing.
 
     Malformed slot entries are tolerated rather than raising: a single bad
     record should degrade one card, not blank the whole tab.
@@ -1261,6 +1267,7 @@ def build_page_payload(slots, net_info=None, live=False, error=""):
     return {
         "live": bool(live),
         "error": str(error or ""),
+        "notice": str(notice or ""),
         "printer": str(net_info.get("printer_name") or ""),
         "base_url": str(net_info.get("base_url") or ""),
         "slots": view,
@@ -1325,10 +1332,19 @@ def handle_page_action(action, post, fetch_slots=None, run_sync=None):
     run_sync = run_sync or sync_filaments_to_orcaslicer
     try:
         res = run_sync()
+        # Carry the refresh note through to the page.
+        #
+        # This used to be dropped: the sync result's message went only into
+        # `error`, and only when the sync FAILED. A successful sync therefore
+        # told the page nothing, so the one piece of information the user
+        # actually needed -- that OrcaSlicer cannot re-read preset files and
+        # needs a restart before the new presets show up -- never appeared. The
+        # visible symptom was a sync that looked like it had done nothing.
         safe_post(build_page_payload(
             res.get("slots") or [], res.get("network") or {},
             live=True,
             error="" if res.get("success") else str(res.get("message") or ""),
+            notice=str(res.get("refresh") or ""),
         ))
         return "sync"
     except Exception as e:
@@ -1421,6 +1437,25 @@ body {{
 .status-live {{ color: #34d399; }}
 .status-stale {{ color: #fbbf24; }}
 .status-error {{ color: #f87171; }}
+/* A SUCCESSFUL sync can still need the user to act.
+
+   Kept separate from .status-note, which describes where the spool DATA came
+   from: mixing the two meant a working sync reported nothing, and the restart
+   requirement was lost. Only ever made visible, never hidden -- the page is
+   rebuilt when OrcaSlicer starts, which is exactly when the notice stops being
+   true, so that is the natural lifetime. */
+.status-notice {{
+    display: none;
+    background: #422006;
+    border: 1px solid #a16207;
+    border-radius: 8px;
+    color: #fde68a;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+}}
+.status-notice.visible {{ display: block; }}
 .empty-note {{
     grid-column: 1 / -1;
     color: #a1a1aa;
@@ -1493,6 +1528,7 @@ body {{
     </div>
 
     <div class="status-note" id="status-note"></div>
+    <div class="status-notice" id="status-notice"></div>
 
     <div class="slots-grid" id="slots-grid"></div>
 
@@ -1557,6 +1593,14 @@ function render(payload) {{
     }} else {{
         note.className = 'status-note status-stale';
         note.textContent = 'Showing the last saved snapshot';
+    }}
+    // Sticky on purpose. A status refresh must not wipe this, because the
+    // condition it reports is still true until OrcaSlicer restarts -- and
+    // restarting rebuilds this page, which is what clears it.
+    if (payload.notice) {{
+        const notice = document.getElementById('status-notice');
+        notice.textContent = payload.notice;
+        notice.classList.add('visible');
     }}
 }}
 

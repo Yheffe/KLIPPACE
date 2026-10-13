@@ -84,6 +84,21 @@ class TestBuildPagePayload:
         assert payload["error"] == "offline"
         assert payload["live"] is False
 
+    def test_notice_is_carried_through(self, orca_sync):
+        payload = orca_sync.build_page_payload([], {}, live=True, notice="restart Orca")
+        assert payload["notice"] == "restart Orca"
+        assert payload["error"] == ""
+
+    def test_notice_and_error_are_independent(self, orca_sync):
+        """A notice is about a SUCCESSFUL sync, so it must not read as a failure.
+
+        They were the same field, which is why a working sync reported nothing.
+        """
+        payload = orca_sync.build_page_payload(
+            [], {}, live=False, error="printer offline", notice="restart Orca")
+        assert payload["error"] == "printer offline"
+        assert payload["notice"] == "restart Orca"
+
     @pytest.mark.parametrize("bad", [
         "not-a-dict",
         None,
@@ -144,6 +159,40 @@ class TestHandlePageAction:
         assert orca_sync.handle_page_action("sync", post, run_sync=run_sync) == "sync"
         assert "no filament dirs" in post.payloads[0]["error"]
 
+    def test_successful_sync_still_tells_the_page_a_restart_is_needed(self, orca_sync):
+        """The regression: a successful sync used to say nothing about the restart.
+
+        The sync result's ``refresh`` note is the only thing that tells the user
+        OrcaSlicer cannot re-read preset files. It was folded into ``error``,
+        which is only populated on FAILURE, so on the normal successful path it
+        was dropped and the sync looked like it had done nothing while the
+        presets sat on disk.
+        """
+        post = Collector()
+        note = ("Presets written. OrcaSlicer's plugin API has no reload call, "
+                "so restart OrcaSlicer to list them.")
+        run_sync = lambda: {
+            "success": True, "message": "ok", "refresh": note,
+            "slots": [_slot(1)], "network": PRINTER,
+        }
+
+        assert orca_sync.handle_page_action("sync", post, run_sync=run_sync) == "sync"
+
+        payload = post.payloads[0]
+        assert payload["notice"] == note, (
+            "a successful sync must surface the restart note, or the user has no "
+            "way to know why the presets are not in the filament list"
+        )
+        assert payload["error"] == "", "a successful sync is not an error"
+
+    def test_sync_without_a_refresh_note_sends_no_notice(self, orca_sync):
+        """Don't invent a notice when there is nothing to report."""
+        post = Collector()
+        run_sync = lambda: {"success": True, "message": "ok",
+                            "slots": [_slot()], "network": PRINTER}
+        orca_sync.handle_page_action("sync", post, run_sync=run_sync)
+        assert post.payloads[0]["notice"] == ""
+
     def test_sync_raising_does_not_escape(self, orca_sync):
         post = Collector()
 
@@ -178,3 +227,49 @@ class TestHandlePageAction:
         run_sync = lambda: {"success": True, "message": "ok",
                             "slots": [_slot()], "network": PRINTER}
         assert orca_sync.handle_page_action("sync", post, run_sync=run_sync) == "sync"
+
+
+class TestNoticeRendering:
+    """The page must be able to SHOW a notice, not just receive one.
+
+    A payload field nothing renders is the same as no field at all.
+    """
+
+    @staticmethod
+    def _html(orca_sync):
+        return orca_sync.render_html_page([_slot()], PRINTER)
+
+    def test_page_has_a_notice_element(self, orca_sync):
+        assert 'id="status-notice"' in self._html(orca_sync)
+
+    def test_notice_element_starts_hidden(self, orca_sync):
+        """Hidden until there is something to say, so a clean sync shows nothing."""
+        html = self._html(orca_sync)
+        assert ".status-notice" in html
+        assert "display: none" in html
+
+    def test_render_reads_the_notice_field(self, orca_sync):
+        assert "payload.notice" in self._html(orca_sync)
+
+    def test_notice_is_not_cleared_by_a_later_payload(self, orca_sync):
+        """Sticky on purpose.
+
+        The page refreshes its status whenever the tab becomes visible. If a
+        status payload (which carries no notice) cleared it, the restart hint
+        would vanish seconds after appearing. The page is rebuilt when OrcaSlicer
+        restarts, which is the correct lifetime.
+        """
+        html = self._html(orca_sync)
+        assert ".classList.add('visible')" in html
+        assert ".classList.remove('visible')" not in html, (
+            "the notice must never be hidden by a refresh; only a page rebuild "
+            "(an OrcaSlicer restart) should clear it"
+        )
+
+    def test_notice_is_not_conflated_with_the_error_line(self, orca_sync):
+        """The error line and the notice are separate elements."""
+        html = self._html(orca_sync)
+        assert 'id="status-note"' in html
+        assert 'id="status-notice"' in html
+        assert "'Printer not read: ' + payload.error" in html
+

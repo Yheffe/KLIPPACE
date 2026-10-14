@@ -208,7 +208,13 @@ nothing to keep in sync.
 2. In your printer's settings, set **Printer Agent → `Moonraker`** (and **Host Type →
    `Moonraker (Klipper)`** if you use the classic host flow). Both live in the
    printer-connection section.
-3. **Restart OrcaSlicer.**
+3. **Preferences → Developer → enable "Show unsupported presets".**
+
+   OrcaSlicer ships every manufacturer's filament presets, but hides those that are
+   bound to a different printer — so with a Voron selected, the entire Anycubic (or
+   Prusa, or Elegoo) vendor disappears from the filament list. This option reveals
+   them and makes them selectable.
+4. **Restart OrcaSlicer.**
 
 Then use OrcaSlicer's native **Synchronize Filament Information** action in the
 Print / Device flow. It updates the active project's filament list in place — **no
@@ -216,18 +222,22 @@ restart, and no preset files are written.**
 
 #### What native sync carries
 
-- Filament **type and colour** for every slot, plus a matching flush-volume matrix.
-- **Temperatures when a matching preset exists.** OrcaSlicer scores its preset library
-  against each slot and uses a manufacturer-specific profile if it finds one; otherwise
-  the slot falls back to the generic profile for its material (`Generic PLA @System`, …).
+Native sync carries **filament type and colour** for every slot, plus a matching
+flush-volume matrix. That is the whole of it.
 
-It does **not** carry per-slot preset names. That is OrcaSlicer's own wording:
+Each slot is matched to a preset **by material type**, so a PLA spool arrives as
+`Generic PLA @System` carrying the ACE's exact colour. The per-slot spool name,
+vendor and temperature are read from the printer but are *not* applied to the
+resulting preset.
 
 > Only synchronize filament type and color, not including slot information.
+> — OrcaSlicer's own description of the feature
 
-To get the best match, give each slot real metadata — material, colour, nozzle
-temperature and vendor — through the web card's slot editor or `ACE_SET_SLOT`. Those
-values flow through `lane_data` and are what OrcaSlicer matches against.
+If you would rather slice with the manufacturer's own profile, pick it per slot
+after syncing: click the filament in OrcaSlicer's filament list and choose
+`Anycubic PLA`, `Anycubic PETG`, and so on. Step 3 above is what makes those
+selectable. OrcaSlicer's copy of the profile brings its own temperatures, flow and
+volumetric limits, which is more accurate than anything a sync could inject.
 
 #### Troubleshooting
 

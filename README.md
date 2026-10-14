@@ -29,8 +29,8 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - [⚙️ Printer Profiles & Configuration](#️-printer-profiles--configuration)
   - [Voron 2.4 (CoreXY) Profile](#voron-24-corexy-profile)
   - [Anycubic / Generic Profile](#anycubic--generic-profile)
-- [🔌 Slicer Setup & OrcaSlicer Plugin](#-slicer-setup--orcaslicer-plugin)
-  - [OrcaSlicer ACE Pro Sync Plugin](#orcaslicer-ace-pro-sync-plugin)
+- [🔌 Slicer Setup & OrcaSlicer Integration](#-slicer-setup--orcaslicer-integration)
+  - [Native Filament Sync](#native-filament-sync)
   - [Machine G-Code Setup](#machine-g-code-setup)
   - [Optimized Flush Volume Post-Processing Script](#optimized-flush-volume-post-processing-script)
 - [🧪 Usage & Commands](#-usage--commands)
@@ -65,8 +65,8 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
 - **Manual Slot Data Editor** – Non-RFID spools cannot be identified by the ACE, so any gate on the web card can be clicked to record its material, colour and nozzle temperature. Slots holding filament but no data are flagged with an amber marker. **Clear Data** wipes the metadata while keeping the spool marked as loaded; *Mark Empty* tells Klipper the slot holds nothing. Values persist to disk immediately, so they survive a restart.
 - **Happy Hare Compatibility Shim** – Exposes the standard `mmu` and `mmu_machine` printer objects (`gate_status`, `gate_color`, `gate_material`, `gate_spool_id`, `filament_pos`, `action`, `ttg_map`, …) plus the `MMU_*` command set, so Fluidd and Mainsail render their native multi-material card without knowing ACE Pro exists. Fields are published under every spelling clients actually read — `gate_temp` (Fluidd) alongside `gate_temperature` (Mainsail), and `espooler`/`espooler_active` for the rewind-assist indicator.
-- **Moonraker & OrcaSlicer Lane Sync** – Real-time lane data synchronization for filament type, color, and spool parameters.
-- **Universal OrcaSlicer ACE Pro Plugin** – One-click filament, color, temperature, and RFID synchronization into universal presets (`compatible_printers: []`), featuring dynamic printer network resolution across macOS, Linux, and Windows.
+- **Moonraker & OrcaSlicer Lane Sync** – Publishes your ACE Pro inventory to Moonraker in both shapes OrcaSlicer understands: the Happy Hare `[mmu]` object (`gate_status`, `gate_color`, `gate_material`, `gate_temperature`) and the `lane_data` database namespace (colour, material, nozzle/bed temperature, vendor, SKU).
+- **Native OrcaSlicer Filament Sync** – OrcaSlicer's built-in Klipper/Moonraker printer agent pulls your spool colours and materials straight from the printer — no plugin to install, no restart, and no preset files written. See [Slicer Setup](#-slicer-setup--orcaslicer-integration).
 - **Fluidd / Mainsail Auto-Match Tool Mapper** – Streamlined 1-click slot selector and automated toolhead-to-gate assignment directly in the Web UI.
 - **Integrated Chamber Dryer Control** – Regulates and monitors heating in the ACE Pro drying chamber (`[temperature_ace]`).
 
@@ -183,71 +183,67 @@ For standard bed-slingers and custom printers with servo-actuated purge baskets:
 
 ---
 
-## 🔌 Slicer Setup & OrcaSlicer Plugin
+## 🔌 Slicer Setup & OrcaSlicer Integration
 
-KLIPPACE provides native integration with **OrcaSlicer** via a dedicated plugin, optimized print macros, and post-processing flush conversion.
+KLIPPACE integrates with **OrcaSlicer** using OrcaSlicer's own built-in **Klipper/Moonraker
+printer agent** — there is no plugin to install — plus optimised print macros and a
+post-processing flush conversion script.
 
-### OrcaSlicer ACE Pro Sync Plugin
+### Native Filament Sync
 
-The KLIPPACE ACE Pro Sync plugin enables one-click synchronization of your ACE Pro's physical spool colors, materials, nozzle/bed temperatures, and RFID tags directly into OrcaSlicer user filament profiles.
+KLIPPACE publishes your ACE Pro inventory to the printer, and OrcaSlicer pulls it in
+itself:
 
-#### Key Capabilities:
-- **Dynamic Printer Network Resolution**: Takes the target printer's `print_host` / `printhost_port` / `printhost_apikey` from the active OrcaSlicer preset bundle, falling back to the machine profiles under `user/*/machine/`. No hardcoded IP addresses.
-- **Universal Filament Presets**: Generates presets with `"compatible_printers": []`, ensuring synced ACE Pro spools are instantly visible and selectable across all printer models, bed sizes, and nozzle diameters.
-- **Per-Material Base Presets**: Each spool inherits the matching OrcaSlicer system preset — `Generic PETG-CF @System` for PETG-CF, `Generic ASA @System` for ASA, and so on — instead of everything inheriting PLA. Materials with no equivalent in Orca's library (POM, PPS, PEEK, PPA) fall back to the closest family preset, and unmapped names are logged once rather than failing silently.
-- **Temperatures From The Printer**: Each preset takes its nozzle temperature from the value recorded against that ACE slot, falling back to the printer's material table (`mmu.material_temps`) rather than assuming PLA.
-- **Cross-Platform Compatibility**: Works across macOS (`~/Library/Application Support/OrcaSlicer`), Windows (`%APPDATA%/OrcaSlicer`), and Linux (`~/.config/OrcaSlicer`).
-- **Interactive Embedded Web Page UI**: An embedded dark-mode "ACE Pro" tab directly inside OrcaSlicer showing the last synced slot swatches, materials, target temperatures, spool metadata and the preset name each slot will sync under, with a one-click **"Sync Filaments to Slicer"** action.
-- **Custom Preset Names**: A slot given a name on the printer (the slot editor's *Preset name* field, or `ACE_SET_SLOT ... FILAMENT_SETTINGS_ID="..."`) is synced into Orca under that name instead of the generated `ACE T<n> - <material> <colour>` label. Renaming a spool replaces the previous preset rather than leaving an orphan.
-- **Script Capability & Standalone CLI**: Trigger sync directly via OrcaSlicer's **File > Plugins / Run** or execute via terminal:
-  ```bash
-  python3 scripts/sync_ace_to_orca.py          # summary
-  python3 scripts/sync_ace_to_orca.py --json   # full result payload
-  python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
-  ```
-  `scripts/sync_ace_to_orca.py` is a thin launcher that imports the plugin, so the sync logic exists in exactly one place: `plugins/orcaslicer/klippace_ace_sync.py`.
-- **Multi-ACE Support**: ACE units are discovered from the MMU shim and every `ace_instance_N` is queried, so a second unit is synced rather than ignored. Untested with more than one unit connected.
+| Data | Where KLIPPACE publishes it |
+| :--- | :--- |
+| Happy Hare MMU shape | `[mmu]` printer object — `num_gates`, `gate_status`, `gate_color`, `gate_material`, `gate_temperature` |
+| Moonraker DB lanes | `lane_data` namespace — `lane1`…`laneN` with colour, material, nozzle/bed temperature, vendor and SKU |
 
-#### Why custom preset names are tracked
+OrcaSlicer's `MoonrakerPrinterAgent` reads both, so there is nothing to install and
+nothing to keep in sync.
 
-A generated `ACE T<n> - ...` filename identifies its slot, so stale presets can be found by prefix. A custom name carries no such marker. The plugin therefore records the files it wrote in `klippace_ace_sync_manifest.json` (in the OrcaSlicer application directory) and uses that record to clean up on rename or removal. Legacy `ACE T<n> - *` presets are still swept by prefix, so upgrading needs no manual cleanup.
+#### One-time setup
 
-#### What the plugin does *not* do
+1. **Preferences → Experimental Features → enable "Use printer agents instead of print hosts"**
+2. In your printer's settings, set **Printer Agent → `Moonraker`** (and **Host Type →
+   `Moonraker (Klipper)`** if you use the classic host flow). Both live in the
+   printer-connection section.
+3. **Restart OrcaSlicer.**
 
-The plugin used to also map the synced presets onto the active machine in `OrcaSlicer.conf`, so they were pre-selected when you opened the slicer. **That never worked from inside OrcaSlicer** and has been removed.
+Then use OrcaSlicer's native **Synchronize Filament Information** action in the
+Print / Device flow. It updates the active project's filament list in place — **no
+restart, and no preset files are written.**
 
-OrcaSlicer runs Python plugins under a sandbox (`PluginAuditManager`) which denies `OrcaSlicer.conf` unconditionally — any path containing `conf`, `cert` or `secret` is blocked before allowed roots and before any permission prompt, so no grant can unlock it. (It appeared to work when the plugin was run from a shell, where no audit hook is installed.)
+#### What native sync carries
 
-Two consequences:
+- Filament **type and colour** for every slot, plus a matching flush-volume matrix.
+- **Temperatures when a matching preset exists.** OrcaSlicer scores its preset library
+  against each slot and uses a manufacturer-specific profile if it finds one; otherwise
+  the slot falls back to the generic profile for its material (`Generic PLA @System`, …).
 
-1. **Select synced presets from Orca's filament dropdown.** Preset *files* are created correctly; only the automatic pre-selection is gone.
-2. **Startup is prompt-free.** The embedded page renders a cached snapshot instead of querying the printer, because a network call while Orca builds its Pages markup raises a `socket.__new__` permission prompt that can never be persisted and would therefore reappear on every launch. The first **Sync Filaments to Slicer** click each session prompts once; that is an OrcaSlicer limitation, not something the plugin can avoid.
+It does **not** carry per-slot preset names. That is OrcaSlicer's own wording:
 
-#### Plugin Installation:
+> Only synchronize filament type and color, not including slot information.
 
-1. **Locate your OrcaSlicer plugin directory**:
-   - **macOS**: `~/Library/Application Support/OrcaSlicer/orca_plugins/klippace_ace_sync/`
-   - **Linux**: `~/.config/OrcaSlicer/orca_plugins/klippace_ace_sync/`
-   - **Windows**: `%APPDATA%\OrcaSlicer\orca_plugins\klippace_ace_sync\`
+To get the best match, give each slot real metadata — material, colour, nozzle
+temperature and vendor — through the web card's slot editor or `ACE_SET_SLOT`. Those
+values flow through `lane_data` and are what OrcaSlicer matches against.
 
-2. **Deploy the plugin files**:
-   ```bash
-   # macOS Example:
-   mkdir -p ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync
-   cp plugins/orcaslicer/klippace_ace_sync.py ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync/
-   cp plugins/orcaslicer/.install_state.json ~/Library/Application\ Support/OrcaSlicer/orca_plugins/klippace_ace_sync/
-   ```
+#### Troubleshooting
 
-   > [!IMPORTANT]
-   > The installed `klippace_ace_sync.py` is a **copy**, not a symlink. Editing the
-   > file in this repo does not affect OrcaSlicer until you copy it again and
-   > restart — the CLI (`scripts/sync_ace_to_orca.py`) imports from the repo, so it
-   > can behave differently from the plugin on the same machine. After copying,
-   > delete the plugin directory's `__pycache__` so stale bytecode cannot shadow the
-   > new source, and bump `installed_version` in `.install_state.json` to match the
-   > version in the plugin's header.
+| Symptom | Cause |
+| :--- | :--- |
+| The sync action does nothing | `use_printer_agents` is off, or the printer's agent is still `orca` rather than `moonraker`. |
+| `NetworkAgent::set_user_selected_machine: no printer agent` in `log/debug_*.log` | Same as above — the generic agent is selected, so nothing probes the printer. |
+| `Detected Happy Hare MMU with N gates` never appears | OrcaSlicer could not reach Moonraker. Check the printer's address in the printer settings. |
+| `command_handle_response, error reponse.` repeating about once a second | **Expected, harmless.** Enabling printer agents routes the printer through Bambu's `MachineObject` control path, which emits Bambu fan/air-duct commands a Klipper printer cannot answer. It is log noise only (~14 MB/day at default log level). Turn agents back off if you would rather not have it. |
+| `Unsupported printer type: Voron2_350` once at startup | The same path rewrites the local machine's `printer_type`. Cosmetic; the machine still connects. |
 
-3. **Restart OrcaSlicer**: The "ACE Pro" tab will appear under Pages, and "Sync ACE Pro Filaments" will be registered under Script capabilities.
+> [!NOTE]
+> With printer agents enabled, OrcaSlicer takes over the printer connection for
+> *uploads* as well as filament sync. Verify a real upload works before relying on
+> it, and re-check the printer's access code if uploads fail — the agent path has
+> been observed clearing it.
 
 ---
 
@@ -482,30 +478,22 @@ pytest
 
 | Suite | Covers |
 | --- | --- |
-| `tests/test_orca_sync.py` | OrcaSlicer plugin: colour resolution, preset-name sanitising, material→base-preset mapping, temperature lookup from `mmu.material_temps`, ACE unit discovery, printer network resolution, the sandbox conf guard, the page snapshot cache, preset cleanup and the sync manifest |
-| `tests/test_ace_material_temps.py` | Backend material table contract, and that the dashboard and OrcaSlicer plugin stay aligned with it |
+| `tests/test_ace_material_temps.py` | Backend material table contract, and that the dashboard and MMU shim stay aligned with it |
 | `tests/test_mmu_action_commands.py` | `MMU_LOAD` / `MMU_UNLOAD`, including the `EXTRUDER_ONLY=1` distance, active-gate lookup, and behaviour when no spool is loaded |
 
-A couple of invariants are worth knowing because they are easy to break:
+One invariant is worth knowing because it is easy to break:
 
 - **`mmu.material_temps` is the single source of truth for material temperatures.**
-  `AceInstance.MATERIAL_TEMPS` owns the table; the dashboard's slot editor and the
-  OrcaSlicer plugin both read it rather than keeping their own copies. Tests assert
-  that every backend material has a base-preset mapping and that the lookups agree.
-- **The OrcaSlicer plugin runs sandboxed.** `PluginAuditManager` denies
-  `OrcaSlicer.conf` unconditionally (any path component containing `conf`, `cert`
-  or `secret` is blocked before allowed roots and before any permission prompt),
-  and a network call while Orca builds its Pages markup raises a `socket.__new__`
-  prompt that can never be persisted. So: never touch the app config, and never do
-  network I/O from `get_ui()` — render the cached snapshot instead.
+  `AceInstance.MATERIAL_TEMPS` owns the table; the dashboard's slot editor and the MMU
+  shim both read it rather than keeping their own copies.
 
-### Manual sync
+### Filament sync is OrcaSlicer-side
 
-```bash
-python3 scripts/sync_ace_to_orca.py           # human-readable summary
-python3 scripts/sync_ace_to_orca.py --json    # full result payload
-python3 scripts/sync_ace_to_orca.py --host 192.168.1.168
-```
+There is no KLIPPACE plugin to build, install or test. KLIPPACE only *publishes* the ACE
+Pro inventory — the Happy Hare `[mmu]` object and the Moonraker `lane_data` namespace —
+and OrcaSlicer's own `MoonrakerPrinterAgent` reads it. The contract that matters is
+therefore the shape of that published data; see
+[Native Filament Sync](#native-filament-sync).
 
 ---
 

@@ -3,7 +3,7 @@
 The table is the single source of truth for material temperatures: it backs the
 RFID no-range fallback, the MMU shim's reported gate temps, and the preset list
 the dashboard's slot editor renders. These tests pin that contract so the
-dashboard and the OrcaSlicer plugin cannot silently drift from the backend.
+dashboard cannot silently drift from the backend.
 """
 
 from __future__ import annotations
@@ -110,26 +110,3 @@ class TestMmuShimMaterialTable:
         from extras.ace import mmu_shim
 
         assert mmu_shim._resolve_gate_temp({"temp": 0}, "petg") == 240
-
-
-class TestPluginAlignmentWithBackend:
-    """The OrcaSlicer plugin must cover every material the ACE can carry."""
-
-    def test_every_backend_material_has_an_inherits_mapping(self, orca_sync, ace_instance_cls):
-        unmapped = [
-            material for material in ace_instance_cls.MATERIAL_TEMPS
-            if material.upper() not in orca_sync.MATERIAL_INHERITS
-        ]
-        assert unmapped == [], f"materials with no OrcaSlicer base preset: {unmapped}"
-
-    def test_fallback_temp_matches_backend_pla(self, orca_sync, ace_instance_cls):
-        # The plugin's last-resort temperature should agree with the backend's
-        # PLA default, so a slot with no metadata is not synced inconsistently.
-        assert orca_sync.DEFAULT_NOZZLE_TEMP == ace_instance_cls.MATERIAL_TEMPS["PLA"]
-
-    def test_shared_material_temps_agree(self, orca_sync, ace_instance_cls):
-        """Temps the plugin would derive from the backend table must round-trip."""
-        for material, expected in ace_instance_cls.MATERIAL_TEMPS.items():
-            assert orca_sync.lookup_material_temp(
-                ace_instance_cls.MATERIAL_TEMPS, material
-            ) == expected

@@ -259,7 +259,16 @@ volumetric limits, which is more accurate than anything a sync could inject.
 
 ### Machine G-Code Setup
 
-#### 1. Machine Start G-Code
+> [!IMPORTANT]
+> **The Machine Start G-code below is specific to this project's Voron 2.4 build** and
+> will not work unchanged on another printer. `PRINT_START` is defined only in
+> [`VORON/printer.cfg`](VORON/printer.cfg) — the Voron profile's own printer config — and
+> it calls a chain of macros that assume Voron hardware. The **Filament Change** and
+> **Layer Change** snippets that follow are generic; the **Machine Start** block is not.
+> See [Running a different printer](#running-a-different-printer) for what to do instead.
+
+#### 1. Machine Start G-Code (Voron 2.4)
+
 In your OrcaSlicer **Printer Settings -> Custom G-code -> Machine start G-code**:
 
 ```gcode
@@ -267,6 +276,35 @@ PRINT_START BED=[bed_temperature_initial_layer_single] EXTRUDER=[nozzle_temperat
 ```
 
 `PRINT_START` will home, heat the bed, execute Quad Gantry Leveling (QGL), calibrate bed mesh, park the nozzle over the Blobifier tray (`X5 Y360 Z2.6`), check the last loaded tool against the initial tool to determine whether standard (35mm) or heavy transition (85mm) purge is required, heat the hotend to initial extrusion temperature, load the designated initial tool (`ACE_ON_PRINT_START`) while forming the initial load feed blob, scrub the nozzle across the Decontaminator brush, optionally start the ACE Pro dryer (`DRYER_START`), and execute an adaptive first-layer line purge (`LINE_PURGE`) next to the sliced object before beginning the first layer.
+
+Every step of that chain assumes hardware from this Voron build:
+
+| Step in `PRINT_START` | Requires |
+| :--- | :--- |
+| `WAKE_LIGHTS`, `UPDATE_SPOOL_LEDS` | `config/voron24/led_control.cfg` |
+| `G28`, `QUAD_GANTRY_LEVEL`, `G28 Z` | A Voron-style quad gantry |
+| `CLEAN_NOZZLE` | Decontaminator brush at `X96–X136 Y360` |
+| `TEMPERATURE_WAIT SENSOR="temperature_sensor chamber"` | `[temperature_sensor chamber]` in `printer.cfg` |
+| `ACE_ON_PRINT_START` | `config/voron24/ace_voron24_macros.cfg`, plus the Blobifier tray at `X5 Y360` |
+| `LINE_PURGE` | `VORON/printer.cfg`; purges adjacent to the sliced object |
+| `DRYER_START` | ACE Pro only — the one step that is *not* Voron-specific |
+
+#### Running a different printer
+
+**The generic / Anycubic profile does not define `PRINT_START` at all.** It ships
+`MY_START_PRINT` in [`acepro_printer_macros.cfg`](config/acepro_printer_macros.cfg), which
+handles the ACE initial-tool load and then passes straight through to your printer's own
+`START_PRINT` (and passes through untouched when the ACE is disabled):
+
+```gcode
+MY_START_PRINT TOOL=[initial_tool] BED_TEMP=[bed_temperature_initial_layer_single] EXTRUDER_TEMP=[nozzle_temperature_initial_layer]
+```
+
+If you are adapting KLIPPACE to your own machine, the portable parts are the ACE hooks —
+`ACE_ON_PRINT_START`, `DRYER_START`, `LINE_PURGE` and the tool-change macros. Home, QGL,
+bed mesh and nozzle scrubbing belong to your printer's own start sequence, not to this
+file. Replace those steps with the equivalent from your printer's configuration, or call
+your existing `START_PRINT` and invoke the ACE hooks around it.
 
 #### 2. Filament Change G-Code
 In OrcaSlicer **Printer Settings -> Multimaterial -> Change filament G-code**:
@@ -294,6 +332,12 @@ Under OrcaSlicer **Print Settings -> Others -> Post-processing scripts**:
 ```
 
 This script translates OrcaSlicer's flush matrix directly into optimal `PURGELENGTH` values for each tool change.
+
+> [!NOTE]
+> The paths above are for a Raspberry Pi running Klipper from `/home/pi/KLIPPACE`, using
+> the system Python. Adjust the interpreter and the repository path to match your host —
+> for example `/usr/bin/python3 ~/KLIPPACE/slicer/orca_flush_to_purgelength.py` — and make
+> sure the script stays executable. The script itself is printer-agnostic.
 
 ---
 

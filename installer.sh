@@ -1284,14 +1284,39 @@ Next steps:
   4. Test basic commands in Klipper console:
      e.g. ACE_GET_STATUS, ACE_QUERY_SLOTS
 
-  5. In OrcaSlicer:
-     - In Machine Start G-code, pass:
+  5. In OrcaSlicer - Machine Start G-code
+     (Printer Settings -> Custom G-code -> Machine start G-code):
        PRINT_START ... INITIAL_TOOL=[initial_tool] DRYER_MATERIAL=[filament_type[initial_tool]]
-     - In Change filament G-code, pass:
-       {if flush_length > 0}
-       ACE_SET_PURGE_AMOUNT PURGELENGTH=[flush_length]
-       {endif}
-       T[next_extruder] PURGE_LENGTH=[flush_length]
+     PRINT_START is provided by this Voron 2.4 profile's printer.cfg. It homes,
+     runs Quad Gantry Leveling, calibrates the bed mesh and uses the Blobifier
+     tray, the Decontaminator brush and the chamber thermistor. On any other
+     printer use MY_START_PRINT instead and keep your own start sequence.
+
+  6. In OrcaSlicer - Change filament G-code
+     (Printer Settings -> Multimaterial -> Change filament G-code). Pick ONE:
+
+     (a) With the post-processing script (recommended) - just:
+           T[next_extruder]
+         The script computes each flush length and injects
+         ACE_SET_PURGE_AMOUNT automatically. See step 7.
+
+     (b) Without the script - pass OrcaSlicer's own flush length:
+           {if flush_length > 0}
+           ACE_SET_PURGE_AMOUNT PURGELENGTH=[flush_length]
+           {endif}
+           T[next_extruder] PURGE_LENGTH=[flush_length]
+
+  7. Enable native filament sync in OrcaSlicer (one-time, no plugin required):
+       a) Preferences -> Experimental Features
+          -> enable "Use printer agents instead of print hosts"
+       b) Printer settings -> Printer Agent -> Moonraker
+          (Host Type: Moonraker (Klipper))
+       c) Preferences -> Developer -> enable "Show unsupported presets"
+          (without this, other vendors' filaments stay hidden)
+       d) Restart OrcaSlicer
+     Then use OrcaSlicer's own "Synchronize Filament Information". ACE Pro spool
+     colours and materials come across with no plugin, no preset files and no
+     restart. See README.md -> Slicer Setup & OrcaSlicer Integration.
 
 EOF
     else
@@ -1344,10 +1369,24 @@ Next steps:
 
   7. Optional but recommended: Set inventory for each tool:
      ACE_SET_SLOT INSTANCE=0 INDEX=0 COLOR=255,0,0 MATERIAL=PLA TEMP=210
+     Values persist and feed OrcaSlicer's native filament sync.
 
-  8. If using Orca Slicer:
-     Install the orca_flush_to_purgelength.py post-processing script on your host PC
-     See README.md section on Orca Slicer integration for detailed instructions
+  8. If using OrcaSlicer:
+     - Install the orca_flush_to_purgelength.py post-processing script on your
+       host PC (Print Settings -> Others -> Post-processing scripts).
+     - Add the ACE initial-tool hook to YOUR printer's start sequence using
+       MY_START_PRINT (defined in acepro_printer_macros.cfg). Do NOT use
+       PRINT_START - that macro belongs to the Voron 2.4 profile's printer.cfg
+       and calls Voron-only hardware (QGL, Blobifier tray, nozzle brush).
+       MY_START_PRINT loads the ACE tool and then hands off to your START_PRINT.
+     - Enable native filament sync (one-time, no plugin required):
+         Preferences -> Experimental Features
+           -> "Use printer agents instead of print hosts"
+         Printer settings -> Printer Agent -> Moonraker
+         Preferences -> Developer -> "Show unsupported presets"
+       then restart OrcaSlicer. Without the last step, other vendors' filaments
+       stay hidden from the filament list.
+     See README.md -> Slicer Setup & OrcaSlicer Integration for detail.
 
 EOF
     fi

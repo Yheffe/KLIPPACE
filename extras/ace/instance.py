@@ -18,6 +18,7 @@ from .config import (
     RFID_STATE_NO_INFO,
     RFID_STATE_IDENTIFIED,
     MAX_RETRIES,
+    FEED_SENSOR_POLL_INTERVAL_S,
     get_tool_offset,
     create_inventory,
     create_status_dict,
@@ -714,7 +715,7 @@ class AceInstance:
                     "response": unexpected[0],
                 }
 
-            self.dwell(0.1)
+            self.dwell(FEED_SENSOR_POLL_INTERVAL_S)
 
     def _feed_until_sensor(self, local_slot, feed_length, feed_speed, sensor_fn,
                            timeout_s):
@@ -1110,10 +1111,19 @@ class AceInstance:
         )
 
         if outcome["triggered"]:
-            self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Toolhead entry sensor triggered after "
-                f"{outcome['elapsed']:.1f}s of feeding - feed stopped"
-            )
+            # Distinguish the two successes. "already-triggered" issued no feed
+            # at all, so reporting an elapsed feeding time would be misleading
+            # in the log and confusing to read back later.
+            if outcome["reason"] == "already-triggered":
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Toolhead entry sensor already "
+                    f"satisfied - no feed issued"
+                )
+            else:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Toolhead entry sensor triggered after "
+                    f"{outcome['elapsed']:.1f}s of feeding - feed stopped"
+                )
 
         # Final sanity check for entry sensor
         if not self.manager.get_entry_switch_state():

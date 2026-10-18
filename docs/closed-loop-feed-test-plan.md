@@ -20,20 +20,53 @@ a stale one in a procedure is worse than none.)
 
 ## What the unit tests do and do not cover
 
-Covered by `tests/test_closed_loop_feed.py` (18 cases, mutation-tested five ways):
+Covered by `tests/test_closed_loop_feed.py` (24 cases, mutation-tested four
+ways):
 
 - the feed is issued before polling, and stopped on trigger, exactly once
 - a timeout also stops the feed
 - an unrecognised response code is **not** treated as fatal
 - `FORBIDDEN` is retried, up to `MAX_RETRIES`, and is the only code retried
 - `wait_ready()` precedes every attempt
+- the sensor is sampled often enough to keep overshoot small (see below)
+
+The mutations actually run, and what they produced:
+
+| mutation | result |
+|---|---|
+| never stop on the sensor | 7 failures |
+| feed an already-satisfied sensor | 7 failures |
+| treat `FORBIDDEN` as fatal | 4 failures |
+| never time out | **used to hang the suite** |
+
+The last one is worth knowing about. With a simulated clock, deleting the timeout
+branch is an infinite loop, so the run never terminated — a broken timeout would
+have hung CI rather than reported. The harness now raises once the simulated
+clock passes `MAX_SIMULATED_SECONDS`, which turns that mutant into two failures
+in 0.13s.
+
+### Sensor sampling is part of the overshoot budget
+
+The loop only reads the sensor once per poll, so filament keeps moving for up to
+one interval after the switch closes. `FEED_SENSOR_POLL_INTERVAL_S` in
+`extras/ace/config.py` is therefore a tuning decision, not an incidental
+literal: at 60mm/s the shipped **0.02s is 1.2mm** of overshoot, while the 0.1s
+this loop used to use was **6.0mm**. The read is free — `filament_present` is
+pushed from the endstop callback, not queried over serial — so a tighter
+interval costs only reactor wake-ups. A test asserts the budget directly, because
+a self-referential "detected within N intervals" check passes at any interval.
+
+Note that both sensors here are plain `filament_switch_sensor`, so
+`get_switch_state` is already instantaneous — there is no `absence_timeout`
+debounce to bypass, and `get_instant_switch_state` would behave identically.
 
 Not covered — these need hardware:
 
 - that the ACE honours `stop_feed` promptly mid-feed (the underlying assumption)
 - what the firmware actually reports for an interrupted feed
 - real timing: how much overshoot occurs between the sensor tripping and the feed
-  physically stopping
+  physically stopping. The unit tests bound only our own share of it (one poll
+  interval); the ACE's stop latency has to be measured on the machine.
 
 ## Procedure
 
@@ -49,14 +82,15 @@ curl -s http://localhost:7125/printer/objects/query?save_variables \
 
 ### 1. Deploy the branch, then restart properly
 
-**Prerequisite — do this first.** The printer's installed `deploy.sh` predates the
-`--branch` fix, and the old version *merges* the named branch into whatever is
-checked out instead of switching to it. Running `--branch` before updating would
-therefore pull this untested change onto `dev` on the printer — the exact thing the
-branch exists to prevent.
+**Prerequisite — check this first.** The `--branch` fix has to be in the
+installed `deploy.sh` before `--branch` is used, because the old version
+*merges* the named branch into whatever is checked out instead of switching to
+it, and would therefore pull this untested change onto `dev` on the printer —
+the exact thing the branch exists to prevent.
 
-So bring `dev` up first with an ordinary deploy, which is safe (it only carries the
-deploy-script fix):
+A printer already tracking `dev` satisfies this. Confirm rather than assume; if
+the check reports 0, bring `dev` up first with an ordinary deploy, which is safe
+(it only carries the deploy-script fix):
 
 ```bash
 ./scripts/deploy.sh --restart

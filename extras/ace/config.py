@@ -36,6 +36,17 @@ UNLOAD_SPEED_MULTIPLIERS = [1.0, 0.7, 0.4]  # Speed factors per attempt
 
 # Max retries for ACE command operations (feed/retract)
 MAX_RETRIES = 6
+
+# How often the toolhead sensor is sampled while a stop-on-sensor feed is
+# running, in seconds. Multiplied by the feed speed this is the distance the
+# filament travels between the sensor physically tripping and the loop seeing
+# it: at 60mm/s, 0.02s is 1.2mm and 0.1s is 6.0mm. The rest of the overshoot is
+# the ACE's own stop latency and is not ours to control.
+#
+# The read itself is free -- filament_present is pushed from the endstop
+# callback, not queried over serial -- so a tighter interval costs nothing but
+# reactor wake-ups.
+FEED_SENSOR_POLL_INTERVAL_S = 0.02
 # RFID state constants (from ACE hardware status responses)
 RFID_STATE_NO_INFO = 0         # Information not found (no RFID tag)
 RFID_STATE_FAILED = 1          # Failed to identify tag

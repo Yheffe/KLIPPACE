@@ -62,6 +62,7 @@ class _Harness:
         self.instance_num = 0
         self.gcode = _FakeGcode()
         self.clock = _Clock()
+        self._start_t = self.clock.t
         self.sensor_after = sensor_after_seconds
         self.timeout_s = timeout_s
         self.events = []
@@ -82,8 +83,23 @@ class _Harness:
     def wait_ready(self):
         self.events.append("wait_ready")
 
+    # Guard against an unterminating loop. The polling helpers are bounded by a
+    # timeout, so a mutated or broken timeout branch would spin forever -- and
+    # because this clock is simulated, "forever" means the test run hangs
+    # instead of reporting a failure. Verified by mutation: deleting the
+    # timeout check left the suite spinning rather than failing. 120s of
+    # simulated time is far beyond every timeout these tests use, so tripping
+    # this bound can only mean the loop is not terminating.
+    MAX_SIMULATED_SECONDS = 120.0
+
     def dwell(self, delay=0.0):
         self.clock.advance(delay if delay else 0.1)
+        if self.clock.t - self._start_t > self.MAX_SIMULATED_SECONDS:
+            raise AssertionError(
+                f"feed loop ran for more than {self.MAX_SIMULATED_SECONDS:.0f}s "
+                f"of simulated time without finishing; the timeout branch is "
+                f"not terminating"
+            )
         self._tick()
 
     def _tick(self):
@@ -176,6 +192,33 @@ class TestClosedLoopFeed:
         h = feed_harness(sensor_after_seconds=1002.0)
         out = _run_feed(h)
         assert 1.0 <= out["elapsed"] <= 3.0, out
+
+    def test_sensor_poll_interval_keeps_overshoot_small(self, feed_harness):
+        """Detection granularity *is* the overshoot budget.
+
+        The loop only looks at the sensor once per poll, so filament keeps
+        moving for up to one interval after the switch physically closes. At
+        60mm/s the shipped 0.02s is 1.2mm; the 0.1s this used to be would be
+        6.0mm, and 6mm of unplanned travel is enough to push the tip into the
+        nozzle before Phase 2 starts.
+        """
+        from extras.ace.config import FEED_SENSOR_POLL_INTERVAL_S
+
+        # Pin the budget itself. A self-referential timing assertion cannot do
+        # this: any interval would satisfy "detected within N intervals".
+        assert FEED_SENSOR_POLL_INTERVAL_S <= 0.05, (
+            f"poll interval {FEED_SENSOR_POLL_INTERVAL_S}s allows more than 3mm "
+            f"of overshoot at 60mm/s"
+        )
+
+        # And confirm the loop really notices within about one interval.
+        h = feed_harness(
+            sensor_after_seconds=1000.0 + FEED_SENSOR_POLL_INTERVAL_S * 1.5
+        )
+        out = _run_feed(h)
+
+        assert out["triggered"] is True, out
+        assert out["elapsed"] <= FEED_SENSOR_POLL_INTERVAL_S * 3, out
 
     def test_immediate_trigger_does_not_feed_needlessly(self, feed_harness):
         h = feed_harness(sensor_after_seconds=1000.0)

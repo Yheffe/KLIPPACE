@@ -33,17 +33,34 @@ Stopped by the **sensor at 19.5s**, not by the 40s timeout, so the loop really i
 watching during the feed rather than checking afterwards. This is the claim the
 whole branch rests on, and it holds.
 
-**A full load has not yet been observed.** Two things blocked it, neither caused by
-this change:
+### Phase 2 needed a real fix — found by the new diagnostics
 
-1. The ACE re-enumerated on USB **145 times** in a burst during the test, and the
-   EBB MCU dropped off the bus (shutdown and self-recovery via
-   `FIRMWARE_RESTART`). See the Phase 2 diagnostics section for how to tell this
-   apart from a real feed fault.
-2. Phase 2 hit its 80mm cap once — but on evidence that the ACE link was failing,
-   not that the cap is too small.
+The first live run failed at Phase 2's cap. The diagnostic line added in
+`6309364` then said exactly what was wrong:
 
-Do not merge until a complete load is seen on a stable link.
+```
+ACE[0]: Phase 2 diagnostics - ACE link connected, feed assist index -1,
+        extruder moved 80.0mm at 8.0mm/s
+```
+
+The link was **connected**, so it was not a hardware dropout and not the cap. The
+cause is a design assumption this branch invalidated:
+
+- Old Phase 1 left the ACE feeding, so Phase 2 called `_change_feed_speed()` to
+  **slow down a running feed**.
+- New Phase 1 **stops** the feed on the entry sensor. There is no running feed for
+  a speed change to act on.
+- The ACE still answers `code: 0` to an update on a feed that is not running, so
+  the old `Change feed speed not confirmed` fallback never fired. Nothing pushed,
+  and the extruder dragged 80mm of filament without moving it.
+
+Phase 2 now **starts its own bounded feed** (`max_entry_to_nozzle_length + 50` at
+`ace_entry_feeding_speed`), which runs concurrently with the extruder loop and is
+stopped on either exit — success or the cap. Four tests pin this, and reverting to
+the speed-change call fails two of them.
+
+This also explains why `max_entry_to_nozzle_length` looked too small: with nothing
+pushing, no distance would have been enough.
 
 ### The over-feed figure in this file is probably too high
 

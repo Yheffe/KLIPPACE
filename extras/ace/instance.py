@@ -1162,23 +1162,33 @@ class AceInstance:
                 f"(ACE: {ace_speed:.1f}mm/s, Extruder: {ext_speed:.1f}mm/s) to nozzle sensor..."
             )
 
-            # Ensure continuous forward push from ACE at ace_entry_feeding_speed
-            max_speed_change_retries = 3
-            speed_changed = False
-            while not speed_changed and (max_speed_change_retries > 0):
-                speed_changed = self._change_feed_speed(local_slot, ace_speed)
-                self.dwell(delay=0.1)
-                max_speed_change_retries -= 1
-
-            if not speed_changed:
-                self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Change feed speed not confirmed, restarting feed "
-                    f"at {ace_speed:.1f}mm/s"
-                )
-                self._stop_feed(local_slot)
-                self.wait_ready()
-                slow_feed_length = self.max_entry_to_nozzle_length + 50
-                self.execute_feed_with_retries(local_slot, slow_feed_length, ace_speed)
+            # Phase 1 now STOPS the feed the moment the entry sensor trips, so
+            # there is no running feed for Phase 2 to speed up.
+            #
+            # This used to be a `_change_feed_speed()` call, on the assumption
+            # that the ACE was still feeding continuously from Phase 1 and only
+            # needed slowing down. After the closed-loop change that assumption
+            # is false: the feed has already been stopped and acknowledged. The
+            # ACE then accepts an update to a feed that is not running - it
+            # still answers code 0, so the old "not confirmed" fallback never
+            # fired - and nothing pushes the filament while the extruder pulls.
+            #
+            # Observed 2026-10-18: entry sensor reached, link connected, speed
+            # change acknowledged, feed assist index -1, and the extruder moved
+            # the full 80mm cap without the nozzle sensor ever tripping. The
+            # extruder was dragging filament that nothing was feeding.
+            #
+            # So start a fresh bounded feed instead. It runs concurrently with
+            # the extruder loop below and is stopped as soon as the nozzle
+            # sensor trips.
+            slow_feed_length = self.max_entry_to_nozzle_length + 50
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Phase 1 left the feed stopped; issuing a "
+                f"bounded {slow_feed_length:.0f}mm feed at {ace_speed:.1f}mm/s to push "
+                f"through to the nozzle sensor"
+            )
+            self.wait_ready()
+            self._feed(local_slot, slow_feed_length, ace_speed)
 
             # Synchronously move extruder in 2mm chunks at extruder_feeding_speed while ACE actively pushes
             accumulated_extruded = 0.0

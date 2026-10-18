@@ -419,6 +419,60 @@ class TestPhaseOneUsesClosedLoop:
         assert "execute_feed_with_retries" in self._src()
 
 
+class TestPhaseTwoStartsItsOwnFeed:
+    """Phase 2 must *start* a feed, because Phase 1 stops the one it had.
+
+    Before the closed loop, Phase 1 left the ACE feeding and Phase 2 only called
+    `_change_feed_speed()` to slow it down. Once Phase 1 began stopping the feed on
+    the entry sensor, that call had nothing to modify - yet the ACE still answers
+    code 0 to an update on a feed that is not running, so the old "not confirmed"
+    fallback never fired and nothing pushed the filament.
+
+    Observed 2026-10-18: `ACE link connected`, speed change acknowledged, and the
+    extruder pulled the full 80mm cap without the nozzle sensor tripping. The
+    filament was being dragged, not fed.
+    """
+
+    @classmethod
+    def _dual_sensor_block(cls):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        start = src.index("if self.manager.has_entry_sensor() and self.manager.has_nozzle_sensor():")
+        end = src.index("# Single-sensor fallback", start)
+        return src[start:end]
+
+    def test_phase_two_issues_a_feed(self):
+        block = self._dual_sensor_block()
+        assert "self._feed(" in block, (
+            "Phase 2 must start its own feed - Phase 1 already stopped the previous "
+            "one, so there is nothing for a speed change to act on"
+        )
+
+    def test_phase_two_does_not_rely_on_a_speed_change_alone(self):
+        block = self._dual_sensor_block()
+        # Match the call, not the word: the comment above explains why the old
+        # call was removed and would otherwise satisfy a bare substring check.
+        assert "self._change_feed_speed(" not in block, (
+            "Phase 2 cannot speed up a feed that Phase 1 already stopped; the ACE "
+            "acks the update but nothing moves"
+        )
+
+    def test_phase_two_feed_is_bounded(self):
+        """The new feed must be finite, or a missed sensor leaves the ACE pushing."""
+        block = self._dual_sensor_block()
+        assert "max_entry_to_nozzle_length + 50" in block, (
+            "the Phase 2 feed length must be bounded by the entry-to-nozzle limit"
+        )
+
+    def test_phase_two_stops_the_feed_on_both_exits(self):
+        block = self._dual_sensor_block()
+        # one stop on the success path, one on the cap/failure path
+        assert block.count("self._stop_feed(local_slot)") >= 2, (
+            "both the success and the failure path must stop the feed"
+        )
+
+
 class TestPhaseTwoDiagnosability:
     """The cap message must name the likely cause, which this change altered.
 

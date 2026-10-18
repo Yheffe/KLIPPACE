@@ -19,6 +19,7 @@ from .config import (
     RFID_STATE_IDENTIFIED,
     MAX_RETRIES,
     FEED_SENSOR_POLL_INTERVAL_S,
+    FEED_COMPLETE_GRACE_S,
     get_tool_offset,
     create_inventory,
     create_status_dict,
@@ -681,6 +682,7 @@ class AceInstance:
         to the timeout path, which already reports the reason.
         """
         unexpected = [None]
+        completed_at = [None]
 
         while True:
             if sensor_fn():
@@ -704,6 +706,32 @@ class AceInstance:
                         f"told apart from a stopped feed, so continuing to watch the "
                         f"sensor until the timeout"
                     )
+            elif response is not None and completed_at[0] is None:
+                # The ACE has finished the commanded length and the sensor still
+                # has not tripped. This is the slipping signature: the log shows
+                # the ACE completing 1200mm while a sensor ~1050mm away never
+                # triggers, which means the filament barely moved.
+                #
+                # Waiting out the rest of the timeout cannot help - the feed is
+                # over - so note it and give the switch a short grace period to
+                # settle before handing over to feed-assist.
+                completed_at[0] = time.time()
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: ACE reports the feed complete after "
+                    f"{completed_at[0] - start_time:.1f}s but the entry sensor has not "
+                    f"triggered - the filament is probably not moving. Waiting "
+                    f"{FEED_COMPLETE_GRACE_S:.1f}s for the sensor to settle, then "
+                    f"handing over to feed-assist."
+                )
+
+            if completed_at[0] is not None and \
+                    time.time() - completed_at[0] >= FEED_COMPLETE_GRACE_S:
+                return {
+                    "triggered": False,
+                    "reason": "feed-complete",
+                    "elapsed": time.time() - start_time,
+                    "response": None,
+                }
 
             if time.time() - start_time > timeout_s:
                 self._stop_feed(local_slot)
@@ -1129,17 +1157,29 @@ class AceInstance:
         if not self.manager.get_entry_switch_state():
             reported = outcome.get("response")
             detail = f", feed reported '{reported}'" if reported else ""
+            if outcome["reason"] == "feed-complete":
+                # Distinguish this from a plain timeout: the ACE said it was
+                # done, so the filament did not travel the commanded distance.
+                explanation = (
+                    " The ACE completed the commanded length, so the filament is "
+                    "not moving as commanded - check the spool is seated and the "
+                    "filament is not bound or slipping at the ACE rollers."
+                )
+            else:
+                explanation = ""
             self.gcode.respond_info(
                 f"ACE[{self.instance_num}]: Toolhead entry sensor not triggered after feed "
-                f"({outcome['elapsed']:.1f}s, reason={outcome['reason']}{detail}). "
+                f"({outcome['elapsed']:.1f}s, reason={outcome['reason']}{detail}).{explanation} "
                 f"Enabling ACE feed-assist and waiting up to 60s for the sensor..."
             )
             self._enable_feed_assist(local_slot)
 
-            timeout = time.time() + 60.0
+            assist_start = time.time()
+            timeout = assist_start + 60.0
             while not self.manager.get_entry_switch_state() and time.time() < timeout:
                 self.dwell(1)
             self._disable_feed_assist(local_slot)
+            assist_elapsed = time.time() - assist_start
 
             if not self.manager.get_entry_switch_state():
                 raise ValueError(
@@ -1148,8 +1188,8 @@ class AceInstance:
                 )
             else:
                 self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: Toolhead entry sensor finally triggered after "
-                    f"running feed-assist for 60s. Continuing..."
+                    f"ACE[{self.instance_num}]: Toolhead entry sensor triggered after "
+                    f"{assist_elapsed:.0f}s of feed-assist. Continuing..."
                 )
 
         # Phase 2: Dual-Sensor coordinated feed to nozzle sensor

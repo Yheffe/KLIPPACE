@@ -47,6 +47,16 @@ MAX_RETRIES = 6
 # callback, not queried over serial -- so a tighter interval costs nothing but
 # reactor wake-ups.
 FEED_SENSOR_POLL_INTERVAL_S = 0.02
+
+# How long to keep watching the sensor after the ACE reports the commanded feed
+# complete, before accepting that the filament is not coming.
+#
+# A completed feed with no sensor trip means the filament did not travel the
+# commanded distance - the rollers slipped or the spool bound - so waiting for
+# the remaining timeout is dead time: 1200mm is commanded with a 40s timeout but
+# finishes (or claims to) in about 20s. The grace period only absorbs the moment
+# where the switch is physically closing as the feed ends.
+FEED_COMPLETE_GRACE_S = 1.0
 # RFID state constants (from ACE hardware status responses)
 RFID_STATE_NO_INFO = 0         # Information not found (no RFID tag)
 RFID_STATE_FAILED = 1          # Failed to identify tag

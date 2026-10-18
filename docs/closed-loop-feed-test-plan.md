@@ -62,6 +62,42 @@ the speed-change call fails two of them.
 This also explains why `max_entry_to_nozzle_length` looked too small: with nothing
 pushing, no distance would have been enough.
 
+### Mid-print toolchange — observed 2026-10-18
+
+The first real colour change (T0 → T1, mid-print at 17% of a 44-minute job)
+completed correctly:
+
+```
+ACE: Retracting T0 (25.000mm at 15.000mm/s)
+ACE[0]: Retraction completed in 26.31s (sensor: 2.01s, 9.4% of expected, 117 polls)
+ACE[0]: ✓ Toolhead sensor clear
+ACE[0]: Tool 0 unloaded successfully
+ACE[0]: Feeding 1200.0mm at 60.0mm/s, stopping on the toolhead entry sensor (timeout 40s)...
+ACE[0]: Nozzle sensor triggered after 18.0mm coordinated feed
+ACE: Applying purge multiplier 1.00 to purge length 106.02mm, final purge length: 106.02mm
+ACE: Post-toolchange sequence completed
+ACE: perform_tool_change result status: Tool 0 → 1 (ACE[0])
+```
+
+But Phase 1 **timed out** on the T1 load:
+
+```
+ACE[0]: Toolhead entry sensor not triggered after feed (40.0s, reason=timeout)
+ACE[0]: Toolhead entry sensor finally triggered after running feed-assist for 60s
+```
+
+This is the pre-existing slipping signature described below — the ACE ran the
+commanded 1200mm without the filament travelling it — and the 60s feed-assist
+fallback recovered it, exactly as designed. The toolchange still succeeded.
+
+**What it exposed:** 1200mm at 60mm/s is 20s of travel with a 40s timeout, so once
+the ACE reports the feed complete and the sensor still has not tripped, the
+remaining 20s is dead time — the feed is over and waiting cannot help. The loop now
+notices a `code: 0` completion response, logs that the filament is probably not
+moving, waits `FEED_COMPLETE_GRACE_S` (1s) for the switch to settle, and hands over
+to feed-assist. Three tests cover it, including one that a late sensor trip inside
+the grace period still counts.
+
 ### The over-feed figure in this file is probably too high
 
 This plan says Phase 1 over-fed by about 150mm (1200 commanded against a 1050

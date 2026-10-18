@@ -58,7 +58,8 @@ class _Harness:
     """Duck-typed AceInstance carrying only what the feed helpers touch."""
 
     def __init__(self, *, sensor_after_seconds=None, feed_response=None,
-                 forbidden_times=0, timeout_s=10.0):
+                 forbidden_times=0, timeout_s=10.0,
+                 feed_response_after_seconds=None):
         self.instance_num = 0
         self.gcode = _FakeGcode()
         self.clock = _Clock()
@@ -69,6 +70,12 @@ class _Harness:
 
         self._forbidden_left = forbidden_times
         self._feed_response = feed_response
+        # A real feed completes some seconds after it is issued, not instantly.
+        # When set, the response is delivered once the simulated clock reaches
+        # this absolute time instead of at _feed() time.
+        self._feed_response_after = feed_response_after_seconds
+        self._pending_callback = None
+        self._response_delivered = False
         self._sensor = False
 
         # Settle the sensor against the starting clock. Without this an
@@ -105,6 +112,12 @@ class _Harness:
     def _tick(self):
         if self.sensor_after is not None and self.clock.t >= self.sensor_after:
             self._sensor = True
+        if (self._pending_callback is not None
+                and not self._response_delivered
+                and self._feed_response_after is not None
+                and self.clock.t >= self._feed_response_after):
+            self._response_delivered = True
+            self._pending_callback(self._feed_response)
 
     def _feed(self, slot, length, speed, callback=None):
         self.feed_calls.append((slot, length, speed))
@@ -114,8 +127,12 @@ class _Harness:
             if callback:
                 callback({"code": 1, "msg": "FORBIDDEN"})
         elif self._feed_response is not None:
-            if callback:
-                callback(self._feed_response)
+            if self._feed_response_after is None:
+                if callback:
+                    callback(self._feed_response)
+                self._response_delivered = True
+            else:
+                self._pending_callback = callback
 
     def _stop_feed(self, slot):
         self.events.append("stop_feed")
@@ -320,6 +337,63 @@ class TestResponseCodeIsNotAuthoritative:
 # --------------------------------------------------------------------------
 # refusals that arrive before completion are still errors
 # --------------------------------------------------------------------------
+
+class TestFeedCompleteWithoutSensor:
+    """A finished feed that never reached the sensor must not wait for the timeout.
+
+    Observed on 2026-10-18, mid-print at a colour change: the ACE was commanded
+    1200mm at 60mm/s (20s of travel, 40s timeout) and the entry sensor never
+    tripped. The loop sat out the full 40s and only then handed over to
+    feed-assist, which recovered it in 60s. The toolchange succeeded, but 20s
+    were spent waiting for a feed that had already ended.
+
+    A code-0 response means the ACE has finished the commanded length. Once that
+    arrives with no sensor trip, further waiting cannot help.
+    """
+
+    def test_exits_before_the_timeout_when_the_feed_completes(self, feed_harness):
+        h = feed_harness(
+            sensor_after_seconds=None,          # never trips
+            feed_response={"code": 0, "msg": "success"},
+            feed_response_after_seconds=1002.0,  # ACE "finishes" after 2s
+            timeout_s=10.0,
+        )
+        out = _run_feed(h)
+
+        assert out["triggered"] is False, out
+        assert out["reason"] == "feed-complete", out
+        assert out["elapsed"] < 5.0, (
+            f"waited {out['elapsed']:.1f}s for a feed the ACE had already "
+            f"finished; the timeout should not be spent"
+        )
+
+    def test_a_late_sensor_trip_still_counts(self, feed_harness):
+        """The grace period must not steal a trigger that is still settling."""
+        h = feed_harness(
+            sensor_after_seconds=1002.5,        # trips shortly after completion
+            feed_response={"code": 0, "msg": "success"},
+            feed_response_after_seconds=1002.0,
+            timeout_s=10.0,
+        )
+        out = _run_feed(h)
+
+        assert out["triggered"] is True, out
+        assert out["reason"] == "sensor", out
+
+    def test_reports_that_the_filament_is_not_moving(self, feed_harness):
+        """The log must say why, not just that the sensor never tripped."""
+        h = feed_harness(
+            sensor_after_seconds=None,
+            feed_response={"code": 0, "msg": "success"},
+            feed_response_after_seconds=1002.0,
+            timeout_s=10.0,
+        )
+        _run_feed(h)
+
+        joined = " ".join(h.gcode.events)
+        assert "feed complete" in joined, h.gcode.events
+        assert "not moving" in joined, h.gcode.events
+
 
 class TestFeedRefusals:
     def test_forbidden_is_retried(self, feed_harness):

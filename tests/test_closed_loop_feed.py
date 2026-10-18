@@ -437,7 +437,17 @@ class TestPhaseTwoDiagnosability:
                / "extras" / "ace" / "instance.py").read_text()
         marker = "Filament failed to reach nozzle sensor after"
         start = src.index(marker)
-        return src[start:start + 700]
+        return src[start:start + 1200]
+
+    @classmethod
+    def _phase_two_failure_block(cls):
+        """Source from the link-state probe through the raise."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        start = src.index("link = (")
+        end = src.index("self._extruder_move(step_chunk", start)
+        return src[start:end]
 
     def test_message_names_the_config_remedy(self):
         msg = self._cap_message()
@@ -449,6 +459,51 @@ class TestPhaseTwoDiagnosability:
         msg = self._cap_message()
         assert "Either" in msg or "or " in msg, (
             f"the message should present both causes, not assert a jam: {msg}"
+        )
+
+    def test_message_reports_the_ace_link_state(self):
+        """A stopped ACE and an obstruction look identical from the outside.
+
+        2026-10-18: the cap fired at 80mm with the speed change accepted and no
+        obstruction, while the ACE was re-enumerating on USB. The extruder was
+        very likely pulling filament that nothing was pushing - which grips
+        nothing and slips, exactly like a jam. Without the link state in the
+        message the two cannot be told apart after the fact.
+        """
+        block = self._phase_two_failure_block()
+        assert "ACE link" in block, f"the failing path must report the link: {block}"
+        assert "is_connected()" in block, (
+            "the link state must be read from the serial manager, not guessed"
+        )
+        assert "DISCONNECTED" in block, (
+            "a stopped ACE must be named as such, or it reads as a jam"
+        )
+        # And it must reach the operator, not just an internal variable.
+        assert "{link}" in block, (
+            "the link state has to be interpolated into the user-facing message"
+        )
+
+    def test_diagnostics_are_logged_before_raising(self):
+        """The line has to be written, not just formatted into the exception."""
+        block = self._phase_two_failure_block()
+        assert "respond_info" in block, (
+            "the Phase 2 diagnostics must be logged via respond_info so they "
+            "reach klippy.log, not only raised as an exception"
+        )
+        assert block.index("respond_info") < block.index("raise ValueError"), (
+            "log the diagnostic before raising, or it never reaches the log"
+        )
+
+    def test_diagnostics_do_not_come_from_logging_info(self):
+        """logging.info never reaches klippy.log - the reason Phase 2 was opaque.
+
+        `_change_feed_speed` reports through logging.info, so a rejected speed
+        change leaves no trace in klippy.log. The new diagnostic must not repeat
+        that mistake.
+        """
+        block = self._phase_two_failure_block()
+        assert "logging.info" not in block, (
+            "Phase 2 diagnostics must use respond_info, not logging.info"
         )
 
     def test_cap_still_stops_the_feed_before_raising(self):

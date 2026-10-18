@@ -18,9 +18,50 @@ sensor trips, matching what Phase 2 already did.
 (Referred to by subject rather than hash: rebasing the branch changes the hash, and
 a stale one in a procedure is worse than none.)
 
+## Live result so far — 2026-10-18
+
+**Phase 1 verified working.** With the machine idle, `tool=-1` and filament in the
+bowden, `ACE_CHANGE_TOOL GATE=0` produced:
+
+```
+ACE[0]: Feeding 1200.0mm at 60.0mm/s, stopping on the toolhead entry sensor (timeout 40s)...
+ACE[0]: Stop feed successful: {'code': 0, 'msg': 'success'}
+ACE[0]: Toolhead entry sensor triggered after 19.5s of feeding - feed stopped
+```
+
+Stopped by the **sensor at 19.5s**, not by the 40s timeout, so the loop really is
+watching during the feed rather than checking afterwards. This is the claim the
+whole branch rests on, and it holds.
+
+**A full load has not yet been observed.** Two things blocked it, neither caused by
+this change:
+
+1. The ACE re-enumerated on USB **145 times** in a burst during the test, and the
+   EBB MCU dropped off the bus (shutdown and self-recovery via
+   `FIRMWARE_RESTART`). See the Phase 2 diagnostics section for how to tell this
+   apart from a real feed fault.
+2. Phase 2 hit its 80mm cap once — but on evidence that the ACE link was failing,
+   not that the cap is too small.
+
+Do not merge until a complete load is seen on a stable link.
+
+### The over-feed figure in this file is probably too high
+
+This plan says Phase 1 over-fed by about 150mm (1200 commanded against a 1050
+configured distance). The live run suggests otherwise: 19.5s at 60mm/s is about
+**1170mm** of actual travel, which against a 1050mm route implies roughly 30mm of
+over-feed, not 150mm.
+
+Caveat: the test started from `filament_pos='bowden'`, not from the park position,
+so this is not a clean measurement. Re-measure from a known park position before
+quoting a number. It does not change the value of the change — stopping at the
+sensor is still what leaves the filament at a known point — but the benefit is
+smaller than the plan implies, and the plan should not claim a figure it has not
+measured.
+
 ## What the unit tests do and do not cover
 
-Covered by `tests/test_closed_loop_feed.py` (24 cases, mutation-tested four
+Covered by `tests/test_closed_loop_feed.py` (27 cases, mutation-tested four
 ways):
 
 - the feed is issued before polling, and stopped on trigger, exactly once
@@ -219,25 +260,45 @@ filament starts Phase 2 *earlier* than before, and Phase 2 has more to do. Its w
 is bounded by `max_entry_to_nozzle_length` (**80** on this machine), a limit that
 was never exercised because over-feed had already covered the distance.
 
-### If Phase 2 now fails, this is what it looks like
+### If Phase 2 fails, read the diagnostics before changing anything
+
+An earlier version of this file said the cap was too small and to raise it to 150.
+**The first live test does not support that, and the advice is withdrawn.**
+
+The cap fired on 2026-10-18:
 
 ```
-ACE[0]: Filament failed to reach nozzle sensor after 80.0mm (safety limit: 80mm).
-        Check for jam, alignment, or obstruction.
+ACE[0]: Entry sensor reached. Building forward pressure (ACE: 16.0mm/s, Extruder: 8.0mm/s)...
+ACE[0]: Requesting feed speed change to 16.0mm/s (slot 0)
+ACE[0]: Filament failed to reach nozzle sensor after 80.0mm (safety limit: 80.0mm)
 ```
 
-If that appears, it is **not** a jam — it is the old cap being too small now that
-Phase 2 does the real move. The remedy is configuration, not code:
+There was no `Change feed speed not confirmed`, so the ACE accepted the speed
+change — and Phase 2 had only ever reported **14–18mm** before this change. If the
+real entry-to-nozzle distance were above 80mm, those historical runs could not have
+completed. So the cap is almost certainly *ample*, and something stopped the
+filament from advancing — most plausibly the ACE dropping off USB mid-move (145
+re-enumerations were recorded in one burst on that date).
 
-```ini
-[ace]
-max_entry_to_nozzle_length: 150
+The failure path now logs which it was:
+
+```
+ACE[0]: Phase 2 diagnostics - ACE link DISCONNECTED, feed assist index -1,
+        extruder moved 80.0mm at 8.0mm/s
 ```
 
-Measure first: the value to set is the actual distance from the toolhead entry
-sensor to the nozzle sensor. A sensible starting point is `4 ×` the largest figure
-Phase 2 ever reported before (18mm × 4 ≈ 72mm, so try 150 and reduce once the real
-distance is known from a successful run's reported value).
+Read that line first:
+
+| diagnostic | meaning |
+|---|---|
+| `ACE link DISCONNECTED` | The ACE was not pushing. The extruder was dragging filament that nothing was feeding, so the gears slipped. **Not** a cap problem — fix the link. |
+| `ACE link connected` | The ACE was pushing and the filament still did not arrive. Now the cap, a blockage, or a slipping extruder are all live. |
+
+Only raise `max_entry_to_nozzle_length` when the link was **connected**. And note
+that the setting is not purely a safety limit: `mmu_shim._extruder_only_length()`
+also uses it as the real travel distance for Happy Hare `EXTRUDER_ONLY` moves, so
+raising it makes those moves longer too. Measure the real distance before changing
+it.
 
 ### What this change does and does not fix — correcting an earlier claim
 

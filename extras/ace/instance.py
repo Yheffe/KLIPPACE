@@ -1195,14 +1195,33 @@ class AceInstance:
                     # Phase 1 now stops at the entry sensor instead of over-feeding
                     # past it, so since that change this cap is doing real work for
                     # the first time: it is the limit on how far the extruder will
-                    # assist the move from the entry sensor to the nozzle. If the
-                    # real entry-to-nozzle distance exceeds it, this fires on a
-                    # perfectly healthy filament path.
+                    # assist the move from the entry sensor to the nozzle.
+                    #
+                    # Record the ACE link state at the moment of failure. Without
+                    # it, a stopped ACE and an obstruction are indistinguishable
+                    # from the log: both leave the extruder pulling filament that
+                    # will not advance, and the gears simply slip. Observed on
+                    # 2026-10-18 - the distance limit was hit with no complaint
+                    # from the speed change, while the ACE was re-enumerating on
+                    # USB in bursts.
+                    link = (
+                        "connected" if self.serial_mgr.is_connected()
+                        else "DISCONNECTED"
+                    )
+                    self.gcode.respond_info(
+                        f"ACE[{self.instance_num}]: Phase 2 diagnostics - ACE link "
+                        f"{link}, feed assist index {self._feed_assist_index}, "
+                        f"extruder moved {accumulated_extruded:.1f}mm at "
+                        f"{step_speed:.1f}mm/s"
+                    )
                     raise ValueError(
                         f"ACE[{self.instance_num}]: Filament failed to reach nozzle sensor after "
                         f"{accumulated_extruded:.1f}mm (safety limit: {self.max_entry_to_nozzle_length}mm). "
-                        f"Either the path is obstructed, or max_entry_to_nozzle_length is smaller "
-                        f"than the real entry-sensor-to-nozzle distance - raise it in [ace] and retry."
+                        f"ACE link at failure: {link}. Either the path is obstructed, the extruder is "
+                        f"slipping because the ACE stopped pushing, or max_entry_to_nozzle_length is "
+                        f"smaller than the real entry-sensor-to-nozzle distance - check the Phase 2 "
+                        f"diagnostics line above and raise the limit in [ace] only if the ACE was "
+                        f"connected."
                     )
                 self._extruder_move(step_chunk, step_speed, wait_for_move_end=True)
                 accumulated_extruded += step_chunk

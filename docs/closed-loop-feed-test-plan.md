@@ -98,6 +98,38 @@ moving, waits `FEED_COMPLETE_GRACE_S` (1s) for the switch to settle, and hands o
 to feed-assist. Three tests cover it, including one that a late sensor trip inside
 the grace period still counts.
 
+### Measured park-to-sensor distance — and why the feed length changed
+
+Entry-sensor trip times recorded across one print, at 60mm/s:
+
+| trip | time | distance |
+|---|---|---|
+| 1 | 16.0s | 960mm |
+| 2 | 19.0s | 1140mm |
+| 3 | 19.4s | 1164mm |
+| 4 | 20.1s | **1206mm** |
+| 5 | 20.2s | **1212mm** |
+
+The command was **1200mm**: `max(toolchange_load_length 1100,
+parkposition_to_toolhead_length 1050 + 150)`.
+
+So the real park-to-sensor distance is about **1140–1212mm**, not the 1050mm the
+config claims, and two of five trips landed at or beyond the commanded length. On
+those loads the feed ran out exactly as the switch closed, the loop correctly
+reported `feed-complete`, and the 60s feed-assist fallback salvaged it.
+
+Before the closed loop, a tight margin was deliberate: the ACE ran the entire
+commanded length before anything looked at a switch, so extra length meant extra
+over-feed. **That constraint no longer applies** — the feed now stops on the
+sensor, so a generous margin costs nothing on a healthy load. It is now
+`toolhead_feed_margin`, default **400mm** (1450mm commanded), which covers the
+1212mm worst case with headroom and only bounds how far filament is pushed if the
+switch never trips — already a failure path.
+
+The 1050mm config value is still wrong; correct it once the true distance is
+measured from a known park position. It is no longer load-bearing now that the
+margin carries the uncertainty.
+
 ### The over-feed figure in this file is probably too high
 
 This plan says Phase 1 over-fed by about 150mm (1200 commanded against a 1050

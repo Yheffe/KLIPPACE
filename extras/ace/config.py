@@ -148,6 +148,22 @@ def read_ace_config(config):
     ace_config["max_entry_to_nozzle_length"] = config.getint(
         "max_entry_to_nozzle_length", 80
     )
+    # Extra length commanded past the configured park-position distance when
+    # feeding to the toolhead sensor.
+    #
+    # This only exists because the feed now stops on the sensor. Commanding a
+    # generous margin used to cause over-feed - the ACE ran the whole length
+    # before anything looked at a switch - so the margin was kept tight (+150mm)
+    # and that turned out to be too tight to be reliable: measured trips ranged
+    # 1140-1212mm against a 1200mm command, so the command ran out just as the
+    # sensor tripped and the load fell through to the 60s feed-assist fallback.
+    #
+    # With the closed loop the sensor ends the feed, so the margin costs nothing
+    # on a healthy load and only bounds the distance pushed if the switch never
+    # trips - which is already a failure path.
+    ace_config["toolhead_feed_margin"] = config.getint(
+        "toolhead_feed_margin", 400
+    )
     ace_config["ace_entry_feeding_speed"] = config.getint(
         "ace_entry_feeding_speed", 16
     )

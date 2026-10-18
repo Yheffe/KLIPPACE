@@ -395,6 +395,53 @@ class TestFeedCompleteWithoutSensor:
         assert "not moving" in joined, h.gcode.events
 
 
+class TestToolheadFeedMargin:
+    """The commanded length must exceed the real park-to-sensor distance.
+
+    Measured on 2026-10-18 across one print: the entry sensor tripped at
+    1140, 1164, 1206 and 1212mm, against a commanded 1200mm (a 1050mm
+    configured distance plus a 150mm margin). Two of the four trips were at or
+    past the command, so the feed ran out just as the switch closed and the load
+    fell through to the 60s feed-assist fallback.
+
+    A generous margin is only safe because the feed stops on the sensor - that is
+    the whole point of the closed loop. Without it, a large command means a large
+    over-feed.
+    """
+
+    @classmethod
+    def _src(cls):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "extras" / "ace" / "instance.py").read_text()
+
+    def test_margin_is_configurable(self):
+        assert "self.toolhead_feed_margin" in self._src(), (
+            "the feed margin must be configurable, not a literal"
+        )
+
+    def test_margin_default_exceeds_the_measured_distance(self):
+        """The default must cover the worst measured trip with headroom.
+
+        Worst observed travel was 1212mm. The configured park distance is
+        1050mm, so the margin must be at least ~162mm for that case - and more
+        for spool/path variation.
+        """
+        from extras.ace import config as cfg
+        import inspect
+        src = inspect.getsource(cfg)
+        assert '"toolhead_feed_margin", 400' in src, (
+            "the default margin must leave real headroom over the measured "
+            "1212mm worst case, or loads will keep falling back to feed-assist"
+        )
+
+    def test_margin_has_no_hardcoded_literal(self):
+        src = self._src()
+        assert "parkposition_to_toolhead_length + 150" not in src, (
+            "the old tight +150mm margin ran out exactly as the sensor tripped"
+        )
+
+
 class TestFeedRefusals:
     def test_forbidden_is_retried(self, feed_harness):
         # The sensor must trip well after the 1s retry backoff, otherwise the

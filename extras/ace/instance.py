@@ -142,6 +142,7 @@ class AceInstance:
         self.filament_runout_sensor_name_entry = ace_config.get("filament_runout_sensor_name_entry", None)
         self.filament_runout_sensor_name_nozzle = ace_config["filament_runout_sensor_name_nozzle"]
         self.max_entry_to_nozzle_length = float(ace_config.get("max_entry_to_nozzle_length", 80))
+        self.toolhead_feed_margin = float(ace_config.get("toolhead_feed_margin", 400))
         self.feed_speed = float(ace_config["feed_speed"])
         self.retract_speed = float(ace_config["retract_speed"])
         self.total_max_feeding_length = float(ace_config["total_max_feeding_length"])
@@ -1355,7 +1356,7 @@ class AceInstance:
         try:
             fast_feed_length = max(
                 self.toolchange_load_length,
-                self.parkposition_to_toolhead_length + 150
+                self.parkposition_to_toolhead_length + self.toolhead_feed_margin
             )
             self._feed_to_toolhead_with_extruder_assist(
                 local_slot,

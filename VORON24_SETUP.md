@@ -44,7 +44,9 @@ This guide walks you through setting up and running the **Anycubic ACE Pro** on 
 - **`filament_runout_sensor_name_nozzle: filament_nozzle_sensor`**: Lower toolhead sensor (`^EBB:PA15`) near the nozzle.
 - **`ace_entry_feeding_speed: 16`**: Once the entry sensor trips, the ACE continues actively pushing forward at 16 mm/s while the extruder steps forward at 8 mm/s (`extruder_feeding_speed`). This differential speed builds forward pressure inside the Bowden tube to overcome the mechanical resistance of the entry switch lever and seat firmly into the extruder drive gears.
 - **`extruder_feeding_speed: 8`**: Extruder rotational speed during coordinated entry to nozzle.
-- **`max_entry_to_nozzle_length: 80`**: Safety distance limit for coordinated feeding between the entry sensor and nozzle sensor.
+- **`parkposition_to_toolhead_length: 1050`**: Nominal distance from the park position to the entry sensor. The shipped value is a starting point — measure yours. On the reference Voron 2.4 the sensor actually trips around 1140–1212mm, so treat this as nominal rather than exact.
+- **`toolhead_feed_margin: 400`**: Extra length commanded on top of `parkposition_to_toolhead_length`. The load is sensor-terminated, so the feed stops when the switch trips and a generous margin costs nothing on a healthy load — it only sets how far the ACE pushes if the switch never triggers, which is already a failure path. **Raise this if toolchanges repeatedly fall through to feed-assist**; the log will show `reason=feed-complete` or `reason=timeout`.
+- **`max_entry_to_nozzle_length: 80`**: Safety distance limit for coordinated feeding between the entry sensor and nozzle sensor. Note this is also the travel distance used for Happy Hare `EXTRUDER_ONLY` moves, so raising it lengthens those too.
 - **`toolhead_full_purge_length: 50`**: Distance to push through the nozzle to prime.
 
 ---

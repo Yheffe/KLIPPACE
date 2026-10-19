@@ -50,6 +50,7 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - **Universal Kinematics** – Seamlessly operates on CoreXY flying gantries (Voron 2.4), fixed gantry / bed-slingers (Kobra, Ender, Sovol), and dual-gantry setups.
 - **Multi-ACE Chaining** – Drives multiple ACE Pro units from a single manager, one `AceInstance` per unit, with tool numbers and gate indices assigned in unit order. Set the count with `ace_count` in `[ace]`; the code enforces no upper bound, though the shipped profiles configure 1–2 units. **Only one connected unit has been tested on hardware** — treat multi-unit setups as unverified and check gate ordering before relying on them.
 - **Dual-Sensor Toolhead Coordination** – Coordinated entry and seating using both an upper entry sensor (`EBB:PD0`) and lower nozzle sensor (`EBB:PA15`).
+- **Sensor-Terminated Feeding** – The ACE feed is stopped the moment the toolhead entry sensor trips, instead of running a fixed commanded length and only then checking the switch. Filament therefore ends up at a *known* point on both success and failure, the stated length no longer has to be exact, and a failed load no longer leaves the filament at an unknown place in a metre of Bowden tube.
 - **Differential Forward Pressure Feeding** – Pushes from the ACE at differential speeds (`ace_entry_feeding_speed: 16` vs `extruder_feeding_speed: 8`) to overcome mechanical switch friction and seat firmly into extruder drive gears (e.g. WW BMG).
 - **Splitter Auto-Park (Path A)** – Automatically rewinds 400mm on spool insertion (`spool_load_park_retract_length: 400`), safely parking the filament tip ~50mm before a passive 4-in-1 splitter so other slots can feed without collisions.
 - **Coordinated Dual-Blob Toolchanging (Voron 2.4 Profile)**:
@@ -480,9 +481,49 @@ panel toolbar instead of the card title).
 > [!NOTE]
 > The card's CSS lives in `acepro-mmu-dashboard/web/klippace-tool-mapper.css`, linked into
 > Fluidd's `index.html` by `install.sh`. `klippace-tool-mapper.js` injects the `<link>`
-> itself if it is missing, so a manual install or a Fluidd update that replaces
-> `index.html` will not leave the card unstyled. Edit the `.css` — do not inline styles
-> back into the JS.
+> itself if it is missing, so removing a stylesheet alone will not leave the card
+> unstyled. Edit the `.css` — do not inline styles back into the JS.
+
+#### Updating Fluidd or Mainsail removes the card
+
+Fluidd and Mainsail ship their **whole UI directory** on update. Every KLIPPACE symlink is
+deleted, and `index.html` is replaced with the stock file — so the card disappears
+completely. This is not a bug in either UI; there is simply nowhere for an out-of-tree
+extension to survive a wholesale directory replacement.
+
+`scripts/deploy.sh` repairs this. It checks for the card on every run and, if a UI update
+removed it, re-links the files and re-patches `index.html`:
+
+```
+== Web assets
+   info  fluidd is missing the card (UI update?) - reinstalling
+   ok    fluidd klippace-tool-mapper.js linked
+   ...
+   ok    Injected Tool Mapper into fluidd index.html
+```
+
+So the sequence after any UI update is simply:
+
+```bash
+cd /home/pi/KLIPPACE && ./scripts/deploy.sh
+```
+
+then **hard-refresh the browser** (`Ctrl + F5`, or `Cmd + Shift + R` on macOS). A normal
+reload will not do: the browser caches `index.html`, so it keeps loading the stock page
+even though the server is now serving the patched one. If the card is still absent after
+that, confirm the server side directly:
+
+```bash
+curl -s http://localhost/index.html | grep klippace           # expect a link and a script
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost/klippace-tool-mapper.js
+```
+
+> [!TIP]
+> Fluidd's new MMU card and KLIPPACE's card are different things. Fluidd v1.37+ renders
+> Happy Hare's own unit card (Preload / Eject / Recover buttons) whenever an `mmu` object
+> exists, alongside the KLIPPACE card. The `ACE Pro` switch in Fluidd's macro panel is the
+> `output_pin ACE_Pro` toggle, not the KLIPPACE card either. Look for the four colour
+> swatches from `klippace-tool-mapper.js`.
 
 ### Moonraker Update Manager Integration
 
@@ -609,6 +650,56 @@ an unattended update will reflash hardware without confirmation.
   extruder_feeding_speed: 8
   ```
 - The ACE feeding faster than the extruder builds forward Bowden tension that effortlessly pushes past the switch lever.
+
+### Toolhead Load Times Out, Then Succeeds on Feed-Assist
+Symptoms in `klippy.log`:
+
+```
+ACE[0]: Feeding 1200.0mm at 60.0mm/s, stopping on the toolhead entry sensor (timeout 40s)...
+ACE[0]: Toolhead entry sensor not triggered after feed (40.0s, reason=feed-complete)
+ACE[0]: Toolhead entry sensor finally triggered after 60s of feed-assist
+```
+
+The toolchange still succeeds — feed-assist recovers it — but each affected load
+costs up to a minute. The load is **sensor-terminated**: the ACE feeds until the
+entry switch trips, so the commanded length only has to be long enough to reach it.
+
+If the command runs out first, the filament has not arrived and there is nothing
+left to push. Two settings govern this:
+
+```ini
+# ace_voron24_setting.cfg
+parkposition_to_toolhead_length: 1050   # nominal distance, park -> entry sensor
+toolhead_feed_margin: 400               # extra length commanded beyond it
+```
+
+The commanded length is `max(toolchange_load_length, parkposition_to_toolhead_length +
+toolhead_feed_margin)`. Raise `toolhead_feed_margin` if loads keep falling through to
+feed-assist — a longer command is free, because the sensor stops the feed. Measured
+trips on one Voron 2.4 ranged **1140–1212mm**, which is why the default margin is
+generous rather than minimal.
+
+If the message instead says `reason=feed-complete` **and** the entry sensor then
+triggers during feed-assist, the filament is slipping rather than being badly
+measured — check the spool is seated and the filament is not bound on the reel.
+
+### `Phase 2 diagnostics` and `max_entry_to_nozzle_length`
+The second half of a load (entry sensor → nozzle sensor) is bounded by
+`max_entry_to_nozzle_length`. When it is exceeded the log reports why:
+
+```
+ACE[0]: Phase 2 diagnostics - ACE link connected, feed assist index 0,
+        extruder moved 80.0mm at 8.0mm/s
+```
+
+- **`ACE link connected`** — the ACE was pushing and the filament still did not
+  arrive: a blockage, a slipping extruder, or a genuinely short limit.
+- **`ACE link DISCONNECTED`** — the ACE had dropped off USB, so the extruder was
+  dragging filament nothing was feeding. Fix the link, not the setting.
+
+Only raise `max_entry_to_nozzle_length` when the link was **connected**. It is not
+purely a safety limit: Happy Hare's `EXTRUDER_ONLY` moves use the same value as the
+real travel distance, so raising it also makes those moves longer.
 
 ### Filament Hits Splitter on Multi-Spool Load
 - Ensure `spool_load_park_retract_length: 400` is configured in `ace_voron24_setting.cfg`.

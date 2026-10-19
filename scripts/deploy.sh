@@ -413,7 +413,23 @@ else
   print_success() { ok "$*"; }
   print_warning() { warn "$*"; }
   print_error()   { bad "$*"; }
-  create_or_replace_symlink() { :; }
+  # real implementation: the card must survive a UI update, which replaces the
+  # UI directory wholesale and therefore deletes every symlink we put in it.
+  create_or_replace_symlink() {
+    local source="$1"
+    local target="$2"
+    local description="$3"
+
+    [ -e "${source}" ] || return 1
+
+    if [ -L "${target}" ] && [ "$(readlink "${target}")" = "${source}" ]; then
+      return 0
+    fi
+    mkdir -p "$(dirname "${target}")" 2>/dev/null || true
+    ln -sfn "${source}" "${target}" 2>/dev/null || return 1
+    ok "${description} linked"
+    return 0
+  }
   # shellcheck source=/dev/null
   . "${WEB_LIB}"
 
@@ -425,6 +441,23 @@ else
       *" ${real} "*) continue ;;
     esac
     SEEN_DIRS="${SEEN_DIRS} ${real}"
+
+    if [ "${DRY_RUN}" -eq 1 ]; then
+      skip "would ensure the card is installed in ${dir}"
+      continue
+    fi
+
+    # Re-install if a UI update removed the card. Fluidd and Mainsail ship their
+    # whole directory on update: our symlinks disappear and index.html reverts to
+    # stock. Nothing regenerates them, so before this the card vanished on every
+    # UI update and stayed gone until someone re-ran the installer. Both steps
+    # are idempotent, so this also covers a partially-wiped directory.
+    if [ ! -e "${dir}/klippace-tool-mapper.js" ] \
+       || ! grep -q "${KLIPPACE_INDEX_MARKER}" "${dir}/index.html" 2>/dev/null; then
+      say "   info  $(basename "${dir}") is missing the card (UI update?) - reinstalling"
+      link_klippace_web_files "${REPO_DIR}/acepro-mmu-dashboard/web" "${dir}" "$(basename "${dir}")" || true
+      patch_klippace_index_html "${dir}" "$(basename "${dir}")" || true
+    fi
 
     before="$(_klippace_card_version "${dir}")"
     if [ "${DRY_RUN}" -eq 1 ]; then

@@ -1139,6 +1139,43 @@ class AceInstance:
             self.manager.get_entry_switch_state, timeout_s,
         )
 
+        # A feed cannot finish faster than the filament can physically travel.
+        #
+        # Observed 2026-10-24: a 1450mm request at 60mm/s (~24s of travel) came
+        # back "complete" in 0.1s and the entry sensor never moved. The ACE had
+        # acknowledged the command without feeding, because slot 0's gear
+        # selector was stuck in the `shifting` state and could not select that
+        # spool. The old code treated that as an ordinary failure and spent the
+        # next two minutes on feed-assist plus a wait_ready timeout before
+        # reporting anything useful.
+        #
+        # Anything under a tenth of the expected travel time cannot be a real
+        # feed: it would mean the ACE moved less than 145mm of a 1450mm path
+        # while reporting the whole length done. The observed fault took 0.4% of
+        # the expected time, so this threshold separates the two cases with a
+        # wide margin rather than sitting close to a genuine fast feed.
+        expected_feed_s = feed_length / feed_speed if feed_speed > 0 else 0
+        if (outcome["reason"] == "feed-complete"
+                and expected_feed_s > 1.0
+                and outcome["elapsed"] < expected_feed_s * 0.10):
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Slot {local_slot} accepted a "
+                f"{feed_length:.0f}mm feed but completed it in "
+                f"{outcome['elapsed']:.1f}s - that is about "
+                f"{expected_feed_s:.0f}s of travel at {feed_speed:.0f}mm/s. "
+                f"The ACE cannot be moving filament, so feed-assist will not "
+                f"help either."
+            )
+            raise ValueError(
+                f"ACE[{self.instance_num}]: ACE acknowledged a {feed_length:.0f}mm feed on "
+                f"slot {local_slot} but finished in {outcome['elapsed']:.1f}s instead of "
+                f"~{expected_feed_s:.0f}s, so no filament was moved. This is a hardware "
+                f"fault, not a jam: the slot's gear selector is most likely stuck. "
+                f"Run ACE_QUERY_SLOTS and look for a slot that is not 'ready' "
+                f"(shifting / gear_err / tmc_err) - those clear only with a power cycle "
+                f"of the ACE."
+            )
+
         if outcome["triggered"]:
             # Distinguish the two successes. "already-triggered" issued no feed
             # at all, so reporting an elapsed feeding time would be misleading

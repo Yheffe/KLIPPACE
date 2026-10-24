@@ -442,6 +442,62 @@ class TestToolheadFeedMargin:
         )
 
 
+class TestImpossibleFeedCompletion:
+    """A feed cannot complete faster than the filament can physically travel.
+
+    Observed 2026-10-24: 1450mm at 60mm/s (~24s) came back complete in 0.1s and
+    the entry sensor never moved. Slot 0's gear selector was stuck in the ACE
+    `shifting` state, so the unit acknowledged the command without feeding.
+
+    Treating that as an ordinary failure cost ~2 minutes (feed-assist plus a
+    wait_ready timeout) before anything useful was reported, and the eventual
+    message blamed the toolhead rather than the ACE.
+    """
+
+    @classmethod
+    def _src(cls):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "extras" / "ace" / "instance.py").read_text()
+
+    def _guard(self):
+        src = self._src()
+        start = src.index("expected_feed_s = feed_length / feed_speed")
+        end = src.index("if outcome[\"triggered\"]:", start)
+        return src[start:end]
+
+    def test_implausibly_fast_completion_raises(self):
+        block = self._guard()
+        assert "raise ValueError" in block, block
+        assert 'outcome["reason"] == "feed-complete"' in block, block
+
+    def test_guard_only_fires_below_a_tenth_of_expected_time(self):
+        """Must not reject a genuinely fast-but-real feed.
+
+        A quarter was tried first and rejected: at 1450mm/60mm/s (~24s) a
+        three-second feed tripped it, which is a plausible real feed. A tenth
+        still separates the observed 0.1s fault (0.4% of expected) with a wide
+        margin.
+        """
+        block = self._guard()
+        assert "0.10" in block, (
+            f"the threshold must be a fraction of expected travel time: {block}"
+        )
+
+    def test_message_points_at_the_gear_selector_not_a_jam(self):
+        block = self._guard()
+        assert "gear selector" in block or "gear" in block, block
+        assert "ACE_QUERY_SLOTS" in block, (
+            "the operator needs the command that names the stuck slot"
+        )
+        assert "power cycle" in block or "hardware" in block, block
+
+    def test_guard_is_skipped_for_very_short_feeds(self):
+        """Sub-second feeds have too little signal to judge."""
+        block = self._guard()
+        assert "expected_feed_s > 1.0" in block, block
+
+
 class TestFeedRefusals:
     def test_forbidden_is_retried(self, feed_harness):
         # The sensor must trip well after the 1s retry backoff, otherwise the

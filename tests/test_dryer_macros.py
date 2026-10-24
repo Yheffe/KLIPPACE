@@ -1,6 +1,6 @@
-"""The dryer macros: unit conversion and the print-end stop.
+"""The dryer macros: unit conversion, chamber labelling, and the print-end stop.
 
-Two bugs, both silent:
+Three bugs, all silent:
 
 1. ``DRYER_STATUS`` printed ``dryer_remain_time`` as minutes.  The ACE reports
    ``duration`` in minutes but ``remain_time`` in **seconds** — the two are passed
@@ -17,7 +17,16 @@ Two bugs, both silent:
    for a 240-minute cycle.  14191 seconds is 236 minutes, so the label was right
    about the number and wrong about the unit by a factor of 60.
 
-2. ``PRINT_END`` never stopped the dryer.  ``PRINT_START`` can start one from
+2. ``DRYER_STATUS`` labelled the ACE's own temperature ``Chamber Temp``.  There
+   are two unrelated probes: ``mmu.unit[].temp`` is the drying enclosure where
+   the spools sit (``temperature_sensor ace_dryer``), while
+   ``temperature_sensor chamber`` is the *printer's* heated chamber -- the one
+   ``PRINT_START`` soaks to ``TARGET_CHAMBER``.  Observed live 2026-10-24 with the
+   ACE at 34.0°C and the printer chamber at 22.8°C: an 11°C error in whichever
+   reading you believed you were looking at.  They are now printed as separate,
+   correctly named lines.
+
+3. ``PRINT_END`` never stopped the dryer.  ``PRINT_START`` can start one from
    ``DRYER_TEMP`` / ``DRYER_MATERIAL``, and the default 240-minute cycle easily
    outlives the print, leaving the chamber heater running unattended.
 
@@ -110,10 +119,31 @@ def _unit(**overrides):
     return unit
 
 
+def _dryer_objects(unit, chamber_c=22.79, **overrides):
+    """Printer status for DRYER_STATUS: one ACE unit plus a chamber sensor.
+
+    The two temperatures are deliberately far apart, so a test that confuses
+    them cannot accidentally pass.
+    """
+    objects = {
+        "mmu": {"unit": [unit]},
+        "temperature_sensor chamber": {"temperature": chamber_c},
+    }
+    objects.update(overrides)
+    return objects
+
+
 def _status_report(info):
-    """The single line DRYER_STATUS actually prints for the unit."""
-    lines = [m for m in info if "Chamber Temp" in m]
-    assert len(lines) == 1, f"expected one status line, got {info}"
+    """The line DRYER_STATUS prints for the ACE unit itself."""
+    lines = [m for m in info if m.startswith("ACE Dryer:")]
+    assert len(lines) == 1, f"expected one ACE dryer line, got {info}"
+    return lines[0]
+
+
+def _chamber_report(info):
+    """The line DRYER_STATUS prints for the printer chamber."""
+    lines = [m for m in info if m.startswith("Printer Chamber:")]
+    assert len(lines) == 1, f"expected one chamber line, got {info}"
     return lines[0]
 
 
@@ -175,9 +205,9 @@ class TestRemainingTimeIsConvertedFromSeconds:
     def test_zero_seconds_is_zero_minutes(self):
         _, info = _render(
             ACE_MACROS_CFG, "DRYER_STATUS",
-            {"mmu": {"unit": [_unit(dryer_status="stop", dryer_remain_time=0)]}},
+            _dryer_objects(_unit(dryer_status="stop", dryer_remain_time=0)),
         )
-        assert "Chamber Temp" in _status_report(info)
+        assert "ACE Dryer:" in _status_report(info)
 
 
 class TestIdleDryerShowsNoStaleTime:
@@ -196,14 +226,69 @@ class TestIdleDryerShowsNoStaleTime:
     def test_status_and_target_are_still_reported(self):
         _, info = _render(
             ACE_MACROS_CFG, "DRYER_STATUS",
-            {"mmu": {"unit": [_unit(dryer_status="drying",
-                                    dryer_target_temp=55,
-                                    dryer_remain_time=600)]}},
+            _dryer_objects(_unit(dryer_status="drying",
+                                 dryer_target_temp=55,
+                                 dryer_remain_time=600)),
         )
         line = _status_report(info)
-        assert "32.5" in line, line          # chamber temp
-        assert "55" in line, line            # target
+        assert "32.5" in line, line          # ACE temperature
+        assert "55" in line, line            # dryer target
         assert "DRYING" in line, line        # status, upper-cased
+
+
+class TestChamberIsThePrinterNotTheAce:
+    """The ACE's own chamber and the printer enclosure are different sensors.
+
+    ``mmu.unit[].temp`` is the drying enclosure where the spools sit
+    (``temperature_sensor ace_dryer``).  The printer's heated chamber is
+    ``temperature_sensor chamber`` and is the one PRINT_START soaks to
+    TARGET_CHAMBER.  Labelling the ACE reading "Chamber Temp" pointed the
+    operator at the wrong box.
+    """
+
+    def test_both_temperatures_are_reported(self):
+        _, info = _render(
+            ACE_MACROS_CFG, "DRYER_STATUS",
+            _dryer_objects(_unit(temp=34.0), chamber_c=22.8),
+        )
+        assert "34.0" in _status_report(info), info
+        assert "22.8" in _chamber_report(info), info
+
+    def test_the_ace_reading_is_not_labelled_as_the_chamber(self):
+        """THE BUG: 34.0C from the ACE was presented as the chamber temp."""
+        _, info = _render(
+            ACE_MACROS_CFG, "DRYER_STATUS",
+            _dryer_objects(_unit(temp=34.0), chamber_c=22.8),
+        )
+        assert "Chamber" not in _status_report(info), (
+            f"the ACE temperature must not be presented as the chamber: {info}"
+        )
+        assert "34.0" not in _chamber_report(info), (
+            f"the chamber line must not show the ACE temperature: {info}"
+        )
+
+    def test_the_two_are_printed_independently(self):
+        """Changing one must not move the other."""
+        _, info = _render(
+            ACE_MACROS_CFG, "DRYER_STATUS",
+            _dryer_objects(_unit(temp=60.0), chamber_c=45.5),
+        )
+        assert "60.0" in _status_report(info), info
+        assert "45.5" in _chamber_report(info), info
+        assert "45.5" not in _status_report(info), info
+        assert "60.0" not in _chamber_report(info), info
+
+    def test_a_missing_chamber_sensor_does_not_break_the_report(self):
+        """Not every KLIPPACE machine has a chamber probe."""
+        objects = _dryer_objects(_unit(temp=34.0))
+        objects.pop("temperature_sensor chamber")
+
+        _, info = _render(ACE_MACROS_CFG, "DRYER_STATUS", objects)
+
+        assert "34.0" in _status_report(info), info
+        assert "n/a" in _chamber_report(info), (
+            f"say the probe is missing rather than showing 0.0C: {info}"
+        )
 
 
 class TestStatusSurvivesAMissingMmu:
@@ -214,7 +299,7 @@ class TestStatusSurvivesAMissingMmu:
         assert "ACE_GET_STATUS" in rendered, (
             f"expected the fallback command, got {rendered!r}"
         )
-        assert not [m for m in info if "Chamber Temp" in m]
+        assert not [m for m in info if m.startswith("ACE Dryer:")]
 
     def test_an_mmu_without_units_falls_back_the_same_way(self):
         rendered, _ = _render(ACE_MACROS_CFG, "DRYER_STATUS", {"mmu": {}})

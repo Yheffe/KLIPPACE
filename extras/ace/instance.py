@@ -767,21 +767,30 @@ class AceInstance:
                 every attempt.
         """
         for attempt in range(1, MAX_RETRIES + 1):
-            self.wait_ready()
-
-            # If the sensor is already satisfied, do not issue a feed at all.
+            # Check the sensor BEFORE asking the ACE anything.
             #
-            # The toolchange path calls in with check_pre_condition=False, so
-            # unlike the guarded callers there is nothing upstream to reject an
-            # already-loaded toolhead. Commanding a feed here would push filament
-            # that has nowhere to go - which is the same over-feed this whole
-            # change exists to prevent, just at a different point.
+            # This used to call wait_ready() first, which cost 60 seconds and
+            # then raised whenever the ACE was busy - even though the answer was
+            # already known and the ACE was not needed at all. Observed
+            # 2026-10-24: the filament was sitting at the entry sensor (sensor
+            # True) while slot 0's gear selector was stuck in `shifting`, so
+            # every toolchange blocked for a minute and failed without ever
+            # looking at the sensor it had already satisfied.
+            #
+            # If the sensor is already acted on, there is nothing to feed and
+            # nothing to ask the ACE. The toolchange path calls in with
+            # check_pre_condition=False, so unlike the guarded callers there is
+            # nothing upstream to reject an already-loaded toolhead; commanding a
+            # feed here would push filament that has nowhere to go, which is the
+            # same over-feed this whole change exists to prevent.
             if sensor_fn():
                 return {
                     "triggered": True,
                     "reason": "already-triggered",
                     "elapsed": 0.0,
                 }
+
+            self.wait_ready()
 
             feed_response = {"response": None}
 

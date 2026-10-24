@@ -545,12 +545,45 @@ class TestFeedRefusals:
             f"must give up after MAX_RETRIES, not loop: {len(h.feed_calls)}"
         )
 
-    def test_wait_ready_before_each_attempt(self, feed_harness):
-        h = feed_harness(sensor_after_seconds=1001.0, forbidden_times=1)
+    def test_wait_ready_before_each_feed(self, feed_harness):
+        """Every *feed* must be preceded by wait_ready - not every attempt.
+
+        The sensor check now runs first (see TestSensorCheckedBeforeAce), so an
+        attempt that short-circuits on an already-satisfied sensor legitimately
+        never touches the ACE. Requiring wait_ready per attempt would force a
+        pointless 60s round-trip against a busy unit.
+        """
+        h = feed_harness(sensor_after_seconds=None, forbidden_times=1,
+                         timeout_s=2.0)
         _run_feed(h)
-        assert h.events.count("wait_ready") >= 2, (
-            "the ACE must be ready before commanding a feed, each attempt"
+
+        events = h.events
+        for i, ev in enumerate(events):
+            if ev != "feed":
+                continue
+            assert "wait_ready" in events[:i], (
+                f"a feed was issued before the ACE was ready: {events}"
+            )
+        assert events.count("feed") >= 2, (
+            f"expected a retry after FORBIDDEN: {events}"
         )
+
+    def test_sensor_short_circuit_skips_the_ace_entirely(self, feed_harness):
+        """An already-triggered sensor must not wait on a busy ACE.
+
+        Observed 2026-10-24: filament sat at the entry sensor while slot 0's
+        gear selector was stuck in `shifting`. Every toolchange called
+        wait_ready() first, blocked 60s, raised - and never looked at the sensor
+        it had already satisfied.
+        """
+        h = feed_harness(sensor_after_seconds=1000.0)   # already triggered
+        out = _run_feed(h)
+
+        assert out["reason"] == "already-triggered", out
+        assert "wait_ready" not in h.events, (
+            f"the ACE was consulted even though the sensor was satisfied: {h.events}"
+        )
+        assert "feed" not in h.events, h.events
 
 
 # --------------------------------------------------------------------------

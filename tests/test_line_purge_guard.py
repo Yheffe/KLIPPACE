@@ -1,4 +1,4 @@
-"""Guard: LINE_PURGE must refuse to extrude with no filament loaded.
+"""Guard: LINE_PURGE must refuse to extrude unless filament is at the nozzle.
 
 PRINT_START runs LINE_PURGE immediately after ACE_ON_PRINT_START.  If the initial
 tool load failed in there, the purge used to extrude a 20mm line onto the bed
@@ -8,6 +8,16 @@ pumpkin_PLA_7h45m.gcode:
     ACE: Initial toolchange failed, cancel print and switching extruder heater off
     ACE_CHANGE_TOOL error: Tool change to TNone failed during startup: ...
     Adaptive Purge: (168.7, 42.2) -> (198.7, 42.2), Extruding 20.0mm   <- purged anyway
+
+The guard was later found too permissive.  It tested `tool < 0 and not sensor`,
+where sensor meant entry OR nozzle, so it let two unsafe cases through:
+
+  * filament at the entry sensor only, still short of the nozzle, and
+  * a recorded tool index while both switches said otherwise.
+
+Observed live 2026-10-24: ace_current_index=0, entry=True, nozzle=False - exactly
+the state that used to purge.  A recorded index is a cache; the nozzle switch is
+the measurement, so the switch now wins.
 
 These tests render the *real* ``LINE_PURGE`` body out of ``VORON/printer.cfg``
 with Klipper's own Jinja settings, so deleting or inverting the guard fails them.
@@ -132,14 +142,22 @@ class TestGuardBlocks:
         assert "ace_current_index=-1" in msg, msg
         assert "tool load" in msg, msg
 
-    def test_one_sensor_showing_filament_is_enough_to_allow(self):
-        """OR, not AND: a single sensor vouching for filament must permit it."""
+    def test_entry_sensor_alone_is_not_enough(self):
+        """Filament at the entry sensor is still short of the nozzle.
+
+        This used to be asserted as allowed ("OR, not AND: a single sensor
+        vouching for filament must permit it"). That was wrong: the first
+        extrusion then has to drag the filament the rest of the way, so the first
+        layer can start under-extruded or dry. Observed live 2026-10-24 with
+        ace_current_index=0, entry=True, nozzle=False.
+        """
         objects = _base_objects(
             **{"filament_switch_sensor filament_entry_sensor": {"filament_detected": True}}
         )
         result, raised, _ = _render_line_purge(objects)
-        assert not raised, raised
-        assert result and "G92 E0" in result
+        assert raised, "entry filament but a clear nozzle must refuse"
+        assert "nozzle sensor is CLEAR" in raised[0], raised[0]
+        assert result is None, "no gcode should be emitted when refusing"
 
     def test_nozzle_sensor_alone_also_allows(self):
         objects = _base_objects(
@@ -148,14 +166,29 @@ class TestGuardBlocks:
         _, raised, _ = _render_line_purge(objects)
         assert not raised, raised
 
+    def test_recorded_tool_with_clear_nozzle_sensor_refuses(self):
+        """Saved state must not outvote the switch that contradicts it."""
+        objects = _base_objects()
+        objects["save_variables"] = {"variables": {"ace_current_index": 0}}
+        result, raised, _ = _render_line_purge(objects)
+        assert raised, (
+            "a recorded tool index with a clear nozzle sensor must refuse: the "
+            "index is a cache, the switch is the measurement"
+        )
+        assert "nozzle sensor is CLEAR" in raised[0], raised[0]
+        assert result is None
+
 
 # --------------------------------------------------------------------------
 # the guard stays out of the way
 # --------------------------------------------------------------------------
 
 class TestGuardAllows:
-    def test_tool_recorded_in_save_variables_allows(self):
-        objects = _base_objects()
+    def test_tool_recorded_in_save_variables_allows_when_nozzle_confirms(self):
+        """A recorded tool is fine only once the nozzle sensor agrees."""
+        objects = _base_objects(
+            **{"filament_switch_sensor filament_nozzle_sensor": {"filament_detected": True}}
+        )
         objects["save_variables"] = {"variables": {"ace_current_index": 2}}
         result, raised, _ = _render_line_purge(objects)
         assert not raised, raised
@@ -235,14 +268,18 @@ class TestGuardPresent:
         assert "action_raise_error" in body, "the guard no longer aborts"
 
     def test_the_purge_still_emits_its_extrusion(self):
-        objects = _base_objects()
+        objects = _base_objects(
+            **{"filament_switch_sensor filament_nozzle_sensor": {"filament_detected": True}}
+        )
         objects["save_variables"] = {"variables": {"ace_current_index": 1}}
         result, _, _ = _render_line_purge(objects)
         assert "E20.0" in result, result          # default PURGE_AMOUNT
         assert "STATE_LINE_PURGE" in result
 
     def test_purge_params_are_honoured(self):
-        objects = _base_objects()
+        objects = _base_objects(
+            **{"filament_switch_sensor filament_nozzle_sensor": {"filament_detected": True}}
+        )
         objects["save_variables"] = {"variables": {"ace_current_index": 1}}
         result, _, _ = _render_line_purge(objects, {"PURGE_AMOUNT": 42.0})
         assert "E42.0" in result, result

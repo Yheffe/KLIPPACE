@@ -1949,6 +1949,10 @@ class AceManager:
             filament_pos = self.state.get("ace_filament_pos", FILAMENT_STATE_BOWDEN)
 
             sensor_has_filament = self.get_switch_state(SENSOR_TOOLHEAD)
+            # The entry switch proves filament reached the toolhead; only the
+            # nozzle switch proves it reached the melt zone. When one is fitted
+            # it is the authority - see get_nozzle_switch_state().
+            at_nozzle = self.get_nozzle_switch_state()
 
             if self.has_rdm_sensor():
                 rdm_has_filament = self.get_switch_state(SENSOR_RDM)
@@ -1973,7 +1977,7 @@ class AceManager:
                     )
 
             if filament_pos == FILAMENT_STATE_NOZZLE:
-                if sensor_has_filament:
+                if at_nozzle:
                     # State matches sensor - tool is truly loaded
                     # Ensure feed assist is active for this tool (may have been lost after ACE power cycle)
                     target_instance = get_instance_from_tool(target_tool)
@@ -2001,9 +2005,19 @@ class AceManager:
 
                     return f"Tool {target_tool} (already loaded)"
                 else:
-                    # State says loaded but sensor is EMPTY - state is WRONG
+                    # State says loaded but the nozzle is not. The state is WRONG
+                    # and must not be trusted just because the entry switch is
+                    # triggered - that only means the filament stopped short of
+                    # the melt zone. Correct the state and fall through to the
+                    # normal load, whose closed-loop feed resumes from the entry
+                    # sensor and seats the filament at the nozzle.
+                    if sensor_has_filament:
+                        detail = "filament is at the toolhead entry, short of the nozzle"
+                    else:
+                        detail = "no filament at the toolhead"
                     self.gcode.respond_info(
-                        "ACE: ✗ STATE MISMATCH - filament_pos='nozzle' but sensor is EMPTY! "
+                        "ACE: ✗ STATE MISMATCH - filament_pos='nozzle' but the "
+                        f"nozzle sensor is CLEAR - {detail}! "
                         "Correcting state and proceeding with normal load."
                     )
                     if self.get_switch_state(SENSOR_RDM):
@@ -2025,10 +2039,13 @@ class AceManager:
                 f"filament_pos='{filament_pos}', checking sensors..."
             )
 
-            # Check toolhead sensor, if it shows filament we assume tool is loaded and persiststate was wrong
-            if sensor_has_filament:
+            # Only promote the state to 'nozzle' when the nozzle switch agrees.
+            # Using the entry switch here is what used to write
+            # filament_pos='nozzle' while the filament was still short of the melt
+            # zone, which then made every later check believe the tool was loaded.
+            if at_nozzle:
                 self.gcode.respond_info(
-                    "ACE: Toolhead sensor triggered - filament present. Correcting state to 'nozzle'"
+                    "ACE: Nozzle sensor triggered - filament present. Correcting state to 'nozzle'"
                 )
                 self.state.set("ace_filament_pos", FILAMENT_STATE_NOZZLE)
                 return f"Tool {target_tool} (state corrected)"

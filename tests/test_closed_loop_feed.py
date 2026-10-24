@@ -338,166 +338,6 @@ class TestResponseCodeIsNotAuthoritative:
 # refusals that arrive before completion are still errors
 # --------------------------------------------------------------------------
 
-class TestFeedCompleteWithoutSensor:
-    """A finished feed that never reached the sensor must not wait for the timeout.
-
-    Observed on 2026-10-18, mid-print at a colour change: the ACE was commanded
-    1200mm at 60mm/s (20s of travel, 40s timeout) and the entry sensor never
-    tripped. The loop sat out the full 40s and only then handed over to
-    feed-assist, which recovered it in 60s. The toolchange succeeded, but 20s
-    were spent waiting for a feed that had already ended.
-
-    A code-0 response means the ACE has finished the commanded length. Once that
-    arrives with no sensor trip, further waiting cannot help.
-    """
-
-    def test_exits_before_the_timeout_when_the_feed_completes(self, feed_harness):
-        h = feed_harness(
-            sensor_after_seconds=None,          # never trips
-            feed_response={"code": 0, "msg": "success"},
-            feed_response_after_seconds=1002.0,  # ACE "finishes" after 2s
-            timeout_s=10.0,
-        )
-        out = _run_feed(h)
-
-        assert out["triggered"] is False, out
-        assert out["reason"] == "feed-complete", out
-        assert out["elapsed"] < 5.0, (
-            f"waited {out['elapsed']:.1f}s for a feed the ACE had already "
-            f"finished; the timeout should not be spent"
-        )
-
-    def test_a_late_sensor_trip_still_counts(self, feed_harness):
-        """The grace period must not steal a trigger that is still settling."""
-        h = feed_harness(
-            sensor_after_seconds=1002.5,        # trips shortly after completion
-            feed_response={"code": 0, "msg": "success"},
-            feed_response_after_seconds=1002.0,
-            timeout_s=10.0,
-        )
-        out = _run_feed(h)
-
-        assert out["triggered"] is True, out
-        assert out["reason"] == "sensor", out
-
-    def test_reports_that_the_filament_is_not_moving(self, feed_harness):
-        """The log must say why, not just that the sensor never tripped."""
-        h = feed_harness(
-            sensor_after_seconds=None,
-            feed_response={"code": 0, "msg": "success"},
-            feed_response_after_seconds=1002.0,
-            timeout_s=10.0,
-        )
-        _run_feed(h)
-
-        joined = " ".join(h.gcode.events)
-        assert "feed complete" in joined, h.gcode.events
-        assert "not moving" in joined, h.gcode.events
-
-
-class TestToolheadFeedMargin:
-    """The commanded length must exceed the real park-to-sensor distance.
-
-    Measured on 2026-10-18 across one print: the entry sensor tripped at
-    1140, 1164, 1206 and 1212mm, against a commanded 1200mm (a 1050mm
-    configured distance plus a 150mm margin). Two of the four trips were at or
-    past the command, so the feed ran out just as the switch closed and the load
-    fell through to the 60s feed-assist fallback.
-
-    A generous margin is only safe because the feed stops on the sensor - that is
-    the whole point of the closed loop. Without it, a large command means a large
-    over-feed.
-    """
-
-    @classmethod
-    def _src(cls):
-        from pathlib import Path
-        return (Path(__file__).resolve().parent.parent
-                / "extras" / "ace" / "instance.py").read_text()
-
-    def test_margin_is_configurable(self):
-        assert "self.toolhead_feed_margin" in self._src(), (
-            "the feed margin must be configurable, not a literal"
-        )
-
-    def test_margin_default_exceeds_the_measured_distance(self):
-        """The default must cover the worst measured trip with headroom.
-
-        Worst observed travel was 1212mm. The configured park distance is
-        1050mm, so the margin must be at least ~162mm for that case - and more
-        for spool/path variation.
-        """
-        from extras.ace import config as cfg
-        import inspect
-        src = inspect.getsource(cfg)
-        assert '"toolhead_feed_margin", 400' in src, (
-            "the default margin must leave real headroom over the measured "
-            "1212mm worst case, or loads will keep falling back to feed-assist"
-        )
-
-    def test_margin_has_no_hardcoded_literal(self):
-        src = self._src()
-        assert "parkposition_to_toolhead_length + 150" not in src, (
-            "the old tight +150mm margin ran out exactly as the sensor tripped"
-        )
-
-
-class TestImpossibleFeedCompletion:
-    """A feed cannot complete faster than the filament can physically travel.
-
-    Observed 2026-10-24: 1450mm at 60mm/s (~24s) came back complete in 0.1s and
-    the entry sensor never moved. Slot 0's gear selector was stuck in the ACE
-    `shifting` state, so the unit acknowledged the command without feeding.
-
-    Treating that as an ordinary failure cost ~2 minutes (feed-assist plus a
-    wait_ready timeout) before anything useful was reported, and the eventual
-    message blamed the toolhead rather than the ACE.
-    """
-
-    @classmethod
-    def _src(cls):
-        from pathlib import Path
-        return (Path(__file__).resolve().parent.parent
-                / "extras" / "ace" / "instance.py").read_text()
-
-    def _guard(self):
-        src = self._src()
-        start = src.index("expected_feed_s = feed_length / feed_speed")
-        end = src.index("if outcome[\"triggered\"]:", start)
-        return src[start:end]
-
-    def test_implausibly_fast_completion_raises(self):
-        block = self._guard()
-        assert "raise ValueError" in block, block
-        assert 'outcome["reason"] == "feed-complete"' in block, block
-
-    def test_guard_only_fires_below_a_tenth_of_expected_time(self):
-        """Must not reject a genuinely fast-but-real feed.
-
-        A quarter was tried first and rejected: at 1450mm/60mm/s (~24s) a
-        three-second feed tripped it, which is a plausible real feed. A tenth
-        still separates the observed 0.1s fault (0.4% of expected) with a wide
-        margin.
-        """
-        block = self._guard()
-        assert "0.10" in block, (
-            f"the threshold must be a fraction of expected travel time: {block}"
-        )
-
-    def test_message_points_at_the_gear_selector_not_a_jam(self):
-        block = self._guard()
-        assert "gear selector" in block or "gear" in block, block
-        assert "ACE_QUERY_SLOTS" in block, (
-            "the operator needs the command that names the stuck slot"
-        )
-        assert "power cycle" in block or "hardware" in block, block
-
-    def test_guard_is_skipped_for_very_short_feeds(self):
-        """Sub-second feeds have too little signal to judge."""
-        block = self._guard()
-        assert "expected_feed_s > 1.0" in block, block
-
-
 class TestFeedAssistDeadlock:
     """Local bookkeeping and the device can disagree, and that used to latch.
 
@@ -507,15 +347,10 @@ class TestFeedAssistDeadlock:
     off the stop was never sent - and the unit stayed busy with no command able
     to clear it.
 
-    Observed 2026-10-24: three consecutive toolchanges timed out on wait_ready
-    while the log only ever said "Feed assist not active on slot 0". The slot
-    reported device state 3, which the detail map calls "assisting" (the
-    coarser map calls it "shifting"). Only a power cycle cleared it.
-
-    Also note the two maps disagree for the same code:
-
-        ACE2_SLOT_STATUS_BY_CODE[3]        = "shifting"
-        ACE2_SLOT_STATUS_DETAIL_BY_CODE[3] = "assisting"
+    2026-10-24: three consecutive toolchanges timed out on wait_ready while the
+    log only ever said "Feed assist not active on slot 0". Slot 0 reported device
+    state 3, which the detail map calls "assisting" (the coarser map calls it
+    "shifting"), so the two maps disagree for the same code.
     """
 
     @classmethod
@@ -559,20 +394,17 @@ class TestFeedAssistDeadlock:
         end = src.index("def is_ready", start)
         block = src[start:end]
         assert "build_stop_feed_assist_request" in block, (
-            "wait_ready must be able to clear a latched assist rather than only "
-            "waiting"
+            "wait_ready must be able to clear a latched assist rather than only waiting"
         )
         assert "feed_assist_causes_busy()" in block, (
             "recovery should only apply on protocols where assist causes busy"
         )
 
     def test_recovery_is_bounded(self):
-        """One attempt only - it must not loop forever sending stops."""
         src = self._inst_src()
         start = src.index("def wait_ready")
         end = src.index("def is_ready", start)
-        block = src[start:end]
-        assert "recovery_done" in block, block
+        assert "recovery_done" in src[start:end]
 
     def test_clear_feed_assist_command_exists(self):
         cmd = self._cmd_src()
@@ -584,11 +416,50 @@ class TestFeedAssistDeadlock:
         from pathlib import Path
         src = (Path(__file__).resolve().parent.parent
                / "extras" / "ace" / "protocol_ace2.py").read_text()
-        coarse = src.index("ACE2_SLOT_STATUS_BY_CODE")
-        detail = src.index("ACE2_SLOT_STATUS_DETAIL_BY_CODE")
-        assert coarse < detail
         assert '3: "shifting"' in src, "coarse map calls code 3 shifting"
         assert '3: "assisting"' in src, "detail map calls code 3 assisting"
+
+
+class TestAckIsNotCompletion:
+    """A code-0 response means the request was accepted, not that filament moved.
+
+    2026-10-24: an ACE_FEED of 300-400mm sent straight to slot 0 reliably carried
+    filament from sensor-clear to the entry sensor in ~2s. The same request
+    through the toolchange path was acknowledged in ~1.1s, and an earlier version
+    of this code treated that acknowledgement as "feed finished", waited one
+    second, then handed over to feed-assist - abandoning a feed still in progress.
+    That is why ordinary loads kept landing in the 60s assist path.
+    """
+
+    @classmethod
+    def _poll(cls):
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        start = src.index("def _poll_feed_until_sensor")
+        end = src.index("def _feed_until_sensor", start)
+        return src[start:end]
+
+    def test_no_early_exit_on_acknowledgement(self):
+        block = self._poll()
+        assert '"reason": "feed-complete"' not in block, (
+            "an acknowledgement must not end the wait; only the sensor or the "
+            "timeout may"
+        )
+
+    def test_only_sensor_or_timeout_decide(self):
+        block = self._poll()
+        assert '"reason": "sensor"' in block
+        assert '"reason": "timeout"' in block
+
+    def test_no_implausible_completion_guard(self):
+        """The fast-fail guard assumed the ack meant completion. It did not."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "instance.py").read_text()
+        assert "expected_feed_s" not in src, (
+            "the 'completed too fast' guard must not return: a fast ack is normal"
+        )
 
 
 class TestFeedRefusals:

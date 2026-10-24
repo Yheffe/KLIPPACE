@@ -787,32 +787,24 @@ class AceInstance:
                         f"sensor until the timeout"
                     )
             elif response is not None and completed_at[0] is None:
-                # The ACE has finished the commanded length and the sensor still
-                # has not tripped. This is the slipping signature: the log shows
-                # the ACE completing 1200mm while a sensor ~1050mm away never
-                # triggers, which means the filament barely moved.
+                # A code-0 response is an ACKNOWLEDGEMENT, not proof the filament
+                # moved. Record the moment for diagnosis, but do NOT treat it as
+                # a reason to stop watching: the sensor is the only thing that
+                # knows whether filament actually arrived.
                 #
-                # Waiting out the rest of the timeout cannot help - the feed is
-                # over - so note it and give the switch a short grace period to
-                # settle before handing over to feed-assist.
+                # Evidence (2026-10-24): an ACE_FEED of 300-400mm reliably moved
+                # filament from the sensor-clear state to the entry sensor within
+                # ~2s. The identical request issued through the toolchange path
+                # came back "complete" in ~1.1s and the loop gave up - abandoning
+                # a feed that was still physically running. An earlier version of
+                # this code treated that ack as completion, waited one second,
+                # then handed over to feed-assist; that is why ordinary loads kept
+                # falling through to the 60s assist path.
                 completed_at[0] = time.time()
-                self.gcode.respond_info(
-                    f"ACE[{self.instance_num}]: ACE reports the feed complete after "
-                    f"{completed_at[0] - start_time:.1f}s but the entry sensor has not "
-                    f"triggered - the filament is probably not moving. Waiting "
-                    f"{FEED_COMPLETE_GRACE_S:.1f}s for the sensor to settle, then "
-                    f"handing over to feed-assist."
-                )
 
-            if completed_at[0] is not None and \
-                    time.time() - completed_at[0] >= FEED_COMPLETE_GRACE_S:
-                return {
-                    "triggered": False,
-                    "reason": "feed-complete",
-                    "elapsed": time.time() - start_time,
-                    "response": None,
-                }
-
+            # No early exit on acknowledgement. Keep watching the sensor until it
+            # trips or the timeout expires - that is the whole point of a closed
+            # loop, and the sensor is the only authority on arrival.
             if time.time() - start_time > timeout_s:
                 self._stop_feed(local_slot)
                 self.wait_ready()
@@ -1227,42 +1219,16 @@ class AceInstance:
             self.manager.get_entry_switch_state, timeout_s,
         )
 
-        # A feed cannot finish faster than the filament can physically travel.
+        # NOTE: deliberately no "completed suspiciously fast" guard here.
         #
-        # Observed 2026-10-24: a 1450mm request at 60mm/s (~24s of travel) came
-        # back "complete" in 0.1s and the entry sensor never moved. The ACE had
-        # acknowledged the command without feeding, because slot 0's gear
-        # selector was stuck in the `shifting` state and could not select that
-        # spool. The old code treated that as an ordinary failure and spent the
-        # next two minutes on feed-assist plus a wait_ready timeout before
-        # reporting anything useful.
+        # One was added earlier on 2026-10-24 on the assumption that a fast code-0
+        # response meant the ACE had not moved filament. That assumption was
+        # wrong: an ACE_FEED of 300-400mm sent directly to the same slot reliably
+        # moves filament to the entry sensor, and the request is acknowledged well
+        # before the physical move finishes. Treating the ack as completion threw
+        # away feeds that were still running.
         #
-        # Anything under a tenth of the expected travel time cannot be a real
-        # feed: it would mean the ACE moved less than 145mm of a 1450mm path
-        # while reporting the whole length done. The observed fault took 0.4% of
-        # the expected time, so this threshold separates the two cases with a
-        # wide margin rather than sitting close to a genuine fast feed.
-        expected_feed_s = feed_length / feed_speed if feed_speed > 0 else 0
-        if (outcome["reason"] == "feed-complete"
-                and expected_feed_s > 1.0
-                and outcome["elapsed"] < expected_feed_s * 0.10):
-            self.gcode.respond_info(
-                f"ACE[{self.instance_num}]: Slot {local_slot} accepted a "
-                f"{feed_length:.0f}mm feed but completed it in "
-                f"{outcome['elapsed']:.1f}s - that is about "
-                f"{expected_feed_s:.0f}s of travel at {feed_speed:.0f}mm/s. "
-                f"The ACE cannot be moving filament, so feed-assist will not "
-                f"help either."
-            )
-            raise ValueError(
-                f"ACE[{self.instance_num}]: ACE acknowledged a {feed_length:.0f}mm feed on "
-                f"slot {local_slot} but finished in {outcome['elapsed']:.1f}s instead of "
-                f"~{expected_feed_s:.0f}s, so no filament was moved. This is a hardware "
-                f"fault, not a jam: the slot's gear selector is most likely stuck. "
-                f"Run ACE_QUERY_SLOTS and look for a slot that is not 'ready' "
-                f"(shifting / gear_err / tmc_err) - those clear only with a power cycle "
-                f"of the ACE."
-            )
+        # The sensor and the timeout are the only reliable authorities here.
 
         if outcome["triggered"]:
             # Distinguish the two successes. "already-triggered" issued no feed

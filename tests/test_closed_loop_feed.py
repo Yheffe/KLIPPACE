@@ -498,6 +498,99 @@ class TestImpossibleFeedCompletion:
         assert "expected_feed_s > 1.0" in block, block
 
 
+class TestFeedAssistDeadlock:
+    """Local bookkeeping and the device can disagree, and that used to latch.
+
+    On ACE2 an active feed assist keeps the unit 'busy' until STOP_FEED_ASSIST
+    is acknowledged. _disable_feed_assist returned early whenever
+    `_feed_assist_index` did not match, so if our belief said assist was already
+    off the stop was never sent - and the unit stayed busy with no command able
+    to clear it.
+
+    Observed 2026-10-24: three consecutive toolchanges timed out on wait_ready
+    while the log only ever said "Feed assist not active on slot 0". The slot
+    reported device state 3, which the detail map calls "assisting" (the
+    coarser map calls it "shifting"). Only a power cycle cleared it.
+
+    Also note the two maps disagree for the same code:
+
+        ACE2_SLOT_STATUS_BY_CODE[3]        = "shifting"
+        ACE2_SLOT_STATUS_DETAIL_BY_CODE[3] = "assisting"
+    """
+
+    @classmethod
+    def _inst_src(cls):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "extras" / "ace" / "instance.py").read_text()
+
+    @classmethod
+    def _cmd_src(cls):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent.parent
+                / "extras" / "ace" / "commands.py").read_text()
+
+    def _disable(self):
+        src = self._inst_src()
+        start = src.index("def _disable_feed_assist")
+        # _enable_feed_assist is defined *before* _disable_feed_assist, so bound
+        # the slice at the next method that actually follows it.
+        end = src.index("def reset_feed_assist_state", start)
+        return src[start:end]
+
+    def test_disable_accepts_a_force_flag(self):
+        assert "def _disable_feed_assist(self, slot_index, force=False)" in self._inst_src()
+
+    def test_force_sends_the_stop_despite_local_belief(self):
+        block = self._disable()
+        assert "if not force and self._feed_assist_index != slot_index:" in block, (
+            "the early return must be bypassable, or a stuck assist can never be cleared"
+        )
+
+    def test_forced_stop_does_not_wait_ready_recursively(self):
+        block = self._disable()
+        assert "allow_recovery=False" in block, (
+            "the recovery wait must not recurse into its own recovery"
+        )
+
+    def test_wait_ready_recovers_from_assist_caused_busy(self):
+        src = self._inst_src()
+        start = src.index("def wait_ready")
+        end = src.index("def is_ready", start)
+        block = src[start:end]
+        assert "build_stop_feed_assist_request" in block, (
+            "wait_ready must be able to clear a latched assist rather than only "
+            "waiting"
+        )
+        assert "feed_assist_causes_busy()" in block, (
+            "recovery should only apply on protocols where assist causes busy"
+        )
+
+    def test_recovery_is_bounded(self):
+        """One attempt only - it must not loop forever sending stops."""
+        src = self._inst_src()
+        start = src.index("def wait_ready")
+        end = src.index("def is_ready", start)
+        block = src[start:end]
+        assert "recovery_done" in block, block
+
+    def test_clear_feed_assist_command_exists(self):
+        cmd = self._cmd_src()
+        assert "def cmd_ACE_CLEAR_FEED_ASSIST" in cmd
+        assert '"ACE_CLEAR_FEED_ASSIST"' in cmd, "the command must be registered"
+
+    def test_status_maps_disagree_for_code_three(self):
+        """Pin the observation, so a future reader is not surprised by it."""
+        from pathlib import Path
+        src = (Path(__file__).resolve().parent.parent
+               / "extras" / "ace" / "protocol_ace2.py").read_text()
+        coarse = src.index("ACE2_SLOT_STATUS_BY_CODE")
+        detail = src.index("ACE2_SLOT_STATUS_DETAIL_BY_CODE")
+        assert coarse < detail
+        assert '3: "shifting"' in src, "coarse map calls code 3 shifting"
+        assert '3: "assisting"' in src, "detail map calls code 3 assisting"
+
+
 class TestFeedRefusals:
     def test_forbidden_is_retried(self, feed_harness):
         # The sensor must trip well after the 1s retry backoff, otherwise the

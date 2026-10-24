@@ -485,11 +485,24 @@ class AceInstance:
         self._handle_rfid_info_response(slot_idx, response)
         return True
 
-    def wait_ready(self, on_wait_cycle=None, timeout_s=60.0):
-        """Wait for ACE unit to be ready with a hard timeout."""
+    def wait_ready(self, on_wait_cycle=None, timeout_s=60.0,
+                   allow_recovery=True):
+        """Wait for ACE unit to be ready with a hard timeout.
+
+        On ACE2 an active feed assist keeps the unit 'busy' until
+        STOP_FEED_ASSIST is acknowledged, so waiting alone can never succeed.
+        Before giving up, one bounded recovery attempt sends STOP_FEED_ASSIST for
+        every slot - the request is idempotent, so it is harmless when assist was
+        not the cause. Without this the unit can latch busy indefinitely and no
+        command clears it, which is what happened on 2026-10-24.
+
+        ``allow_recovery=False`` is used by callers that are themselves part of
+        the recovery, so a stuck unit cannot recurse through this path.
+        """
         waited = 0.0
         interval = 0.5
         total_wait = 0.0
+        recovery_done = False
 
         while self._info.get("status") != "ready":
             self.reactor.pause(self.reactor.monotonic() + interval)
@@ -505,6 +518,32 @@ class AceInstance:
 
             if on_wait_cycle is not None:
                 on_wait_cycle()
+
+            # Assist-caused busy cannot resolve by waiting: the only thing that
+            # clears it is the stop command we have not sent yet.
+            if (not recovery_done
+                    and allow_recovery
+                    and self.protocol.feed_assist_causes_busy()
+                    and total_wait >= timeout_s * 0.5):
+                recovery_done = True
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Unit still '{self._info.get('status')}' "
+                    f"after {total_wait:.0f}s - sending STOP_FEED_ASSIST on all slots "
+                    f"in case an assist is latched on"
+                )
+                for slot in range(self.SLOT_COUNT):
+                    self.send_request(
+                        self.protocol.build_stop_feed_assist_request(slot),
+                        lambda response: None,
+                    )
+                self._feed_assist_index = -1
+                # A fresh status request, since the stop may change what the unit
+                # reports and the cached copy is what this loop compares against.
+                self.send_high_prio_request(
+                    request=self.protocol.build_get_status_request(),
+                    callback=self._status_update_callback
+                )
+                waited = 0.0
 
             if total_wait >= timeout_s:
                 raise TimeoutError(
@@ -581,19 +620,42 @@ class AceInstance:
         if not self.protocol.feed_assist_causes_busy():
             self.wait_ready()
 
-    def _disable_feed_assist(self, slot_index):
-        """Disable feed assist."""
+    def _disable_feed_assist(self, slot_index, force=False):
+        """Disable feed assist.
+
+        ``force`` sends STOP_FEED_ASSIST even when our own bookkeeping says
+        assist is already off.
+
+        That matters because the local belief and the device can disagree. On
+        ACE2 an active feed assist keeps the unit in status 'busy' and the slot
+        in state 3 ("assisting"), so the unit never becomes ready - and the
+        ordinary path never sends the stop, because it first compares against
+        ``_feed_assist_index`` and returns early when that is -1. The result is a
+        deadlock no command can break: three toolchanges in a row timed out on
+        2026-10-24 with the log only ever saying "Feed assist not active on slot
+        0", never actually asking the ACE to stop.
+
+        The stop request is idempotent and cheap, so on a recovery path it is
+        always worth sending.
+        """
         if slot_index < 0:
             # Feed assist is never active on a negative slot index; nothing to disable.
             # This guards against callers that pass _feed_assist_index directly when
             # feed assist was already off (-1), which would otherwise bypass the check
             # below and send a spurious STOP_FEED_OR_ROLLBACK command.
             return
-        if self._feed_assist_index != slot_index:
+        if not force and self._feed_assist_index != slot_index:
             logging.warning(
                 f"ACE[{self.instance_num}]: Feed assist not active on slot {slot_index}"
             )
             return
+        if force and self._feed_assist_index != slot_index:
+            # Name it, because this is the case that used to deadlock silently.
+            self.gcode.respond_info(
+                f"ACE[{self.instance_num}]: Forcing STOP_FEED_ASSIST on slot "
+                f"{slot_index} - local bookkeeping thought assist was off "
+                f"(index {self._feed_assist_index}) but the unit may disagree"
+            )
 
         self._feed_assist_index = -1
         self._feed_assist_topology_position = None
@@ -622,7 +684,24 @@ class AceInstance:
         request = self.protocol.build_stop_feed_assist_request(slot_index)
         self.send_request(request, callback)
         self.dwell(1.0)
-        self.wait_ready()
+        # The trailing wait is where a forced stop proves itself. Report rather
+        # than raise: the caller asked us to try, and a failure to settle is
+        # information, not a reason to abort a recovery attempt.
+        try:
+            # allow_recovery=False: we are already the recovery, so this must not
+            # recursively try to recover from itself.
+            self.wait_ready(allow_recovery=False)
+        except TimeoutError:
+            if force:
+                self.gcode.respond_info(
+                    f"ACE[{self.instance_num}]: Unit still not ready after a forced "
+                    f"STOP_FEED_ASSIST on slot {slot_index} - the device is holding "
+                    f"state it will not release. Run ACE_QUERY_SLOTS to see which "
+                    f"slot is not 'ready'; a power cycle of the ACE may be the only "
+                    f"remaining option."
+                )
+            else:
+                raise
 
     def _feed(self, slot, length, speed, callback=None):
         """Feed filament from slot."""

@@ -979,14 +979,37 @@ def cmd_ACE_ENABLE_FEED_ASSIST(gcmd):
 
 
 def cmd_ACE_DISABLE_FEED_ASSIST(gcmd):
-    """Disable filament feed assist. T=<tool> or INSTANCE= INDEX="""
+    """Disable filament feed assist. T=<tool> or INSTANCE= INDEX= [FORCE=1]"""
     ace, slot = ace_get_instance_and_slot(gcmd)
 
     if not (0 <= slot < ace.SLOT_COUNT):
         raise gcmd.error(f"Invalid slot {slot}")
 
-    ace._disable_feed_assist(slot)
-    gcmd.respond_info(f"Feed assist disabled for slot {slot}")
+    force = gcmd.get_int("FORCE", 0)
+    ace._disable_feed_assist(slot, force=bool(force))
+    if force:
+        gcmd.respond_info(
+            f"Feed assist stop forced for slot {slot} (sent regardless of local state)"
+        )
+    else:
+        gcmd.respond_info(f"Feed assist disabled for slot {slot}")
+
+
+def cmd_ACE_CLEAR_FEED_ASSIST(gcmd):
+    """Send STOP_FEED_ASSIST for every slot, ignoring our own bookkeeping.
+
+    Use when the unit reports 'busy' and will not become ready. On ACE2 an
+    active feed assist keeps the unit busy until the stop is acknowledged, and
+    the ordinary disable path refuses to send it whenever local bookkeeping
+    already thinks assist is off - which latches the unit busy with no way out.
+    """
+    ace = ace_get_instance(gcmd)
+    for slot in range(ace.SLOT_COUNT):
+        ace._disable_feed_assist(slot, force=True)
+    gcmd.respond_info(
+        f"ACE[{ace.instance_num}]: STOP_FEED_ASSIST sent for all "
+        f"{ace.SLOT_COUNT} slots. Check ACE_GET_STATUS for 'ready'."
+    )
 
 
 def cmd_ACE_SET_PURGE_AMOUNT(gcmd):
@@ -2397,7 +2420,9 @@ ACE_COMMANDS = [
     ("ACE_START_DRYING", cmd_ACE_START_DRYING, "Start dryer. [INSTANCE=] TEMP= [DURATION=240]"),
     ("ACE_STOP_DRYING", cmd_ACE_STOP_DRYING, "Stop dryer. [INSTANCE=]"),
     ("ACE_ENABLE_FEED_ASSIST", cmd_ACE_ENABLE_FEED_ASSIST, "Enable feed assist. T=<tool> or INSTANCE= INDEX="),
-    ("ACE_DISABLE_FEED_ASSIST", cmd_ACE_DISABLE_FEED_ASSIST, "Disable feed assist. T=<tool> or INSTANCE= INDEX="),
+    ("ACE_DISABLE_FEED_ASSIST", cmd_ACE_DISABLE_FEED_ASSIST, "Disable feed assist. T=<tool> or INSTANCE= INDEX= [FORCE=1]"),
+    ("ACE_CLEAR_FEED_ASSIST", cmd_ACE_CLEAR_FEED_ASSIST,
+     "Force STOP_FEED_ASSIST on every slot when the unit is stuck 'busy'"),
     ("ACE_SET_PURGE_AMOUNT", cmd_ACE_SET_PURGE_AMOUNT, "Set purge parameters. PURGELENGTH= PURGESPEED= [INSTANCE=]"),
     ("ACE_QUERY_SLOTS", cmd_ACE_QUERY_SLOTS, "Query slots. INSTANCE= (omit to query all)"),
     ("ACE_ENABLE_ENDLESS_SPOOL", cmd_ACE_ENABLE_ENDLESS_SPOOL, "Enable endless spool"),

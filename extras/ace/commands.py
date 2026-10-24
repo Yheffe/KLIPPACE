@@ -1657,8 +1657,35 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
             except Exception:
                 pass
 
+        # A failure *after* the filament has been seated is not evidence that the
+        # load failed. The post-load purge, the blobifier or a slow move can all
+        # raise with the filament sitting correctly at the nozzle, and blaming the
+        # load then resets ace_current_index to -1 - which makes mmu.tool wrong and
+        # forces a needless manual reload of a perfectly good tool.
+        #
+        # The nozzle switch is the authority here for the same reason it is
+        # elsewhere: it cannot trigger unless filament physically reached the melt
+        # zone. An entry switch would not do, because that only proves the filament
+        # got as far as the toolhead.
+        nozzle_confirmed = False
+        try:
+            nozzle_confirmed = bool(
+                target_gate >= 0
+                and manager.has_nozzle_sensor()
+                and manager.get_switch_state(SENSOR_NOZZLE)
+            )
+        except Exception:
+            nozzle_confirmed = False
+
+        if nozzle_confirmed:
+            active_tool = target_gate
+            gcode.respond_info(
+                f"ACE: Tool change to T{target_tool} reported an error ({e}), but the "
+                f"nozzle sensor confirms filament is seated - keeping T{active_tool} "
+                f"recorded. The failure happened after the load completed."
+            )
         # On tool change failure, NEVER mark the destination target_gate as loaded!
-        if filament_pos == FILAMENT_STATE_BOWDEN or not toolhead_has_filament:
+        elif filament_pos == FILAMENT_STATE_BOWDEN or not toolhead_has_filament:
             active_tool = -1
             if not toolhead_has_filament:
                 try:
@@ -1685,7 +1712,12 @@ def cmd_ACE_CHANGE_TOOL(manager, gcmd, tool_index, gate_index=None):
         )
 
         gcode.respond_info(f"ACE: Tool change to T{target_tool} (Gate {target_gate}) FAILED: {e}")
-        if active_tool == -1:
+        if nozzle_confirmed:
+            gcode.respond_info(
+                f"ACE: State confirmed by the nozzle sensor - T{active_tool} remains "
+                f"loaded (the error did not come from the load)"
+            )
+        elif active_tool == -1:
             gcode.respond_info(
                 f"ACE: State updated - no active tool loaded (failed tool change to T{target_tool})"
             )

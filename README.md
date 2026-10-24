@@ -69,7 +69,7 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - **Moonraker & OrcaSlicer Lane Sync** – Publishes your ACE Pro inventory to Moonraker in both shapes OrcaSlicer understands: the Happy Hare `[mmu]` object (`gate_status`, `gate_color`, `gate_material`, `gate_temperature`) and the `lane_data` database namespace (colour, material, nozzle/bed temperature, vendor, SKU).
 - **Native OrcaSlicer Filament Sync** – OrcaSlicer's built-in Klipper/Moonraker printer agent pulls your spool colours and materials straight from the printer — no plugin to install, no restart, and no preset files written. See [Slicer Setup](#-slicer-setup--orcaslicer-integration).
 - **Fluidd / Mainsail Auto-Match Tool Mapper** – Streamlined 1-click slot selector and automated toolhead-to-gate assignment directly in the Web UI.
-- **Integrated Chamber Dryer Control** – Regulates and monitors heating in the ACE Pro drying chamber (`[temperature_ace]`).
+- **Integrated ACE Dryer Control** – Regulates and monitors heating in the **ACE Pro's own drying chamber** (`[temperature_ace]` / `[temperature_sensor ace_dryer]`), which holds the spools. This is a separate probe from `[temperature_sensor chamber]`, the printer enclosure that `PRINT_START` soaks to `TARGET_CHAMBER`; `DRYER_STATUS` reports both, labelled. A cycle started by `PRINT_START` is stopped automatically at print end.
 
 ---
 
@@ -290,6 +290,21 @@ Every step of that chain assumes hardware from this Voron build:
 | `LINE_PURGE` | `VORON/printer.cfg`; purges adjacent to the sliced object |
 | `DRYER_START` | ACE Pro only — the one step that is *not* Voron-specific |
 
+#### Machine End G-Code
+
+`PRINT_END` is the counterpart, and OrcaSlicer calls it from **Machine end G-code**. It
+retracts to break the string, cuts the tip and rewinds the active spool into the ACE box,
+stows the Blobifier tray, shuts the heaters off, **stops the ACE dryer if a cycle is
+running**, parks the toolhead at rear centre (`X175 Y354`), clears any pause state and
+resets tool-to-gate mapping to 1:1. Steppers are then released and the Nevermore continues
+scrubbing the chamber for ten minutes.
+
+The dryer stop is placed after `TURN_OFF_HEATERS` so a dryer fault cannot delay the
+essential shutdown. It only fires when a cycle is actually running, so an idle dryer is
+not sent a redundant stop command and the console stays quiet. Note that this means a
+cycle you started by hand *is* stopped at print end — restart it with `DRYER_START` if you
+want it to continue.
+
 #### Running a different printer
 
 **The generic / Anycubic profile does not define `PRINT_START` at all.** It ships
@@ -370,8 +385,9 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 | `LIFT_FROM_STOPPER` | Lift nozzle off the Blobifier tray to safe clearance height (`Z15`). |
 | `CUT_TIP` | Execute filament cut stroke against gantry cutter pin (`X2 Y357`). |
 | `CLEAN_NOZZLE` | Perform multi-pass nozzle scrub across the brass/silicone brush. |
-| `DRYER_START` | Start ACE Pro dryer with temp and duration (e.g. `TEMP=50 DURATION=240` or `MATERIAL=PLA`). |
-| `DRYER_STOP` | Stop the ACE Pro dryer. |
+| `DRYER_START` | Start ACE Pro dryer with temp and duration (e.g. `TEMP=50 DURATION=240` or `MATERIAL=PLA`). Clamped to `max_dryer_temperature`. |
+| `DRYER_STOP` | Stop the ACE Pro dryer. Called automatically by `PRINT_END` if a cycle is running. |
+| `DRYER_STATUS` | Print ACE dryer temperature, target, status and remaining time, plus the printer chamber temperature. |
 | `ACE_FEED T=<tool> LENGTH=<mm>` | Manually feed filament forward from a specific slot. |
 | `ACE_RETRACT T=<tool> LENGTH=<mm>` | Manually retract filament from a specific slot. |
 | `ACE_FULL_UNLOAD` | Unload until the slot reports empty. `TOOL=<index>`, `TOOL=ALL`, or omit for the current tool. |
@@ -436,7 +452,7 @@ The included `acepro-mmu-dashboard` replaces the stock MMU card with a compact, 
 control panel: four gate tiles with live spool colours, a one-line status ribbon, and a
 four-button action dock. Slots the ACE cannot identify are flagged in amber.
 
-<img src="img/mmu-card.png" width="620" alt="KLIPPACE MMU card in Fluidd: four gate tiles with colour swatches, a status ribbon reading UNLOADED with chamber temperature and dryer state, and CHECK GATE / RECOVER / UNLOAD / LOAD buttons">
+<img src="img/mmu-card.png" width="620" alt="KLIPPACE MMU card in Fluidd: four gate tiles with colour swatches, a status ribbon reading UNLOADED with ACE dryer temperature and dryer state, and CHECK GATE / RECOVER / UNLOAD / LOAD buttons">
 
 > [!IMPORTANT]
 > **Mainsail v2.15.0 or newer is required.** Happy Hare / MMU support landed in that
@@ -456,7 +472,7 @@ What it adds over the stock card:
 - **Auto-Match Tool Mapper**: Automatically correlates g-code tool numbers with physical ACE gates based on color hex and material type.
 - **Blobifier Bucket Monitoring**: Displays real-time status of the optional bucket sensor (`blobifier_bucket` on `PF4`), warning or pausing before waste bucket overflow causes carriage collisions.
 - **Spool Management**: Spool material and color assignment with Spoolman integration.
-- **Dryer Control**: Chamber temperature monitoring, target adjustment, and timer countdown.
+- **Dryer Control**: ACE drying-chamber temperature, target adjustment, and a timer countdown. The temperature shown is the **ACE's** chamber, not the printer enclosure — see `DRYER_STATUS` for both side by side.
 
 <p>
 <img src="img/mmu-slot-editor.png" width="360" align="top" alt="Edit Slot dialog for slot T3: filament preview, material dropdown, nozzle temperature, a 16-swatch colour palette, optional preset name, and manual feed/retract controls">

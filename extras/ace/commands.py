@@ -2080,33 +2080,35 @@ def cmd_ACE_DEBUG_INJECT_SENSOR_STATE(gcmd):
 
 
 def cmd_ACE_SET_ENDLESS_SPOOL_MODE(gcmd):
-    """Set endless spool match mode. MODE=exact|material|next"""
+    """Set endless spool match mode. Only MODE=exact is supported."""
     try:
         mode = gcmd.get("MODE", "exact").lower()
-        valid_modes = {"exact": "EXACT", "material": "MATERIAL", "next": "NEXT READY"}
 
-        if mode not in valid_modes:
-            gcmd.respond_info("ACE: Invalid mode. Use MODE=exact, MODE=material, or MODE=next")
+        if mode != "exact":
+            # The material-only and next-ready modes were removed. Refusing
+            # loudly beats accepting the request and quietly doing something
+            # else, which is what a silent fallback would amount to.
+            gcmd.respond_info(
+                f"ACE: Match mode '{mode}' is not supported. Endless spool only "
+                f"swaps to a spool with the same material AND the same colour "
+                f"(MODE=exact). Nothing was changed."
+            )
             return
 
         manager = ace_get_manager(0)
-        manager.state.set_and_save(
-            "ace_endless_spool_match_mode", mode
-        )
-        gcmd.respond_info(f"ACE: Endless spool mode set to: {valid_modes[mode]}")
+        # Written anyway, so an install that previously stored 'material' or
+        # 'next' is actively reset to 'exact' rather than merely ignored.
+        manager.state.set_and_save("ace_endless_spool_match_mode", "exact")
+        gcmd.respond_info("ACE: Endless spool mode: EXACT (same material and colour)")
 
     except Exception as e:
         gcmd.respond_info(f"ACE_SET_ENDLESS_SPOOL_MODE error: {e}")
 
 
 def cmd_ACE_GET_ENDLESS_SPOOL_MODE(gcmd):
-    """Query endless spool match mode (EXACT, MATERIAL, or NEXT READY)."""
+    """Query endless spool match mode. Always EXACT."""
     try:
-        manager = ace_get_manager(0)
-        mode = manager.state.get("ace_endless_spool_match_mode", "exact")
-        mode_display = {"exact": "EXACT", "material": "MATERIAL", "next": "NEXT READY"}.get(mode, "EXACT")
-
-        gcmd.respond_info(f"ACE: Endless spool mode: {mode_display}")
+        gcmd.respond_info("ACE: Endless spool mode: EXACT (same material and colour)")
 
     except Exception as e:
         gcmd.respond_info(f"ACE_GET_ENDLESS_SPOOL_MODE error: {e}")

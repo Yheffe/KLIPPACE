@@ -63,7 +63,7 @@ Supports **multiple ACE Pro units** via `ace_count` (one `AceInstance` per unit,
 - **Blobifier Purge Bucket Detection** – Real-time switch/optical monitoring (`blobifier_bucket` on `PF4`) preventing print failure from purge waste overflow.
 - **Smart Contextual Start Purge** – Remembers the residual filament in the hotend (`ace_last_loaded_tool`). Automatically calculates differential purge volumes at `PRINT_START` (standard 35mm when loading the same tool, heavy 85mm when purging out a different color/material).
 - **Automatic 1:1 Tool-to-Gate Reset** – Automatically resets temporary tool-to-gate remappings back to 1:1 when a print ends or is cancelled (`MMU_TTG_MAP RESET=1` restores it manually).
-- **Endless Spool Failover** – Automatically rolls over to a matching spool upon runout (`exact`, `material`, or `next` ready).
+- **Endless Spool Failover** – Automatically rolls over to a spool with the **same material and the same colour** upon runout. Anything less is left to you: the print stays paused rather than continuing in a different colour.
 - **Manual Slot Data Editor** – Non-RFID spools cannot be identified by the ACE, so any gate on the web card can be clicked to record its material, colour and nozzle temperature. Slots holding filament but no data are flagged with an amber marker. **Clear Data** wipes the metadata while keeping the spool marked as loaded; *Mark Empty* tells Klipper the slot holds nothing. Values persist to disk immediately, so they survive a restart.
 - **Happy Hare Compatibility Shim** – Exposes the standard `mmu` and `mmu_machine` printer objects (`gate_status`, `gate_color`, `gate_material`, `gate_spool_id`, `filament_pos`, `action`, `ttg_map`, …) plus the `MMU_*` command set, so Fluidd and Mainsail render their native multi-material card without knowing ACE Pro exists. Fields are published under every spelling clients actually read — `gate_temp` (Fluidd) alongside `gate_temperature` (Mainsail), and `espooler`/`espooler_active` for the rewind-assist indicator.
 - **Moonraker & OrcaSlicer Lane Sync** – Publishes your ACE Pro inventory to Moonraker in both shapes OrcaSlicer understands: the Happy Hare `[mmu]` object (`gate_status`, `gate_color`, `gate_material`, `gate_temperature`) and the `lane_data` database namespace (colour, material, nozzle/bed temperature, vendor, SKU).
@@ -404,19 +404,29 @@ Standard Klipper tool change commands (`T0`, `T1`, `T2`, `T3`, ...) are fully su
 
 When a filament spool runs empty during a print, Endless Spool automatically detects runout, unloads the empty spool, searches for a compatible replacement, and loads it to resume printing without human intervention.
 
-#### Match Modes
+#### Matching Rule
 
-Configure the matching logic via Mainsail/Fluidd or using `ACE_SET_ENDLESS_SPOOL_MODE`:
-- **`exact`** (default) – Requires identical material **and** identical RGB color.
-- **`material`** – Requires identical material type (e.g. PLA to PLA), ignoring color differences.
-- **`next`** – Selects the next available ready spool in numerical order regardless of type or color.
+Endless Spool only ever swaps to a spool with **the same material and the same RGB
+colour** as the one that ran out. There is no material-only or "next ready spool"
+fallback:
+
+- a different colour would show up in the part, and
+- an unidentified spool may be a different polymer at a different temperature.
+
+If nothing matches exactly, the print stays paused with a prompt so you can decide.
+This is deliberately not configurable — a runout is not a good moment to make that
+decision on your behalf.
 
 ```gcode
 ACE_ENABLE_ENDLESS_SPOOL
 ACE_DISABLE_ENDLESS_SPOOL
-ACE_SET_ENDLESS_SPOOL_MODE MODE=exact
-ACE_GET_ENDLESS_SPOOL_MODE
 ```
+
+`ACE_SET_ENDLESS_SPOOL_MODE MODE=exact` and `ACE_GET_ENDLESS_SPOOL_MODE` are still
+available for compatibility with existing macros and KlipperScreen; only `MODE=exact`
+is accepted, and anything else is refused with a message saying nothing changed. A
+`material` or `next` value left over from an older install is ignored and reported
+as `exact`.
 
 ### 🧠 Smart Contextual Start Purge
 

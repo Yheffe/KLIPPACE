@@ -35,40 +35,55 @@ class EndlessSpool:
         self.gcode = gcode
         self.manager = manager
         self.reactor = printer.get_reactor()
+        self._warned_stale_mode = None
 
     def get_match_mode(self):
         """
-        Get the current endless spool match mode from persistent storage.
+        Return the endless spool match mode. Always ``"exact"``.
 
-        Returns:
-            str: "exact" (material + color), "material" (material only),
-                 or "next" (first ready spool regardless of material/color)
+        Only one mode is supported: the same material AND the same RGB colour.
+        The former ``material`` (ignore colour) and ``next`` (ignore material
+        and colour) modes have been removed. Both were a poor fit for an
+        unattended decision - swapping in a different colour mid-print shows in
+        the part, and swapping in an unidentified spool risks a different
+        polymer entirely. When nothing matches exactly, the print stays paused
+        and the operator decides.
+
+        The method, and the published ``endless_spool_match_mode`` status field,
+        are kept because KlipperScreen and external clients read them. A stale
+        value persisted by an older install is reported once and ignored rather
+        than honoured - so upgrading cannot silently leave a machine on the
+        looser behaviour.
         """
-        mode = self.manager.state.get("ace_endless_spool_match_mode", "exact")
-
-        # Normalize/guardrail unexpected values
-        if mode not in {"exact", "material", "next"}:
-            mode = "exact"
-
-        return mode
+        stored = self.manager.state.get("ace_endless_spool_match_mode", "exact")
+        if stored != "exact" and stored != self._warned_stale_mode:
+            self._warned_stale_mode = stored
+            logging.warning(
+                "ACE: Ignoring stored endless spool match mode %r - only 'exact' "
+                "(same material AND same colour) is supported",
+                stored,
+            )
+        return "exact"
 
     def find_exact_match(self, current_tool):
         """
-        Find next spool with matching material and optionally color.
+        Find the nearest spool with the SAME material AND the SAME colour.
 
-        Match mode (configurable via ace_endless_spool_match_mode):
-        - "exact": Match both material AND color (default)
-        - "material": Match material only, ignore color
+        An exact match is the only thing this will act on: no material-only
+        fallback, no "next ready spool". A runout is not a good moment to make a
+        colour or polymer decision on the operator's behalf.
 
-        Searches all slots in all instances, starting from the next tool
-        and wrapping around.
+        Searches every slot of every instance, starting one past the slot that
+        ran out and wrapping around, so the nearest match wins.
 
         Args:
             current_tool: Tool index with runout (0-based)
 
         Returns:
-            int: Tool index of match, or -1 if none found
+            int: Tool index of a matching spool, or -1 if none found
         """
+        self.get_match_mode()   # surfaces a stale persisted value, if any
+
         inst_num = get_instance_from_tool(current_tool)
         local_slot = get_local_slot(current_tool, inst_num)
 
@@ -83,19 +98,10 @@ class EndlessSpool:
         current_material = current_inv.get("material", "").lower().strip()
         current_color = current_inv.get("color", [0, 0, 0])
 
-        match_mode = self.get_match_mode()
-
-        if match_mode == "material":
-            logging.info(
-                f"ACE: Looking for endless spool match (MATERIAL ONLY): {current_material}"
-            )
-        elif match_mode == "next":
-            logging.info("ACE: Looking for endless spool match (NEXT READY SPOOL)")
-        else:
-            logging.info(
-                f"ACE: Looking for endless spool match (EXACT): "
-                f"{current_material} RGB({current_color[0]},{current_color[1]},{current_color[2]})"
-            )
+        logging.info(
+            f"ACE: Looking for endless spool match (EXACT): "
+            f"{current_material} RGB({current_color[0]},{current_color[1]},{current_color[2]})"
+        )
 
         total_tools = len(ACE_INSTANCES) * SLOTS_PER_ACE
 
@@ -121,11 +127,6 @@ class EndlessSpool:
                 )
                 continue
 
-            # In "next" mode we ignore material/color and take the first ready slot
-            if match_mode == "next":
-                logging.info(f"ACE: Match found (next ready): T{candidate_tool}")
-                return candidate_tool
-
             cand_material = cand_inv.get("material", "").lower().strip()
 
             # SAFETY: Never match "unknown" materials - we don't know if they're compatible!
@@ -143,34 +144,24 @@ class EndlessSpool:
                 )
                 continue
 
-            if match_mode == "exact":
-                cand_color = cand_inv.get("color", [0, 0, 0])
-                if cand_color != current_color:
-                    logging.info(
-                        f"ACE: T{candidate_tool} skipped - color mismatch "
-                        f"(want RGB({current_color[0]},{current_color[1]},{current_color[2]}), "
-                        f"got RGB({cand_color[0]},{cand_color[1]},{cand_color[2]}))"
-                    )
-                    continue
+            cand_color = cand_inv.get("color", [0, 0, 0])
+            if cand_color != current_color:
+                logging.info(
+                    f"ACE: T{candidate_tool} skipped - color mismatch "
+                    f"(want RGB({current_color[0]},{current_color[1]},{current_color[2]}), "
+                    f"got RGB({cand_color[0]},{cand_color[1]},{cand_color[2]}))"
+                )
+                continue
 
             logging.info(
                 f"ACE: Match found: T{current_tool} → T{candidate_tool}"
             )
             return candidate_tool
 
-        if match_mode == "material":
-            logging.info(
-                f"ACE: No match for T{current_tool} (material: {current_material})"
-            )
-        elif match_mode == "next":
-            logging.info(
-                f"ACE: No ready spool available for T{current_tool}"
-            )
-        else:
-            logging.info(
-                f"ACE: No match for T{current_tool} "
-                f"({current_material}, RGB({current_color[0]},{current_color[1]},{current_color[2]}))"
-            )
+        logging.info(
+            f"ACE: No match for T{current_tool} "
+            f"({current_material}, RGB({current_color[0]},{current_color[1]},{current_color[2]}))"
+        )
         return -1
 
     def execute_swap(self, from_tool, to_tool):

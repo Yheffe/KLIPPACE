@@ -660,7 +660,9 @@ class Panel(ScreenPanel):
         match_mode_label.set_halign(Gtk.Align.START)
         match_mode_control.pack_start(match_mode_label, False, False, 0)
 
-        # Match mode selector (Exact / Material Only / Next Ready)
+        # Match mode: exact only (same material AND same colour). The button and
+        # popover are kept so the current rule is discoverable on a touch screen;
+        # the single row explains what matching means.
         self.match_mode_button = Gtk.MenuButton()
         self.match_mode_button.set_relief(Gtk.ReliefStyle.NORMAL)
         self.match_mode_button.get_style_context().add_class("color3")
@@ -769,8 +771,9 @@ class Panel(ScreenPanel):
             vbox.pack_start(btn, True, True, 0)
 
         add_row("exact", "Exact (Material + Color)")
-        add_row("material", "Material Only")
-        add_row("next", "Next Ready Spool")
+        # Material-only and Next-Ready were removed. Only a spool with the same
+        # material AND the same colour will be swapped in, so offering the
+        # looser options here would be offering something that does nothing.
 
         popover.add(vbox)
         popover.show_all()
@@ -780,16 +783,15 @@ class Panel(ScreenPanel):
         self.match_mode_button.set_popover(popover)
 
     def _set_match_mode_ui(self, mode, update_widget=True):
-        """Set match mode UI (button label + status) in one place."""
-        valid_modes = {"exact", "material", "next"}
-        if mode not in valid_modes:
-            mode = "exact"
+        """Set match mode UI (button label) in one place.
 
-        color_map = {"exact": "blue", "material": "orange", "next": "green"}
-        label_map = {"exact": "Exact", "material": "Material", "next": "Next Ready"}
+        Only exact matching exists, so anything else is reported as exact rather
+        than shown as an active mode that is not in effect.
+        """
+        mode = "exact"
 
         if update_widget and hasattr(self, 'match_mode_button'):
-            self.match_mode_button.set_label(label_map.get(mode, "Exact"))
+            self.match_mode_button.set_label("Exact")
             # Do not set a fixed size here; rely on the size set in create_main_screen
             # Only rebuild popover if it doesn't exist yet
             if not hasattr(self, 'match_mode_popover') or self.match_mode_popover is None:
@@ -808,25 +810,20 @@ class Panel(ScreenPanel):
                     pass
 
     def on_match_mode_selected(self, mode):
-        """Handle Match Mode selection change from popover."""
+        """Handle Match Mode selection from the popover.
+
+        Only exact matching is supported; any other request is refused by
+        ACE_SET_ENDLESS_SPOOL_MODE, so there is nothing else to send.
+        """
         if hasattr(self, 'match_mode_popover'):
             self.match_mode_popover.popdown()
 
-        # Update button label immediately so UI reflects the active mode
-        self._set_match_mode_ui(mode, update_widget=True)
-
-        if mode == "exact":
-            self._send_gcode("ACE_SET_ENDLESS_SPOOL_MODE MODE=exact")
-            self._screen.show_popup_message("Match Mode: Exact (Material + Color)", 1)
-            logging.info("ACE: Match mode set to EXACT (material + color)")
-        elif mode == "material":
-            self._send_gcode("ACE_SET_ENDLESS_SPOOL_MODE MODE=material")
-            self._screen.show_popup_message("Match Mode: Material Only", 1)
-            logging.info("ACE: Match mode set to MATERIAL (ignore color)")
-        else:
-            self._send_gcode("ACE_SET_ENDLESS_SPOOL_MODE MODE=next")
-            self._screen.show_popup_message("Match Mode: Next Ready Spool", 1)
-            logging.info("ACE: Match mode set to NEXT READY (ignore material/color)")
+        self._set_match_mode_ui("exact", update_widget=True)
+        self._send_gcode("ACE_SET_ENDLESS_SPOOL_MODE MODE=exact")
+        self._screen.show_popup_message(
+            "Match Mode: Exact (Material + Color)", 1
+        )
+        logging.info("ACE: Match mode is EXACT (material + colour only)")
 
     def on_ace_pro_toggled(self, switch, gparam):
         """Handle ACE Pro enable/disable toggle."""

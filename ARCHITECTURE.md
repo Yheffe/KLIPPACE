@@ -227,9 +227,11 @@ EndlessSpool focuses purely on:
 
 **Key Methods:**
 ```python
-get_match_mode()                    # Get match mode ("exact", "material", "next") from saved_variables
+get_match_mode()                    # Always returns "exact"; warns once if a
+                                    # stale non-exact value is persisted
 
-find_exact_match(current_tool)      # Search for a match across all slots (mode-aware search)
+find_exact_match(current_tool)      # Search for a spool with the same material
+                                    # AND the same RGB colour, across all slots
 
 execute_swap(from_tool, to_tool)    # Execute automatic tool swap with fallback
                                                       # Coordinates:
@@ -766,13 +768,12 @@ ACE_DISABLE_ENDLESS_SPOOL                  # Disable auto-swap
 
 ACE_ENDLESS_SPOOL_STATUS                   # Query endless spool configuration
 
-ACE_SET_ENDLESS_SPOOL_MODE MODE=exact|material|next
-                                           # Set match mode:
-                                           # "exact": match material AND color (default)
-                                           # "material": match material only
-                                           # "next": use next ready slot (ignore material/color)
+ACE_SET_ENDLESS_SPOOL_MODE MODE=exact
+                                           # Only "exact" is accepted: same
+                                           # material AND same colour. Anything
+                                           # else is refused and nothing changes.
 
-ACE_GET_ENDLESS_SPOOL_MODE                 # Query current match mode
+ACE_GET_ENDLESS_SPOOL_MODE                 # Reports EXACT
 ```
 
 **RFID Inventory Sync:**
@@ -1020,7 +1021,8 @@ endless spool matching based on the previous spool's color/material metadata.
 ace_filament_pos: str               # "bowden" | "splitter" | "toolhead" | "nozzle"
 ace_current_index: int              # Currently loaded tool (-1 = none)
 ace_endless_spool_enabled: bool     # Endless spool active
-ace_endless_spool_match_mode: str   # Match mode: "exact" | "material" | "next"
+ace_endless_spool_match_mode: str   # Always "exact" (published for clients; a
+                                    # stale stored value is never reported)
 ace_global_enabled: bool            # ACE system enabled
 
 # Per-instance inventory (persisted)

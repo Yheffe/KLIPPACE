@@ -2278,9 +2278,12 @@ class AceManager:
                 "endless_spool_enabled": bool(
                     self.state.get("ace_endless_spool_enabled", False)
                 ),
-                "endless_spool_match_mode": self.state.get(
-                    "ace_endless_spool_match_mode", "exact"
-                ),
+                # Constant: only exact matching is supported. Published anyway
+                # because KlipperScreen and external clients read this field,
+                # and reporting the stored value would let a stale 'material'
+                # or 'next' from an older install show a mode that is not in
+                # effect.
+                "endless_spool_match_mode": "exact",
                 "ace_pro_enabled": bool(self._ace_pro_enabled),
                 "toolhead_sensor": toolhead_sensor,
                 "rdm_sensor": rdm_sensor,

@@ -10,17 +10,22 @@ These tests drive the real ``EndlessSpool.find_exact_match`` against the real
 ``get_local_slot`` helpers, so the tool-index arithmetic is exercised rather than
 mocked away. Only the printer, gcode and manager are faked.
 
-Three behaviours here were previously unpinned - see the notes on the tests that
-document them, because two of them are judgement calls rather than obvious
-correctness:
+Only exact matching exists: the same material AND the same RGB colour. The
+``material`` (ignore colour) and ``next`` (ignore material and colour) modes
+were removed, so the tests that used to pin their behaviour now assert its
+absence - see ``TestTheFormerModesAreGone``.
 
-  * ``next`` mode matches an ``unknown`` material, skipping the safety guard that
-    the other two modes enforce.
-  * colour comparison is exact and type-sensitive: a ``(255, 0, 0)`` tuple never
-    equals a ``[255, 0, 0]`` list.
+Removing them also closed a hole: ``next`` returned before the unknown-material
+guard ran, so it could feed an unidentifiable spool into a running print. The
+guard now sits on the only path there is.
+
+One fragility is pinned rather than fixed: colour comparison is exact and
+type-sensitive, so a ``(255, 0, 0)`` tuple never equals a ``[255, 0, 0]`` list.
 """
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 
@@ -144,22 +149,37 @@ class TestMatchMode:
         spool, *_ = env
         assert spool.get_match_mode() == "exact"
 
-    @pytest.mark.parametrize("mode", ["exact", "material", "next"])
-    def test_valid_modes_round_trip(self, env, mode):
+    def test_exact_is_reported(self, env):
         spool, manager, *_ = env
-        manager.state.set("ace_endless_spool_match_mode", mode)
-        assert spool.get_match_mode() == mode
+        manager.state.set("ace_endless_spool_match_mode", "exact")
+        assert spool.get_match_mode() == "exact"
 
-    @pytest.mark.parametrize("junk", ["", "EXACT", "Material", "first", None, 3])
-    def test_unrecognised_values_fall_back_to_exact(self, env, junk):
-        """A corrupt or hand-edited variable must not disable matching.
+    @pytest.mark.parametrize("stale", ["material", "next", "EXACT", "", None, 3])
+    def test_every_other_value_reports_exact(self, env, stale):
+        """The former modes are gone; a persisted value must not revive them.
 
-        Falling back to the *strictest* mode is the safe direction: exact will
-        refuse to swap rather than feed something incompatible.
+        An older install can have ``ace_endless_spool_match_mode`` saved as
+        ``material`` or ``next``. Upgrading must not silently leave the machine
+        on the looser behaviour, so the stored value is ignored and reported as
+        exact.
         """
         spool, manager, *_ = env
-        manager.state.set("ace_endless_spool_match_mode", junk)
+        manager.state.set("ace_endless_spool_match_mode", stale)
         assert spool.get_match_mode() == "exact"
+
+    def test_a_stale_value_is_reported_once_not_every_search(self, env, caplog):
+        """A warning on every runout search would bury the rest of the log."""
+        spool, manager, gcode, build, _ = env
+        manager.state.set("ace_endless_spool_match_mode", "next")
+        build({0: PLA_RED, 1: PLA_BLUE})
+
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            for _ in range(5):
+                spool.find_exact_match(0)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, [r.getMessage() for r in warnings]
 
 
 # ---------------------------------------------------------------------------
@@ -217,67 +237,79 @@ class TestExactMode:
 
 
 # ---------------------------------------------------------------------------
-# material mode
+# only exact matching exists
 # ---------------------------------------------------------------------------
 
 
-class TestMaterialMode:
-    def test_ignores_colour(self, env):
+class TestTheFormerModesAreGone:
+    """Endless spool only swaps to a spool with the same material AND colour.
+
+    ``material`` (ignore colour) and ``next`` (ignore material and colour) were
+    removed on request. A runout is not a good moment to change colour in the
+    part, and swapping in an unidentified spool risks a different polymer. Both
+    classes of test below now assert that the looser behaviour is *absent* -
+    which is the whole point of the lock-down.
+    """
+
+    def test_material_only_is_not_honoured(self, env):
+        """Same material, different colour used to match. It must not now."""
         spool, manager, gcode, build, _ = env
         manager.state.set("ace_endless_spool_match_mode", "material")
         build({0: PLA_RED, 1: PLA_BLUE})
-        assert spool.find_exact_match(0) == 1
+        assert spool.find_exact_match(0) == -1
 
-    def test_still_rejects_different_material(self, env):
+    def test_next_ready_is_not_honoured(self, env):
+        """A ready spool of a different material used to match. It must not now."""
         spool, manager, gcode, build, _ = env
-        manager.state.set("ace_endless_spool_match_mode", "material")
+        manager.state.set("ace_endless_spool_match_mode", "next")
         build({0: PLA_RED, 1: PETG_RED})
         assert spool.find_exact_match(0) == -1
 
-
-# ---------------------------------------------------------------------------
-# next mode
-# ---------------------------------------------------------------------------
-
-
-class TestNextMode:
-    def test_takes_the_first_ready_slot_whatever_the_material(self, env):
+    def test_a_different_colour_of_the_right_material_never_matches(self, env):
         spool, manager, gcode, build, _ = env
-        manager.state.set("ace_endless_spool_match_mode", "next")
-        build({0: PLA_RED, 1: PETG_RED})
-        assert spool.find_exact_match(0) == 1
+        for stale in ("material", "next", "exact"):
+            manager.state.set("ace_endless_spool_match_mode", stale)
+            build({0: PLA_RED, 1: PLA_BLUE})
+            assert spool.find_exact_match(0) == -1, (
+                f"a colour change must never be swapped in (stored mode {stale!r})"
+            )
 
-    def test_still_skips_slots_that_are_not_ready(self, env):
+    def test_a_different_material_of_the_right_colour_never_matches(self, env):
         spool, manager, gcode, build, _ = env
-        manager.state.set("ace_endless_spool_match_mode", "next")
-        build({0: PLA_RED,
-               1: {"material": "PETG", "color": [1, 1, 1], "status": "empty"},
-               2: PETG_RED})
-        assert spool.find_exact_match(0) == 2
+        for stale in ("material", "next", "exact"):
+            manager.state.set("ace_endless_spool_match_mode", stale)
+            build({0: PLA_RED, 1: PETG_RED})
+            assert spool.find_exact_match(0) == -1, (
+                f"a different polymer must never be swapped in (stored mode {stale!r})"
+            )
 
-    def test_next_mode_matches_an_unknown_material(self, env):
-        """DOCUMENTED, AND WORTH A SECOND LOOK.
+    def test_an_unknown_material_never_matches_in_any_stored_mode(self, env):
+        """``next`` used to return before the unknown-material guard ran.
 
-        The other two modes refuse to swap in a spool whose material is
-        ``unknown`` ("we don't know if they're compatible"). ``next`` returns
-        before that guard runs, so it happily feeds an unidentified spool.
-
-        That is consistent with "first ready spool regardless of material", and
-        it is the mode's whole point - but it is the one mode that can put
-        something of unknown type into a running print. Pinned so that the
-        behaviour is a decision rather than an accident.
+        With the mode gone, that hole is gone with it: the guard is on the only
+        path that exists.
         """
         spool, manager, gcode, build, _ = env
-        manager.state.set("ace_endless_spool_match_mode", "next")
-        build({0: PLA_RED,
-               1: {"material": "unknown", "color": [0, 0, 0], "status": "ready"}})
-        assert spool.find_exact_match(0) == 1
+        for stale in ("next", "material", "exact"):
+            manager.state.set("ace_endless_spool_match_mode", stale)
+            build({0: PLA_RED,
+                   1: {"material": "unknown", "color": [255, 0, 0],
+                       "status": "ready"},
+                   2: PLA_RED_2})
+            assert spool.find_exact_match(0) == 2, (
+                f"the unidentified spool must be skipped and T2 found "
+                f"(stored mode {stale!r})"
+            )
 
-    def test_returns_minus_one_when_nothing_is_ready(self, env):
+    def test_an_exact_match_still_works_whatever_is_stored(self, env):
+        """The lock-down must not break the supported case."""
         spool, manager, gcode, build, _ = env
-        manager.state.set("ace_endless_spool_match_mode", "next")
-        build({0: PLA_RED})
-        assert spool.find_exact_match(0) == -1
+        for stale in ("material", "next", "exact", "garbage"):
+            manager.state.set("ace_endless_spool_match_mode", stale)
+            build({0: PLA_RED, 1: PLA_RED_2})
+            assert spool.find_exact_match(0) == 1, (
+                f"an identical spool must always be found (stored mode {stale!r})"
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -374,3 +374,102 @@ class TestRobustness:
         assert material == "unknown", (
             f"an unregistered slot has no material; the prompt said {material!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# end to end: the real matcher behind the real monitor
+# ---------------------------------------------------------------------------
+
+
+class TestRealMatcherEndToEnd:
+    """Wire the real EndlessSpool into the real RunoutMonitor.
+
+    The tests above use a stub spool that returns whatever they tell it to, which
+    proves the monitor wires the decision correctly but says nothing about the
+    decision itself. These use the genuine matcher, so "only the same material
+    AND the same colour is swapped in" is checked as an observable outcome rather
+    than as a unit-level property.
+    """
+
+    def _run(self, slots, *, tool_index=0, endless_enabled=True, stale_mode=None):
+        from extras.ace.endless_spool import EndlessSpool
+
+        gcode = _Gcode()
+        manager = _Manager()
+        manager.state.set("ace_endless_spool_enabled", endless_enabled)
+        if stale_mode is not None:
+            manager.state.set("ace_endless_spool_match_mode", stale_mode)
+
+        ACE_INSTANCES.clear()
+        ACE_INSTANCES[0] = _Instance(0, slots)
+        manager.instances = [ACE_INSTANCES[0]]
+
+        class _Reactor:
+            def monotonic(self):
+                return 0.0
+
+            def register_timer(self, *a, **kw):
+                return object()
+
+        class _Printer:
+            def get_reactor(self):
+                return _Reactor()
+
+        spool = EndlessSpool(_Printer(), gcode, manager)
+        spool.swaps = []
+        real_swap = spool.execute_swap
+        spool.execute_swap = lambda f, t: (spool.swaps.append((f, t)), real_swap(f, t))[1]
+
+        monitor = rm_mod.RunoutMonitor(
+            _Printer(), gcode, _Reactor(), spool, manager,
+            runout_debounce_count=1,
+        )
+        monitor._pause_for_runout = lambda: gcode.scripts.append("PAUSE")
+        monitor._show_runout_prompt = lambda *a, **kw: gcode.scripts.append("PROMPT")
+        monitor._handle_runout_detected(tool_index)
+        return spool, gcode
+
+    def test_identical_spool_is_swapped_in(self):
+        spool, gcode = self._run({0: PLA_RED, 2: PLA_RED_2})
+        assert spool.swaps == [(0, 2)], spool.swaps
+
+    def test_same_material_different_colour_is_not_swapped(self):
+        """THE GUARANTEE: a colour change is never automatic."""
+        spool, gcode = self._run(
+            {0: PLA_RED,
+             1: {"material": "PLA", "color": [0, 0, 255], "status": "ready"}}
+        )
+        assert spool.swaps == [], spool.swaps
+        assert "No endless spool match" in gcode.messages(), gcode.messages()
+
+    def test_same_colour_different_material_is_not_swapped(self):
+        spool, gcode = self._run(
+            {0: PLA_RED,
+             1: {"material": "PETG", "color": [255, 0, 0], "status": "ready"}}
+        )
+        assert spool.swaps == [], spool.swaps
+
+    def test_a_stale_stored_mode_cannot_loosen_it(self):
+        """An upgrade from the two-mode era must not change the behaviour."""
+        for stale in ("material", "next"):
+            spool, gcode = self._run(
+                {0: PLA_RED,
+                 1: {"material": "PLA", "color": [0, 0, 255], "status": "ready"}},
+                stale_mode=stale,
+            )
+            assert spool.swaps == [], (
+                f"stored mode {stale!r} resurrected the old behaviour: {spool.swaps}"
+            )
+
+    def test_an_unidentified_spool_is_never_swapped_in(self):
+        spool, gcode = self._run(
+            {0: PLA_RED,
+             1: {"material": "unknown", "color": [255, 0, 0], "status": "ready"}}
+        )
+        assert spool.swaps == [], spool.swaps
+
+    def test_disabled_still_beats_an_available_exact_match(self):
+        spool, gcode = self._run(
+            {0: PLA_RED, 1: PLA_RED_2}, endless_enabled=False
+        )
+        assert spool.swaps == [], spool.swaps

@@ -68,6 +68,14 @@ class _Instance:
 class _Manager:
     def __init__(self):
         self.state = _State()
+        # Mirrors AceManager: the runout handler resolves the per-print override
+        # first, so the double must expose the same entry point.
+        self.endless_spool_print_override = None
+
+    def is_endless_spool_enabled(self):
+        if self.endless_spool_print_override is not None:
+            return bool(self.endless_spool_print_override)
+        return bool(self.state.get("ace_endless_spool_enabled", False))
 
     def has_nozzle_sensor(self):
         return False

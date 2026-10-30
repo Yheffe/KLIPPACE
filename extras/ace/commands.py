@@ -1234,6 +1234,58 @@ def cmd_ACE_DISABLE_ENDLESS_SPOOL(gcmd):
     logging.info("ACE: Endless spool DISABLED (persisted)")
 
 
+def cmd_ACE_ENDLESS_SPOOL_FOR_PRINT(gcmd):
+    """Enable, disable or clear endless spool for the current print only.
+
+    This is the per-print override behind the tool mapper's toggle. It
+    deliberately does NOT touch the saved setting, so opting one print in (or
+    out) leaves the machine's standing preference alone. PRINT_END clears it.
+
+    Params:
+        ENABLE=1   force on for this print
+        ENABLE=0   force off for this print
+        CLEAR=1    drop the override, back to the saved setting
+        (neither)  just report the current state
+    """
+    try:
+        manager = ace_get_manager(0)
+
+        clear = gcmd.get_int("CLEAR", 0) == 1
+        enable = gcmd.get_int("ENABLE", None)
+
+        if clear:
+            manager.clear_endless_spool_print_override()
+            gcmd.respond_info(
+                "ACE: Endless spool per-print override cleared - using the saved "
+                f"setting ({'on' if manager.get_saved_endless_spool_enabled() else 'off'})"
+            )
+            return
+
+        if enable is not None:
+            manager.set_endless_spool_for_print(bool(enable))
+            gcmd.respond_info(
+                f"ACE: Endless spool {'ENABLED' if enable else 'DISABLED'} for this "
+                f"print only (saved setting unchanged, "
+                f"{'on' if manager.get_saved_endless_spool_enabled() else 'off'})"
+            )
+            logging.info(
+                f"ACE: Endless spool per-print override set to {bool(enable)} "
+                f"(saved={manager.get_saved_endless_spool_enabled()})"
+            )
+            return
+
+        # No action requested - report.
+        override = manager.endless_spool_print_override
+        gcmd.respond_info(
+            f"ACE: Endless spool effective={'on' if manager.is_endless_spool_enabled() else 'off'} "
+            f"saved={'on' if manager.get_saved_endless_spool_enabled() else 'off'} "
+            f"override={override if override is not None else 'none'}"
+        )
+
+    except Exception as e:
+        gcmd.respond_info(f"ACE_ENDLESS_SPOOL_FOR_PRINT error: {e}")
+
+
 def cmd_ACE_RESET_PERSISTENT_INVENTORY(gcmd):
     """Reset persistent filament inventory to empty slots. INSTANCE= for single, omit for all."""
     instance_num = gcmd.get_int("INSTANCE", default=None)
@@ -2461,6 +2513,8 @@ ACE_COMMANDS = [
     ("ACE_QUERY_SLOTS", cmd_ACE_QUERY_SLOTS, "Query slots. INSTANCE= (omit to query all)"),
     ("ACE_ENABLE_ENDLESS_SPOOL", cmd_ACE_ENABLE_ENDLESS_SPOOL, "Enable endless spool"),
     ("ACE_DISABLE_ENDLESS_SPOOL", cmd_ACE_DISABLE_ENDLESS_SPOOL, "Disable endless spool"),
+    ("ACE_ENDLESS_SPOOL_FOR_PRINT", cmd_ACE_ENDLESS_SPOOL_FOR_PRINT,
+     "Enable/disable endless spool for this print only. ENABLE= CLEAR=1"),
     ("ACE_ENDLESS_SPOOL_STATUS", cmd_ACE_ENDLESS_SPOOL_STATUS, "Query endless spool status."),
     ("ACE_ENABLE_RFID_SYNC", cmd_ACE_ENABLE_RFID_SYNC, "Enable RFID inventory sync. [INSTANCE=] optional"),
     ("ACE_DISABLE_RFID_SYNC", cmd_ACE_DISABLE_RFID_SYNC, "Disable RFID inventory sync. [INSTANCE=] optional"),

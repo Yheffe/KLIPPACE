@@ -329,7 +329,7 @@ class MmuShim:
                 "units": len(units_list),
                 "unit": units_list,
                 "clog_detection": bool(self.manager.ace_config.get("tangle_detection", False)),
-                "endless_spool": bool(self.manager.state.get("ace_endless_spool_enabled", False)),
+                "endless_spool": bool(self.manager.is_endless_spool_enabled()),
             }
         except Exception as e:
             self.logger.exception(f"MmuShim.get_status failed: {e}")

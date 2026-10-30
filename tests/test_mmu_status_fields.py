@@ -64,6 +64,9 @@ def _make_shim(instances, active_gate=-1, filament_pos="bowden"):
         instances=instances,
         ace_config={},
         toolchange_in_progress=False,
+        # get_status publishes the *effective* endless spool setting, which goes
+        # through the resolver rather than the raw variable.
+        is_endless_spool_enabled=lambda: False,
     )
     shim.printer = SimpleNamespace(lookup_object=lambda name, default=None: default)
     shim.logger = SimpleNamespace(exception=lambda *a, **k: None)

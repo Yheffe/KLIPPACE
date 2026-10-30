@@ -644,8 +644,10 @@ class RunoutMonitor:
             # Step 3: Show simple interactive prompt
             self._show_runout_prompt(tool_index, instance_num, local_slot, material, color)
 
-            # Step 4: Check if endless spool is enabled
-            endless_spool_enabled = self.manager.state.get("ace_endless_spool_enabled", False)
+            # Step 4: Check if endless spool is enabled.
+            # Uses the resolver, not the raw variable, so a per-print override
+            # set from the tool mapper is honoured here.
+            endless_spool_enabled = self.manager.is_endless_spool_enabled()
 
             if not endless_spool_enabled:
                 self.gcode.respond_info(

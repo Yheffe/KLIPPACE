@@ -16,6 +16,9 @@
   let referencedTools = [];
   let showAllTools = false;
   let isPrintingAction = false;
+  // Effective endless spool state, refreshed from the printer. Drives the
+  // per-print toggle so the button reflects the machine rather than our guess.
+  let endlessSpoolOn = false;
 
   // A single gate element, across both supported UIs:
   //   Fluidd  -> <div class="gate gate--menu bambu-ams-bay">
@@ -227,6 +230,11 @@
             <button id="klippace-btn-all-tools" class="klippace-btn klippace-btn-ghost" type="button" style="font-size: 0.82rem;">
               Show All Tools: Off
             </button>
+            <button id="klippace-btn-endless" class="klippace-btn klippace-btn-ghost" type="button"
+                    style="font-size: 0.82rem;"
+                    title="Swap to a spool with the same material AND colour if one runs out during this print. Applies to this print only; the saved setting is not changed and is restored at print end.">
+              Endless Spool: Off
+            </button>
           </div>
           <div class="klippace-footer-right">
             <button id="klippace-btn-cancel" class="klippace-btn klippace-btn-ghost" type="button">
@@ -258,6 +266,7 @@
       renderRows();
     });
     document.getElementById('klippace-btn-commit').addEventListener('click', commitMapping);
+    document.getElementById('klippace-btn-endless').addEventListener('click', toggleEndlessSpoolForPrint);
 
     // Close on overlay click outside dialog
     overlay.addEventListener('click', (e) => {
@@ -435,6 +444,9 @@
 
     // 1. Fetch live MMU State
     const mmu = await fetchMmuState();
+    // Reflect the machine's actual endless spool state rather than defaulting
+    // the toggle to Off and inviting a pointless first click.
+    await refreshEndlessSpoolState(mmu);
     if (mmu) {
       gatesData = [];
       const numGates = mmu.num_gates || 4;
@@ -1222,6 +1234,58 @@
   }
 
   // --- Commit Mapping ---
+  // --- Per-print Endless Spool toggle ---
+  //
+  // Deliberately sends ACE_ENDLESS_SPOOL_FOR_PRINT rather than
+  // ACE_ENABLE_ENDLESS_SPOOL: the latter persists to disk, so a one-off choice
+  // would quietly become the machine's standing setting. The override is
+  // in-memory only and PRINT_END clears it, which is what makes the button's
+  // "this print" promise true.
+  //
+  // It also must NOT be folded into commitMapping: that path can call
+  // startPrint(), so clicking a toggle would start a print.
+  function renderEndlessSpoolButton() {
+    const btn = document.getElementById('klippace-btn-endless');
+    if (!btn) return;
+    btn.textContent = `Endless Spool: ${endlessSpoolOn ? 'On' : 'Off'}`;
+    btn.setAttribute('aria-pressed', endlessSpoolOn ? 'true' : 'false');
+    btn.classList.toggle('klippace-btn-toggle-on', endlessSpoolOn);
+  }
+
+  async function refreshEndlessSpoolState(mmu) {
+    // Prefer the state already fetched for the gate list; fall back to a fresh
+    // read when the modal is opened without one.
+    let state = mmu;
+    if (!state) state = await fetchMmuState();
+    if (state && state.endless_spool !== undefined) {
+      endlessSpoolOn = !!state.endless_spool;
+    }
+    renderEndlessSpoolButton();
+  }
+
+  async function toggleEndlessSpoolForPrint() {
+    const btn = document.getElementById('klippace-btn-endless');
+    const next = !endlessSpoolOn;
+    if (btn) btn.disabled = true;
+    try {
+      await sendGcode(`ACE_ENDLESS_SPOOL_FOR_PRINT ENABLE=${next ? 1 : 0}`);
+      endlessSpoolOn = next;
+      renderEndlessSpoolButton();
+      showToast(
+        next
+          ? 'Endless Spool ON for this print (same material + colour only).'
+          : 'Endless Spool OFF for this print.'
+      );
+    } catch (e) {
+      console.error('[KLIPPACE] Endless spool toggle failed:', e);
+      showToast('Could not change Endless Spool - see Klipper console.');
+      // Re-read rather than assuming the toggle took effect.
+      await refreshEndlessSpoolState();
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function commitMapping() {
     const commitBtn = document.getElementById('klippace-btn-commit');
     if (commitBtn) {

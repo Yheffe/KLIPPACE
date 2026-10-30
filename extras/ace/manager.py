@@ -252,6 +252,16 @@ class AceManager:
         # Create endless spool handler (passing self for sensor access)
         self.endless_spool = EndlessSpool(self.printer, self.gcode, self)
 
+        # Per-print endless spool override.
+        #
+        # Deliberately a plain attribute rather than a PersistentState entry:
+        # ``state.set()`` marks the variable dirty and it gets flushed to disk on
+        # the next flush(), so it is NOT transient. A per-print decision must not
+        # be written to disk, or it survives restarts and quietly becomes a
+        # permanent setting. None means "no override, use the saved setting";
+        # True/False is an explicit per-print choice. Cleared at PRINT_END.
+        self.endless_spool_print_override = None
+
         # Create runout monitor (passing self for sensor queries)
         self.runout_monitor = RunoutMonitor(
             self.printer,
@@ -2275,9 +2285,9 @@ class AceManager:
             return {
                 "ace_instances": len(self.instances),
                 "current_index": self.state.get("ace_current_index", -1),
-                "endless_spool_enabled": bool(
-                    self.state.get("ace_endless_spool_enabled", False)
-                ),
+                "endless_spool_enabled": self.is_endless_spool_enabled(),
+                "endless_spool_saved_enabled": self.get_saved_endless_spool_enabled(),
+                "endless_spool_print_override": self.endless_spool_print_override,
                 # Constant: only exact matching is supported. Published anyway
                 # because KlipperScreen and external clients read this field,
                 # and reporting the stored value would let a stale 'material'
@@ -2293,6 +2303,8 @@ class AceManager:
                 "ace_instances": len(self.instances),
                 "current_index": -1,
                 "endless_spool_enabled": False,
+                "endless_spool_saved_enabled": False,
+                "endless_spool_print_override": None,
                 "endless_spool_match_mode": "exact",
                 "ace_pro_enabled": False,
                 "toolhead_sensor": None,
@@ -2898,6 +2910,41 @@ class AceManager:
     def has_rdm_sensor(self):
         """Check if RDM sensor is configured and available."""
         return SENSOR_RDM in self.sensors and self.sensors[SENSOR_RDM] is not None
+
+    # ------------------------------------------------------------------
+    # Endless spool: saved setting vs per-print override
+    # ------------------------------------------------------------------
+
+    def get_saved_endless_spool_enabled(self):
+        """The persisted preference, i.e. what ACE_ENABLE_ENDLESS_SPOOL sets."""
+        return bool(self.state.get("ace_endless_spool_enabled", False))
+
+    def is_endless_spool_enabled(self):
+        """Resolve the *effective* setting, override first.
+
+        The per-print override exists so a single print can opt in (or out)
+        without rewriting the machine's saved preference. Every decision site
+        must call this rather than reading the state variable directly, or the
+        toggle would appear to work in the UI and do nothing at swap time.
+        """
+        if self.endless_spool_print_override is not None:
+            return bool(self.endless_spool_print_override)
+        return self.get_saved_endless_spool_enabled()
+
+    def set_endless_spool_for_print(self, enabled):
+        """Set (or clear) the per-print override.
+
+        Args:
+            enabled: True/False to force a value for this print, or None to
+                clear the override and fall back to the saved setting.
+        """
+        self.endless_spool_print_override = (
+            None if enabled is None else bool(enabled)
+        )
+
+    def clear_endless_spool_print_override(self):
+        """Drop the override, restoring the saved setting. Called at PRINT_END."""
+        self.endless_spool_print_override = None
 
     def has_entry_sensor(self):
         """Check if toolhead entry sensor is configured and available."""

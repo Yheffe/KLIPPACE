@@ -633,6 +633,24 @@ svg.svg-colors {
   color: #FFFFFF;
 }
 
+/* Per-print toggle in the "on" state. The label already says "Endless Spool: On",
+   but on a footer full of ghost buttons the colour is what makes the state
+   readable at a glance. */
+.klippace-btn-toggle-on {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ADE80;
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
+}
+
+.klippace-btn-toggle-on:hover {
+  background: rgba(34, 197, 94, 0.24);
+  color: #86EFAC;
+}
+
+.klippace-btn-toggle-on:disabled {
+  opacity: 0.6;
+}
+
 .klippace-btn-secondary {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);

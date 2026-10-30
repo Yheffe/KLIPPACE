@@ -334,7 +334,7 @@
         <div class="klippace-tool-meta">
           <div class="klippace-tool-name">${cardTool.name || `Tool ${tIdx}`}</div>
           <div class="klippace-tool-submeta">
-            <span class="klippace-mat-tag">${cardTool.material || 'PLA'}</span>
+            <span class="klippace-mat-tag">${cardTool.material || 'Unknown'}</span>
             ${cardTool.temp > 0 ? `<span class="klippace-temp-tag">${cardTool.temp}°C</span>` : ''}
             ${cardTool.weight ? `<span class="klippace-weight-tag">${cardTool.weight}g</span>` : ''}
           </div>
@@ -371,7 +371,7 @@
           <div class="klippace-slot-swatch${gateUnknown ? ' klippace-slot-swatch--unknown' : ''}"${gateUnknown ? '' : ` style="background-color: ${gate.color || '#888'};"`}></div>
           <div class="klippace-slot-texts">
             <div class="klippace-slot-num">Slot ${sIdx}</div>
-            <div class="klippace-slot-mat">${gate.material || 'PLA'}${gate.temp > 0 ? ` · ${gate.temp}°C` : ''}</div>
+            <div class="klippace-slot-mat">${gate.material || 'Unknown'}${gate.temp > 0 ? ` · ${gate.temp}°C` : ''}</div>
           </div>
           <div class="klippace-slot-check">✓</div>
         `;
@@ -499,7 +499,7 @@
           tool: i,
           name: `Tool ${i}`,
           color: gatesData[i]?.color || '#ff7f32',
-          material: gatesData[i]?.material || 'PLA',
+          material: gatesData[i]?.material || '',
           temp: gatesData[i]?.temp || 0,
           weight: '',
         });

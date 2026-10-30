@@ -164,3 +164,61 @@ class TestSingleDefinition:
         assert not short, (
             f"3-digit hex literals would silently become #000000 in a colour input: {short}"
         )
+
+
+# ---------------------------------------------------------------------------
+# an empty slot must not be drawn as a spool
+# ---------------------------------------------------------------------------
+
+
+class TestNoFabricatedMaterial:
+    """No display path may invent a material for a slot that has none.
+
+    Reported live 2026-10-30: T3 showed black PLA with an empty slot. The shim was
+    also at fault and is fixed separately (tests/test_mmu_empty_slot.py), but the
+    card had four of its own ``|| 'PLA'`` defaults, and any single one of them
+    re-labels an empty slot as a real spool - which also defeats ``isUnknownGate``,
+    because that predicate needs the material to be *absent* to fire.
+
+    Slicer file metadata is deliberately not covered: ``types[i] || 'PLA'``
+    describes what the sliced file expects, not what is in the machine.
+    """
+
+    FORBIDDEN = [
+        r"gate_material\?\.\[[a-z]+\]\s*\|\|\s*'PLA'",
+        r"gatesData\[[a-z]+\]\?\.material\s*\|\|\s*'PLA'",
+        r"gate\.material\s*\|\|\s*'PLA'",
+        r"cardTool\.material\s*\|\|\s*'PLA'",
+    ]
+
+    def test_no_gate_display_defaults_to_pla(self):
+        src = _strip_js_comments(DASHBOARD_JS.read_text())
+        offenders = [pat for pat in self.FORBIDDEN if re.search(pat, src)]
+        assert not offenders, (
+            "these defaults would show an empty gate as PLA: " + "; ".join(offenders)
+        )
+
+    def test_isunknown_gate_fires_when_material_is_empty(self):
+        """The predicate the whole no-colour path depends on."""
+        if node is None:
+            pytest.skip("node not available")
+        fn = _extract_function("isUnknownGate")
+        script = textwrap.dedent(
+            f"""
+            {fn}
+            const cases = [
+              [{{color: '#000000', material: ''}}, true],
+              [{{color: '#000000', material: 'PLA'}}, false],
+              [{{color: '#000000', material: 'unknown'}}, true],
+              [{{color: '#ff0000', material: ''}}, false],
+            ];
+            console.log(JSON.stringify(cases.map(([g]) => isUnknownGate(g))));
+            """
+        )
+        out = subprocess.run(
+            [node, "-e", script], capture_output=True, text=True, timeout=30
+        )
+        assert out.returncode == 0, out.stderr
+        assert json.loads(out.stdout) == [True, False, True, False], (
+            "a real black spool and an empty slot must not be conflated"
+        )

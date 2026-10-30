@@ -201,7 +201,18 @@ class MmuShim:
                         hex_c = "#ffffff"
                     gate_color.append(hex_c)
 
-                    mat = slot.get("material", "PLA") or "PLA"
+                    # Report the material as stored - no invented default.
+                    #
+                    # This used to read `slot.get("material", "PLA") or "PLA"`,
+                    # so an empty slot (material "") advertised PLA. Every
+                    # client then drew a spool that is not there, and it defeated
+                    # the dashboard's own no-colour sentinel: the card only shows
+                    # a neutral placeholder when the RGB is all-zero AND the
+                    # material is unknown, so a fabricated PLA left an empty slot
+                    # painted solid black and labelled PLA. Stripping also means
+                    # whitespace-only material reads as absent rather than as a
+                    # material called "   ".
+                    mat = (slot.get("material") or "").strip()
                     gate_material.append(mat)
 
                     spool_id = slot.get("spool_id")
@@ -258,7 +269,7 @@ class MmuShim:
             for t_idx in range(num_gates):
                 g_idx = self.get_gate_for_tool(t_idx)
                 c = gate_color[g_idx] if g_idx < len(gate_color) else "#ffffff"
-                m = gate_material[g_idx] if g_idx < len(gate_material) else "PLA"
+                m = gate_material[g_idx] if g_idx < len(gate_material) else ""
                 spool_id = gate_spool_id[g_idx] if g_idx < len(gate_spool_id) else -1
                 t = gate_temp[g_idx] if g_idx < len(gate_temp) else 0
                 slicer_tools.append({
@@ -326,10 +337,14 @@ class MmuShim:
                 "enabled": True,
                 "is_enabled": True,
                 "num_gates": 4,
-                "gate_status": [1, 1, 1, 1],
-                "gate_color": ["#ff7f32", "#ff3a2f", "#eff0f1", "#000000"],
-                "gate_material": ["PLA", "PLA", "PLA", "PLA"],
-                "gate_filament_name": ["PLA", "PLA", "PLA", "PLA"],
+                # Report nothing known rather than a plausible-looking lie.
+                # This fallback used to claim four ready PLA spools, which
+                # renders as a fully stocked machine whenever get_status()
+                # throws - hiding the very failure that produced it.
+                "gate_status": [-1, -1, -1, -1],
+                "gate_color": ["#000000", "#000000", "#000000", "#000000"],
+                "gate_material": ["", "", "", ""],
+                "gate_filament_name": ["", "", "", ""],
                 "gate_spool_id": [-1, -1, -1, -1],
                 "gate_speed": [100.0, 100.0, 100.0, 100.0],
                 "gate_temp": [0, 0, 0, 0],

@@ -103,14 +103,21 @@ class TestGateTemperature:
         assert temps[1] == temps[3]
         assert temps[0] != temps[1]
 
-    def test_empty_slot_inherits_its_material_default(self):
-        # Documents current behaviour: an empty slot with no material still
-        # resolves to the PLA default rather than 0. Mainsail shows a gate's
-        # temperature whenever it is > 0, so an empty gate advertises a temp.
+    def test_empty_slot_advertises_no_temperature(self):
+        """An empty gate must not claim a nozzle temperature.
+
+        This previously asserted the opposite: an empty slot with no material
+        resolved to the PLA default, because the shim substituted "PLA" for an
+        absent material. Mainsail shows a gate's temperature whenever it is > 0,
+        so that advertised a temperature for a slot with nothing in it. Reported
+        live 2026-10-30 as T3 being stuck on "black PLA".
+        """
         slots = _four_slots()
         slots[2] = _slot(status="empty", material="")
         status = _make_shim([_Instance(slots)]).get_status()
-        assert status["gate_temp"][2] == status["material_temps"]["PLA"]
+        assert status["gate_temp"][2] == 0, (
+            f"empty slot reported {status['gate_temp'][2]}°C"
+        )
 
 
 class TestEspooler:

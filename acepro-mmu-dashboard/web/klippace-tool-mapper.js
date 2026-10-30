@@ -287,7 +287,10 @@
       tool: i,
       name: `Tool ${i}`,
       color: gatesData[i]?.color || '#888888',
-      material: gatesData[i]?.material || 'PLA',
+      // Empty string, not 'PLA': isUnknownGate() needs the missing material to
+      // recognise an empty slot, and a fabricated 'PLA' also made the pill show
+      // a real spool.
+      material: gatesData[i]?.material || '',
       temp: gatesData[i]?.temp || 0,
       weight: '',
     }));
@@ -354,7 +357,7 @@
       const selectedSlot = currentMapping[tIdx] !== undefined ? currentMapping[tIdx] : tIdx;
 
       for (let sIdx = 0; sIdx < 4; sIdx++) {
-        const gate = gatesData[sIdx] || { color: '#888', material: 'PLA', temp: 0 };
+        const gate = gatesData[sIdx] || { color: '#888', material: '', temp: 0 };
         const isSelected = selectedSlot === sIdx;
         const gateUnknown = isUnknownGate(gate);
 
@@ -362,7 +365,7 @@
         pill.type = 'button';
         pill.className = `klippace-slot-pill ${isSelected ? 'active' : ''}`;
         pill.dataset.slotIndex = sIdx;
-        pill.title = `Map Tool ${tIdx} to Slot ${sIdx} (${gate.material || 'PLA'}${gate.temp > 0 ? ` ${gate.temp}°C` : ''})`;
+        pill.title = `Map Tool ${tIdx} to Slot ${sIdx} (${gate.material || 'no material'}${gate.temp > 0 ? ` ${gate.temp}°C` : ''})`;
 
         pill.innerHTML = `
           <div class="klippace-slot-swatch${gateUnknown ? ' klippace-slot-swatch--unknown' : ''}"${gateUnknown ? '' : ` style="background-color: ${gate.color || '#888'};"`}></div>
@@ -436,7 +439,9 @@
       gatesData = [];
       const numGates = mmu.num_gates || 4;
       for (let i = 0; i < numGates; i++) {
-        const mat = mmu.gate_material?.[i] || 'PLA';
+        // No invented material: an empty gate must not be presented as PLA.
+        // The shim may legitimately report "" for a slot with nothing in it.
+        const mat = (mmu.gate_material?.[i] || '').trim();
         gatesData.push({
           index: i,
           color: mmu.gate_color?.[i] || '#888888',

@@ -12,6 +12,7 @@ import logging
 from .config import (
     ACE_INSTANCES,
     INSTANCE_MANAGERS,
+    SLOTS_PER_ACE,
     SENSOR_TOOLHEAD,
     SENSOR_RDM,
     SENSOR_ENTRY,
@@ -1420,19 +1421,98 @@ def cmd_ACE_GET_CURRENT_INDEX(gcmd):
 
 
 def cmd_ACE_ENDLESS_SPOOL_STATUS(gcmd):
-    """Show endless spool status (enabled/disabled and scope across all instances)."""
+    """Show endless spool status (effective setting, saved setting, and scope)."""
     try:
         manager = ace_get_manager(0)
-        endless_spool_enabled = manager.state.get("ace_endless_spool_enabled", False)
+
+        # Report the effective setting, not the raw variable: with the per-print
+        # override on, the saved value says "off" while endless spool is very
+        # much active. Reporting the raw value here would tell the operator the
+        # feature is disabled when it is about to swap a spool.
+        effective = manager.is_endless_spool_enabled()
+        saved = manager.get_saved_endless_spool_enabled()
+        override = manager.endless_spool_print_override
 
         gcmd.respond_info("=== ACE Endless Spool Status ===")
-        gcmd.respond_info(f"Endless spool enabled: {endless_spool_enabled}")
-        gcmd.respond_info("Mode: Automatic switching on runout detection")
+        gcmd.respond_info(
+            f"Effective: {'ON' if effective else 'OFF'} "
+            f"(saved {'on' if saved else 'off'}, "
+            f"this print {'on' if override else 'off' if override is not None else 'unset'})"
+        )
+        gcmd.respond_info("Matching: exact only - same material AND same colour")
         gcmd.respond_info("Scope: Global (searches across all ACE instances)")
         gcmd.respond_info(f"Total ACE instances: {len(INSTANCE_MANAGERS)}")
 
     except Exception as e:
         gcmd.respond_info(f"ACE_ENDLESS_SPOOL_STATUS error: {e}")
+
+
+def cmd_ACE_ENDLESS_SPOOL_TEST(gcmd):
+    """Report which spools would match, without moving anything.
+
+    A read-only dry run of the matcher, so a match can be confirmed before a
+    print is started rather than discovered at hour 14. Prints one line per
+    ready slot showing what it would swap to, or why nothing matched.
+    """
+    try:
+        manager = ace_get_manager(0)
+        spool = manager.endless_spool
+        total = len(manager.instances) * SLOTS_PER_ACE
+
+        only_tool = gcmd.get_int("TOOL", None)
+        tools = [only_tool] if only_tool is not None else range(total)
+
+        effective = manager.is_endless_spool_enabled()
+        gcmd.respond_info("=== ACE Endless Spool Match Test (no motion) ===")
+        gcmd.respond_info(
+            f"Endless spool is {'ON' if effective else 'OFF'} for this print - "
+            f"a runout would {'swap' if effective else 'just pause'}"
+        )
+
+        ready = 0
+        matched = 0
+        for tool in tools:
+            if tool < 0 or tool >= total:
+                gcmd.respond_info(f"  T{tool}: not present (only T0-T{total - 1})")
+                continue
+
+            inst_num = get_instance_from_tool(tool)
+            slot = get_local_slot(tool, inst_num)
+            inst = ACE_INSTANCES.get(inst_num)
+            if not inst or slot < 0 or slot >= len(inst.inventory):
+                gcmd.respond_info(f"  T{tool}: no inventory")
+                continue
+
+            inv = inst.inventory[slot]
+            status = inv.get("status", "?")
+            material = (inv.get("material") or "").strip() or "(none)"
+            color = inv.get("color", [0, 0, 0])
+
+            if status != "ready":
+                gcmd.respond_info(f"  T{tool}: {material} RGB{color} - status={status}, not a candidate")
+                continue
+
+            ready += 1
+            match = spool.find_exact_match(tool)
+            if match >= 0:
+                matched += 1
+                gcmd.respond_info(f"  T{tool}: {material} RGB{color} -> would swap to T{match}")
+            else:
+                gcmd.respond_info(
+                    f"  T{tool}: {material} RGB{color} -> NO match "
+                    f"(needs another ready spool with the same material AND colour)"
+                )
+
+        gcmd.respond_info(
+            f"Result: {matched} of {ready} ready spool(s) have a swap partner"
+        )
+        if effective and ready and not matched:
+            gcmd.respond_info(
+                "A runout would PAUSE the print: no identical spool is available."
+            )
+
+    except Exception as e:
+        gcmd.respond_info(f"ACE_ENDLESS_SPOOL_TEST error: {e}")
 
 
 def cmd_ACE_DEBUG(gcmd):
@@ -2516,6 +2596,8 @@ ACE_COMMANDS = [
     ("ACE_ENDLESS_SPOOL_FOR_PRINT", cmd_ACE_ENDLESS_SPOOL_FOR_PRINT,
      "Enable/disable endless spool for this print only. ENABLE= CLEAR=1"),
     ("ACE_ENDLESS_SPOOL_STATUS", cmd_ACE_ENDLESS_SPOOL_STATUS, "Query endless spool status."),
+    ("ACE_ENDLESS_SPOOL_TEST", cmd_ACE_ENDLESS_SPOOL_TEST,
+     "Dry run: report which spools would match, without moving anything. [TOOL=]"),
     ("ACE_ENABLE_RFID_SYNC", cmd_ACE_ENABLE_RFID_SYNC, "Enable RFID inventory sync. [INSTANCE=] optional"),
     ("ACE_DISABLE_RFID_SYNC", cmd_ACE_DISABLE_RFID_SYNC, "Disable RFID inventory sync. [INSTANCE=] optional"),
     ("ACE_DEBUG", cmd_ACE_DEBUG, "Send debug request to device. INSTANCE= METHOD= [PARAMS=]"),

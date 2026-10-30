@@ -285,3 +285,159 @@ class TestPrintEndClearsIt:
         assert lines[idx].startswith("    ACE_ENDLESS_SPOOL_FOR_PRINT"), (
             f"the clear must be a bare statement, found: {lines[idx]!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# the status report must not contradict the toggle
+# ---------------------------------------------------------------------------
+
+
+class TestStatusReport:
+    """``ACE_ENDLESS_SPOOL_STATUS`` read the raw variable, so with the per-print
+    override on it reported "disabled" while a runout would in fact swap. That is
+    the exact contradiction that makes an operator distrust the feature."""
+
+    def test_status_reports_the_effective_setting(self, install):
+        m = install(saved=False)
+        m.set_endless_spool_for_print(True)
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_STATUS(gcode)
+        messages = gcode.messages()
+        assert "Effective: ON" in messages, messages
+
+    def test_status_distinguishes_saved_from_effective(self, install):
+        m = install(saved=False)
+        m.set_endless_spool_for_print(True)
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_STATUS(gcode)
+        messages = gcode.messages()
+        assert "saved off" in messages, messages
+        assert "this print on" in messages, messages
+
+    def test_status_says_exact_only(self, install):
+        install(saved=True)
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_STATUS(gcode)
+        assert "exact" in gcode.messages().lower(), gcode.messages()
+
+    def test_status_does_not_read_the_raw_variable(self):
+        import inspect
+        from extras.ace import commands as c
+
+        src = inspect.getsource(c.cmd_ACE_ENDLESS_SPOOL_STATUS)
+        assert 'state.get("ace_endless_spool_enabled"' not in src, (
+            "reading the raw variable here reports 'disabled' while the "
+            "per-print override is about to swap a spool"
+        )
+
+
+# ---------------------------------------------------------------------------
+# the dry-run matcher
+# ---------------------------------------------------------------------------
+
+
+class _FakeSpool:
+    def __init__(self, matches):
+        self.matches = matches          # {tool: match}
+        self.asked = []
+
+    def find_exact_match(self, tool):
+        self.asked.append(tool)
+        return self.matches.get(tool, -1)
+
+
+@pytest.fixture
+def with_inventory(monkeypatch):
+    """Install a one-ACE inventory (4 slots) plus a fake matcher."""
+    from extras.ace import config as cfg
+
+    def _install(slots, matches, *, effective=True, saved=False):
+        m = _manager(saved=saved)
+        m.set_endless_spool_for_print(effective)
+        m.endless_spool = _FakeSpool(matches)
+        m.instances = [object()]
+        monkeypatch.setattr(cmd_mod, "ace_get_manager", lambda _n: m)
+
+        saved_registry = dict(cfg.ACE_INSTANCES)
+        cfg.ACE_INSTANCES.clear()
+        inst = SimpleNamespace(inventory=slots)
+        cfg.ACE_INSTANCES[0] = inst
+        monkeypatch.setattr(cmd_mod, "ACE_INSTANCES", cfg.ACE_INSTANCES)
+
+        monkeypatch.setattr(cmd_mod, "get_instance_from_tool", lambda t: 0 if 0 <= t < 4 else -1)
+        monkeypatch.setattr(cmd_mod, "get_local_slot", lambda t, i: t if 0 <= t < 4 else -1)
+        monkeypatch.setattr(cmd_mod, "SLOTS_PER_ACE", 4)
+        return m, saved_registry
+
+    yield _install
+    from extras.ace import config as cfg
+    cfg.ACE_INSTANCES.clear()
+
+
+def _inv(status="ready", material="PLA", color=(0, 0, 0)):
+    return {"status": status, "material": material, "color": list(color)}
+
+
+class TestMatchDryRun:
+    def test_reports_a_matching_pair(self, with_inventory):
+        slots = [_inv(), _inv(), _inv(), _inv()]
+        with_inventory(slots, {0: 3, 3: 0})
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        messages = gcode.messages()
+        assert "would swap to T3" in messages, messages
+
+    def test_reports_no_match_and_says_it_would_pause(self, with_inventory):
+        slots = [_inv(color=(0, 0, 0)), _inv(color=(255, 0, 0)), _inv(color=(1, 1, 1)), _inv(status="empty")]
+        with_inventory(slots, {})
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        messages = gcode.messages()
+        assert "NO match" in messages, messages
+        assert "would PAUSE" in messages, messages
+
+    def test_skips_slots_that_are_not_ready(self, with_inventory):
+        slots = [_inv(), _inv(status="empty"), _inv(), _inv(status="empty")]
+        _, _r = with_inventory(slots, {0: 2})
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        messages = gcode.messages()
+        assert "not a candidate" in messages, messages
+
+    def test_reports_the_effective_state(self, with_inventory):
+        with_inventory([_inv()] * 4, {}, effective=False)
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        messages = gcode.messages()
+        assert "is OFF for this print" in messages, messages
+        assert "just pause" in messages, messages
+
+    def test_single_tool_argument_limits_the_scan(self, with_inventory):
+        m, _r = with_inventory([_inv()] * 4, {2: 0})
+        gcode = _Gcode({"TOOL": "2"})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        assert m.endless_spool.asked == [2], m.endless_spool.asked
+
+    def test_out_of_range_tool_is_reported_not_crashed(self, with_inventory):
+        with_inventory([_inv()] * 4, {})
+        gcode = _Gcode({"TOOL": "9"})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        assert "not present" in gcode.messages(), gcode.messages()
+
+    def test_it_never_moves_anything(self, with_inventory):
+        """A dry run that touched hardware would defeat the point."""
+        import inspect
+        from extras.ace import commands as c
+
+        src = inspect.getsource(c.cmd_ACE_ENDLESS_SPOOL_TEST)
+        for forbidden in ("perform_tool_change", "execute_swap", "_feed",
+                          "smart_unload", "run_script_from_command"):
+            assert forbidden not in src, (
+                f"the match test must be read-only, found {forbidden}"
+            )
+
+    def test_the_summary_counts_matches(self, with_inventory):
+        with_inventory([_inv()] * 4, {0: 1, 1: 0})
+        gcode = _Gcode({})
+        cmd_mod.cmd_ACE_ENDLESS_SPOOL_TEST(gcode)
+        assert "2 of 4" in gcode.messages(), gcode.messages()
